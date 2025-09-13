@@ -2,8 +2,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { ModuleRegistry } from './modules/ModuleRegistry';
 import { ConfigManager } from './config/ConfigManager';
-import { DatabaseProvider } from './database/providers/MySQLProvider';
-import { CacheProvider } from './cache/providers/RedisProvider';
+import { DatabaseProvider } from './database/Database';
+import { CacheProvider } from './cache/Cache';
 import { RouterProvider } from './api/providers/ExpressProvider';
 import { HookProvider } from './hooks/providers/DefaultHookProvider';
 import { EventProvider } from './events/providers/DefaultEventProvider';
@@ -47,16 +47,13 @@ export async function startApplication() {
   modules.forEach(module => {
     module.routes.forEach(route => {
       const router = RouterProvider.createRouter();
-      router[route.method](route.path, route.handler);
+      (router as any)[route.method](route.path, route.handler);
       app.use(`/api/${module.name.toLowerCase()}`, router);
     });
   });
 
-  // Start server
-  const port = process.env.PORT || 3000;
-  app.listen(port, () => {
-    console.log(`Deservefirst platform running on port ${port}`);
-  });
+  // Return the configured app instead of starting server
+  return app;
 }
 
 export default class CoreModule {
@@ -71,7 +68,7 @@ export default class CoreModule {
         {
           method: 'get',
           path: '/status',
-          handler: async (req, res) => res.json({ status: 'ok' }),
+          handler: async (req: any, res: any) => res.json({ status: 'ok' }),
         },
       ],
       permissions: {
@@ -90,6 +87,10 @@ export * from './hooks/Hooks';
 export * from './events/Events';
 export * from './modules/ModuleRegistry';
 export * from './modules/StoreModuleRegistry';
+export * from './modules/ModuleOrchestrator';
+export * from './modules/ModuleCommunicationHub';
+export * from './modules/PerformanceOptimizer';
+export * from './modules/ModuleVersionManager';
 export * from './menu/MenuManager';
 export * from './config/ConfigManager';
 export * from './i18n/I18n';

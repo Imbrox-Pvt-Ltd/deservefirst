@@ -21,4 +21,4 @@ export const RedisProvider = {
   },
 };
 
-CacheProvider = RedisProvider;
+export { RedisProvider as CacheProvider };

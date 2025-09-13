@@ -6,4 +6,4 @@ export const ExpressProvider = {
   createRouter: () => express.Router(),
 };
 
-RouterProvider = ExpressProvider;
+export { ExpressProvider as RouterProvider };

@@ -16,4 +16,4 @@ export const DefaultHookProvider = {
   },
 };
 
-HookProvider = DefaultHookProvider;
+export { DefaultHookProvider as HookProvider };

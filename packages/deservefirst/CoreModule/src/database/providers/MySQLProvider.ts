@@ -54,7 +54,7 @@ export const MySQLProvider = {
     const values = Object.values(data);
     const sql = `INSERT INTO ${model.tableName} (${fields}) VALUES (${placeholders})`;
     const [result] = await pool.execute(sql, values);
-    return { id: result.insertId, ...data };
+    return { id: (result as any).insertId, ...data };
   },
 
   find: async (model: any, query: any) => {
@@ -70,7 +70,7 @@ export const MySQLProvider = {
     const values = Object.values(query);
     const sql = `SELECT * FROM ${model.tableName} WHERE ${conditions || '1=1'} LIMIT 1`;
     const [rows] = await pool.execute(sql, values);
-    return rows[0] || null;
+    return (rows as any)[0] || null;
   },
 
   update: async (model: any, query: any, data: any, options: any) => {
@@ -79,7 +79,7 @@ export const MySQLProvider = {
     const values = [...Object.values(data), ...Object.values(query)];
     const sql = `UPDATE ${model.tableName} SET ${updates} WHERE ${conditions}`;
     const [result] = await pool.execute(sql, values);
-    return { affectedRows: result.affectedRows };
+    return { affectedRows: (result as any).affectedRows };
   },
 
   delete: async (model: any, query: any) => {
@@ -87,8 +87,8 @@ export const MySQLProvider = {
     const values = Object.values(query);
     const sql = `DELETE FROM ${model.tableName} WHERE ${conditions}`;
     const [result] = await pool.execute(sql, values);
-    return { affectedRows: result.affectedRows };
+    return { affectedRows: (result as any).affectedRows };
   },
 };
 
-DatabaseProvider = MySQLProvider;
+export { MySQLProvider as DatabaseProvider };

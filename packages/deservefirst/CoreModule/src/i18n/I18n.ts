@@ -8,7 +8,6 @@ export class I18n {
   }
 }
 
-export let I18nProvider = {
-  init: (config: any) => { throw new Error('I18nProvider not configured'); },
-  t: (key: string, options?: any) => { throw new Error('I18nProvider not configured'); },
-};
+import { I18NextProvider } from './providers/I18NextProvider';
+
+export let I18nProvider = I18NextProvider;

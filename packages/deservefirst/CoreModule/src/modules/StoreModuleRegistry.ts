@@ -4,6 +4,7 @@ import { Events } from '../events/Events';
 
 export interface StoreModuleConfig {
   name: string;
+  schema?: any;
   services?: { [key: string]: any };
   hooks?: { [key: string]: (payload: any) => Promise<void> };
   events?: { [key: string]: (payload: any) => Promise<void> };

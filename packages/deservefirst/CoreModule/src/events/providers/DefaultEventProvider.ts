@@ -16,4 +16,4 @@ export const DefaultEventProvider = {
   },
 };
 
-EventProvider = DefaultEventProvider;
+export { DefaultEventProvider as EventProvider };

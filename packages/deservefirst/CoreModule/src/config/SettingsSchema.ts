@@ -15,7 +15,7 @@ export interface ConfigField {
   required: boolean;
 }
 
-export const SettingsSchema: JSONSchemaType<ConfigField[]> = {
+export const SettingsSchema: any = {
   type: 'array',
   items: {
     type: 'object',
@@ -23,8 +23,8 @@ export const SettingsSchema: JSONSchemaType<ConfigField[]> = {
       id: { type: 'string' },
       label: { type: 'string' },
       type: { type: 'string', enum: ['text', 'number', 'select', 'boolean', 'textarea'] },
-      default: {},
-      permission: { type: 'string' },
+      default: { type: 'string', nullable: true },
+        permission: { type: 'string' },
       validators: {
         type: 'object',
         properties: {

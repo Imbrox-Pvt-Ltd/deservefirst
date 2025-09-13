@@ -19,7 +19,7 @@ export class ConfigManager {
         if (!validate(settings)) {
           throw new Error(`Invalid settings.json in ${module.name}: ${JSON.stringify(validate.errors)}`);
         }
-        module.settings = settings;
+        module.settings = settings as any;
       }
     });
   }
@@ -30,7 +30,7 @@ export class ConfigManager {
     if (cached) return cached;
 
     const query = storeId ? { tenantId, storeId, settingId } : { tenantId, settingId };
-    const setting = await Database.findOne('settings', query);
+    const setting: any = await Database.findOne('settings', query);
     const value = setting ? setting.value : this.getDefaultValue(settingId);
     if (value) await Cache.set(cacheKey, value);
     return value;

@@ -33,13 +33,6 @@ export class Database {
   }
 }
 
-export let DatabaseProvider = {
-  configure: (config: any) => { throw new Error('DatabaseProvider not configured'); },
-  createSchema: (definition: any, options: any) => { throw new Error('DatabaseProvider not configured'); },
-  model: (name: string, schema: any) => { throw new Error('DatabaseProvider not configured'); },
-  create: async (model: any, data: any) => { throw new Error('DatabaseProvider not configured'); },
-  find: async (model: any, query: any) => { throw new Error('DatabaseProvider not configured'); },
-  findOne: async (model: any, query: any) => { throw new Error('DatabaseProvider not configured'); },
-  update: async (model: any, query: any, data: any, options: any) => { throw new Error('DatabaseProvider not configured'); },
-  delete: async (model: any, query: any) => { throw new Error('DatabaseProvider not configured'); },
-};
+import { MemoryProvider } from './providers/MemoryProvider';
+
+export let DatabaseProvider = MemoryProvider;

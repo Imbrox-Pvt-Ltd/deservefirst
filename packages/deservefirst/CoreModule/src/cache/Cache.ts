@@ -8,8 +8,6 @@ export class Cache {
   }
 }
 
-export let CacheProvider = {
-  configure: (config: any) => { throw new Error('CacheProvider not configured'); },
-  get: async (key: string) => { throw new Error('CacheProvider not configured'); },
-  set: async (key: string, value: any, ttl?: number) => { throw new Error('CacheProvider not configured'); },
-};
+import { MemoryProvider } from './providers/MemoryProvider';
+
+export let CacheProvider = MemoryProvider;

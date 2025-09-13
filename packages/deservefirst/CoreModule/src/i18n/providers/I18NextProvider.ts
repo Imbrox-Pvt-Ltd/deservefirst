@@ -2,6 +2,9 @@ import i18next from 'i18next';
 import { I18nProvider } from '../I18n';
 
 export const I18NextProvider = {
+  configure: (config: any) => {
+    // Configuration method for compatibility
+  },
   init: (config: any) => {
     i18next.init({
       lng: config.defaultLanguage || 'en',
@@ -11,4 +14,4 @@ export const I18NextProvider = {
   t: (key: string, options?: any) => i18next.t(key, options),
 };
 
-I18nProvider = I18NextProvider;
+export { I18NextProvider as I18nProvider };
