@@ -1,0 +1,8 @@
+{
+  "core.settings.default_language": "Default Language",
+  "core.settings.language.english": "English",
+  "core.settings.language.spanish": "Spanish",
+  "core.settings.language.french": "French",
+  "core.settings.maintenance_mode": "Maintenance Mode",
+  "core.settings.cache_ttl": "Cache TTL (seconds)"
+}

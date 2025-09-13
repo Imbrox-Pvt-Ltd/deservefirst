@@ -1,0 +1,14 @@
+[
+  {
+    "id": "cms.default_page_layout",
+    "label": "cms.settings.default_page_layout",
+    "type": "select",
+    "default": "1column",
+    "permission": "cms:config",
+    "options": [
+      { "value": "1column", "label": "cms.settings.layout.1column" },
+      { "value": "2columns", "label": "cms.settings.layout.2columns" }
+    ],
+    "required": true
+  }
+]

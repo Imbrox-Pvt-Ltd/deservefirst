@@ -1,0 +1,21 @@
+{
+  "name": "@deservefirst/rbac-module",
+  "version": "1.0.0",
+  "description": "RBAC module for Deservefirst platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "mocha tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "@deservefirst/core-module": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "mocha": "^10.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "author": "Deservefirst Team",
+  "license": "MIT"
+}

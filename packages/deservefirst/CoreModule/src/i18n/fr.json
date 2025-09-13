@@ -1,0 +1,8 @@
+{
+  "core.settings.default_language": "Langue par défaut",
+  "core.settings.language.english": "Anglais",
+  "core.settings.language.spanish": "Espagnol",
+  "core.settings.language.french": "Français",
+  "core.settings.maintenance_mode": "Mode de maintenance",
+  "core.settings.cache_ttl": "TTL du cache (secondes)"
+}

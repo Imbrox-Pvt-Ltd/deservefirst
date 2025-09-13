@@ -1,0 +1,32 @@
+[
+  {
+    "id": "core.default_language",
+    "label": "core.settings.default_language",
+    "type": "select",
+    "default": "en",
+    "permission": "core:config",
+    "options": [
+      { "value": "en", "label": "core.settings.language.english" },
+      { "value": "es", "label": "core.settings.language.spanish" },
+      { "value": "fr", "label": "core.settings.language.french" }
+    ],
+    "required": true
+  },
+  {
+    "id": "core.maintenance_mode",
+    "label": "core.settings.maintenance_mode",
+    "type": "boolean",
+    "default": false,
+    "permission": "core:config",
+    "required": false
+  },
+  {
+    "id": "core.cache_ttl",
+    "label": "core.settings.cache_ttl",
+    "type": "number",
+    "default": 3600,
+    "permission": "core:config",
+    "validators": { "min": 60, "max": 86400 },
+    "required": true
+  }
+]
