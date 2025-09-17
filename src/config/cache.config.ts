@@ -1,0 +1,10 @@
+import { registerAs } from '@nestjs/config';
+
+export const CacheConfig = registerAs('cache', () => ({
+  store: process.env.CACHE_STORE || 'redis',
+  host: process.env.REDIS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+  password: process.env.REDIS_PASSWORD || '',
+  ttl: parseInt(process.env.CACHE_TTL, 10) || 300, // 5 minutes
+  max: parseInt(process.env.CACHE_MAX, 10) || 100,
+}));

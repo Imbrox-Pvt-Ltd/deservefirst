@@ -1,0 +1,65 @@
+```yaml
+openapi: 3.0.3
+info:
+  title: Deservefirst API
+  version: 1.0.0
+  description: API for Deservefirst e-commerce SaaS platform
+  contact:
+    name: Sanjay Bisht
+    email: info@deservefirst.com
+    url: https://deservefirst.com
+  license:
+    name: OSL-3.0 / AFL-3.0
+servers:
+  - url: https://api.deservefirst.com
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Tenant:
+      type: object
+      properties:
+        id: { type: integer }
+        uuid: { type: string, format: uuid }
+        name: { type: string }
+        db_shard: { type: string, enum: ['shared', 'schema:{name}', 'db:{name}', 'cluster:{name}'] }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        uuid: { type: string, format: uuid }
+        tenant_id: { type: integer }
+        name: { type: string }
+        price: { type: number }
+        meta_title: { type: string }
+paths:
+  /tenants:
+    post:
+      summary: Create a tenant
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Tenant' }
+      responses:
+        '201': { description: Tenant created, content: { application/json: { schema: { $ref: '#/components/schemas/Tenant' } } } }
+  /products:
+    post:
+      summary: Create a product
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Product' }
+      responses:
+        '201': { description: Product created, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+  /translations/health:
+    get:
+      summary: Translation health
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200': { description: Translation coverage, content: { application/json: { schema: { type: object, properties: { missing_percentage: { type: number } } } } } }
+```

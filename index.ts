@@ -1,5 +1,6 @@
 const dotenv = require('dotenv');
 const express = require('express');
+const path = require('path');
 const { initializeCoreModule, startApplication } = require('./packages/deservefirst/CoreModule/src/index');
 const { ModuleOrchestrator } = require('./packages/deservefirst/CoreModule/src/modules/ModuleOrchestrator');
 const { ModuleCommunicationHub } = require('./packages/deservefirst/CoreModule/src/modules/ModuleCommunicationHub');
@@ -62,6 +63,9 @@ async function bootstrap() {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
     
+    // Serve static files (dashboard)
+    app.use(express.static('public'));
+    
     // Health check endpoint
     app.get('/health', (req: any, res: any) => {
       const healthStatus = {
@@ -93,6 +97,15 @@ async function bootstrap() {
         }))
       };
       res.json(modules);
+    });
+    
+    // Dashboard routes
+    app.get('/dashboard', (req: any, res: any) => {
+      res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+    });
+    
+    app.get('/react-dashboard', (req: any, res: any) => {
+      res.sendFile(path.join(__dirname, 'public', 'react-dashboard.html'));
     });
     
     // App-level routes
