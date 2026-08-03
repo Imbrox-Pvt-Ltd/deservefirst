@@ -162,23 +162,53 @@ export const competitorNames = {
   run(sources) {
     const violations = [];
     const names = [/\bshopify\b/i, /\bmagento\b/i, /\bwordpress\b/i, /\bwoocommerce\b/i];
+
     for (const source of sources) {
       // The aliases table is where these names are *defined*; exempt it.
       if (source.relativePath === 'packages/config/src/branding.ts') continue;
+
+      // A dependency's package name is not branding — we cannot rename an npm
+      // package, and the design system is a decided dependency. What §33.3
+      // actually protects is what a user or reader sees, so import specifiers
+      // are excluded from the scan and policed by the rule below instead.
+      const withoutSpecifiers = source.text.replace(
+        /(?:from\s+|require\(\s*)['"][^'"]+['"]/g,
+        'from "_"',
+      );
+
       for (const pattern of names) {
-        const match = pattern.exec(source.text);
+        const match = pattern.exec(withoutSpecifiers);
         if (match) {
           violations.push(
             violation(
               source.relativePath,
-              lineOf(source.text, match.index),
+              lineOf(withoutSpecifiers, match.index),
               'competitor-names',
               `contains "${match[0]}" — use the alias from packages/config/src/branding.ts`,
             ),
           );
         }
       }
+
+      // The containment rule: only the design-system wrapper may depend on the
+      // vendor package. If any module imported it directly, swapping or
+      // re-theming the library would stop being a one-package change.
+      if (!source.relativePath.startsWith('packages/ui/')) {
+        for (const specifier of extractImports(source.text)) {
+          if (/^@shopify\//.test(specifier)) {
+            violations.push(
+              violation(
+                source.relativePath,
+                lineOf(source.text, source.text.indexOf(specifier)),
+                'competitor-names',
+                `imports "${specifier}" directly — consume it through @deservefirst/ui instead`,
+              ),
+            );
+          }
+        }
+      }
     }
+
     return violations;
   },
 };

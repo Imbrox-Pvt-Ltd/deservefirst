@@ -1,0 +1,25 @@
+{
+  "name": "@deservefirst/ui",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@deservefirst/config": "workspace:*",
+    "@deservefirst/contracts": "workspace:*"
+  },
+  "peerDependencies": {
+    "@shopify/polaris": "^13.9.5",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@shopify/polaris": "^13.9.5",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -6,4 +6,4 @@
  * Layer: api.
  */
 
-export {};
+export * from './product.controller';

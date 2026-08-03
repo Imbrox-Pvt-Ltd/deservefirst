@@ -6,4 +6,4 @@
  * Layer: domain (pure).
  */
 
-export {};
+export * from './product';

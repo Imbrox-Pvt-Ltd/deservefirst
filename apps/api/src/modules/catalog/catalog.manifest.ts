@@ -1,18 +1,21 @@
 /**
  * Catalog · catalog.manifest.ts
- * The module manifest — the single declaration from which the platform composes
- * this module's routes, API, permissions, events, settings and navigation.
+ * The module manifest — one declaration from which the platform composes this
+ * module's entities, API, routes, navigation, permissions, settings, events and
+ * search. Nothing here is wiring: every key is metadata the runtime reads.
  * If it is not declared here, the platform does not load it (§31.2, §14.1).
  * Layer: manifest (declaration only; no logic).
  */
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
+import { productResource } from './contracts';
+
 export const catalogManifest: ModuleManifest = {
   id: 'catalog',
   version: '0.1.0',
   label: 'Catalog',
-  description: 'TODO: one sentence on what this module does for a merchant.',
+  description: 'Products, variants and collections for a store.',
 
   entitlementKey: 'catalog',
   dependsOn: [
@@ -20,22 +23,144 @@ export const catalogManifest: ModuleManifest = {
     { module: 'auth', type: 'required' },
   ],
 
-  // Declare only what this module actually supplies; each capability's contract
-  // is validated at boot and a missing piece fails the load loudly (§31.7).
-  capabilities: ['permissions'],
+  capabilities: [
+    'entities',
+    'resources',
+    'routes',
+    'navigation',
+    'permissions',
+    'settings',
+    'events',
+    'search',
+    'seo',
+  ],
+
+  // Declaring the entity is what earns the Entity Toolkit: metafields, tags,
+  // timeline, audit, saved views, bulk actions, import/export and soft delete
+  // all arrive without a line of code (§12.1).
+  entities: [
+    {
+      name: 'Product',
+      tableName: 'products',
+      toolkit: { seo: true },
+      translatableFields: ['title', 'description', 'handle'],
+      moneyFields: ['price', 'compareAtPrice', 'costPerItem'],
+    },
+  ],
+
+  resources: [productResource],
+
+  routes: [
+    { path: '/store/:handle/products', screen: 'ListScreen', entity: 'Product', permission: 'catalog.read' },
+    { path: '/store/:handle/products/new', screen: 'CreateScreen', entity: 'Product', permission: 'catalog.write' },
+    { path: '/store/:handle/products/:id', screen: 'DetailScreen', entity: 'Product', permission: 'catalog.read' },
+    {
+      path: '/store/:handle/products/:id/variants/:variantId',
+      screen: 'DetailScreen',
+      entity: 'ProductVariant',
+      permission: 'catalog.write',
+      presentation: 'drawer',
+    },
+  ],
+
+  navigation: [
+    {
+      id: 'products',
+      label: 'Products',
+      path: '/store/:handle/products',
+      section: 'primary',
+      position: 20,
+      permission: 'catalog.read',
+    },
+  ],
 
   permissions: [
     {
       key: 'catalog.read',
-      label: 'View catalog',
-      description: 'Open the catalog workspace and read its records.',
+      label: 'View products',
+      description: 'Open the catalog and read products, variants and collections.',
       categories: ['organization', 'store'],
     },
     {
       key: 'catalog.write',
-      label: 'Manage catalog',
-      description: 'Create, edit and delete catalog records.',
+      label: 'Manage products',
+      description: 'Create, edit, archive and delete catalog records.',
       categories: ['organization', 'store'],
+    },
+    {
+      key: 'catalog.publish',
+      label: 'Publish products',
+      description: 'Publish products to sales channels and markets.',
+      categories: ['organization', 'store'],
+    },
+  ],
+
+  // Contributed into a shared settings group rather than adding a page (§31.9).
+  settings: [
+    {
+      key: 'defaultWeightUnit',
+      label: 'Default weight unit',
+      description: 'Applied to new products that do not specify one.',
+      group: 'general',
+      section: 'Store defaults',
+      kind: 'select',
+      scope: 'store',
+      defaultValue: 'kg',
+      options: [
+        { value: 'kg', label: 'Kilogram (kg)' },
+        { value: 'lb', label: 'Pound (lb)' },
+      ],
+      permission: 'catalog.write',
+    },
+    {
+      key: 'continueSellingWhenOutOfStock',
+      label: 'Continue selling when out of stock',
+      group: 'general',
+      section: 'Store defaults',
+      kind: 'boolean',
+      scope: 'store',
+      defaultValue: false,
+      permission: 'catalog.write',
+    },
+  ],
+
+  events: [
+    {
+      type: 'catalog.product.created',
+      version: 1,
+      label: 'Product created',
+      description: 'A product was created in the store.',
+      direction: 'emits',
+    },
+    {
+      type: 'catalog.product.updated',
+      version: 1,
+      label: 'Product updated',
+      description: 'A product changed.',
+      direction: 'emits',
+    },
+    {
+      type: 'catalog.product.published',
+      version: 1,
+      label: 'Product published',
+      description: 'A product became visible on a sales channel.',
+      direction: 'emits',
+    },
+    {
+      type: 'catalog.product.archived',
+      version: 1,
+      label: 'Product archived',
+      description: 'A product was archived and removed from sales channels.',
+      direction: 'emits',
+    },
+  ],
+
+  searchProviders: [
+    {
+      entity: 'Product',
+      indexKey: 'products',
+      permission: 'catalog.read',
+      fields: ['title', 'vendor', 'productType', 'sku'],
     },
   ],
 

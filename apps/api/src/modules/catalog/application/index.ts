@@ -6,4 +6,4 @@
  * Layer: application.
  */
 
-export {};
+export * from './product-service';
