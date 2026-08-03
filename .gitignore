@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+coverage/
+
+# Reference capture material — large binaries, not source.
+recording/
+out/

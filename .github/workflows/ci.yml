@@ -1,0 +1,28 @@
+name: CI
+
+# `platform ci` runs exactly these steps locally, so a green local run means a
+# green pipeline (§18.2). Coverage and fitness gates block the merge (§14.2).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: build · typecheck · fitness · test
+        run: node tools/platform-cli/bin/platform.mjs ci

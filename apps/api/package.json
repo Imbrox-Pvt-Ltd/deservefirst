@@ -1,0 +1,20 @@
+{
+  "name": "@deservefirst/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --watch dist/main.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@deservefirst/config": "workspace:*",
+    "@deservefirst/contracts": "workspace:*",
+    "typeorm": "^0.3.24"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}

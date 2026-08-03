@@ -1,0 +1,13 @@
+{
+  "name": "@deservefirst/fitness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "build": "node -e \"process.exit(0)\""
+  }
+}
