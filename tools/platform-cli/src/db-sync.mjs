@@ -4,9 +4,14 @@
  * declares an entity; this creates its table, the toolkit's satellite tables and
  * the indexes every store-scoped table must have.
  *
- * Development convenience only. Production uses versioned, expand → migrate →
- * contract migrations (§17.2); this command is deliberately additive
- * (CREATE TABLE IF NOT EXISTS) and never drops or alters anything.
+ * DEVELOPMENT ONLY. Production uses `platform migrate` — versioned, ordered,
+ * recorded, expand → migrate → contract (§17.2).
+ *
+ * The difference is not convenience, it is capability: this command derives the
+ * schema from the manifests and applies it additively, which cannot express a
+ * CHANGE. Renaming a column, altering a type, backfilling data — none of those
+ * are "create if not exists", and all of them need to happen once, in a known
+ * order, with a record that they did.
  * Layer: tooling.
  */
 
@@ -14,21 +19,9 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const require = createRequire(import.meta.url);
+import { manifestsOf, syntheticResource } from './manifests.mjs';
 
-/** A resource-shaped wrapper around an entity that declares its own fields. */
-function syntheticResource(entity) {
-  return {
-    name: entity.name,
-    entity: entity.name,
-    pluralName: `${entity.name}s`,
-    urlSegment: entity.tableName,
-    fields: entity.fields ?? [],
-    api: { graphql: false, rest: false, visibility: 'internal' },
-    screens: [],
-    permissions: { read: 'internal', write: 'internal' },
-  };
-}
+const require = createRequire(import.meta.url);
 
 export async function dbSync(root, options = {}) {
   const distCore = join(root, 'apps/api/dist/core');
@@ -46,39 +39,9 @@ export async function dbSync(root, options = {}) {
   const dialectName = url.startsWith('postgres') ? 'postgres' : 'mysql';
   const dialect = dialectFor(dialectName);
 
-  // Discover manifests from the built module tree — the same source the runtime
-  // reads, so the schema cannot drift from what the platform loads.
-  const manifests = [];
-
-  // Auth is a first-class sibling of modules/ (§3), so it is discovered
-  // explicitly rather than by scanning the module tree.
-  // Core owns the operator tables — module availability and layered settings —
-  // and declares them like any module, so they are built from the same source.
-  const platformManifestPath = join(root, 'apps/api/dist/core/platform.manifest.js');
-  if (existsSync(platformManifestPath)) {
-    const loaded = require(platformManifestPath);
-    if (loaded.platformManifest) manifests.push(loaded.platformManifest);
-  }
-
-  const authManifestPath = join(root, 'apps/api/dist/auth/auth.manifest.js');
-  if (existsSync(authManifestPath)) {
-    const loaded = require(authManifestPath);
-    const manifest = loaded.default ?? loaded.authManifest;
-    if (manifest) manifests.push(manifest);
-  }
-
-  const modulesDir = join(root, 'apps/api/dist/modules');
-  if (existsSync(modulesDir)) {
-    const { readdirSync } = await import('node:fs');
-    for (const moduleName of readdirSync(modulesDir)) {
-      const manifestPath = join(modulesDir, moduleName, `${moduleName}.manifest.js`);
-      if (existsSync(manifestPath)) {
-        const loaded = require(manifestPath);
-        const manifest = loaded.default ?? loaded[`${moduleName}Manifest`];
-        if (manifest) manifests.push(manifest);
-      }
-    }
-  }
+  // Discovered from the built module tree — the same source the runtime reads,
+  // so the schema cannot drift from what the platform loads.
+  const manifests = manifestsOf(root);
 
   const statements = [];
   for (const manifest of manifests) {

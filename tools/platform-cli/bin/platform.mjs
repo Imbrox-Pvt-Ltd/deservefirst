@@ -18,6 +18,7 @@ import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
 import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { writeApiDocument } from '../src/api-docs.mjs';
+import { createMigration, generateMigration, markApplied, migrate, migrateStatus } from '../src/migrate.mjs';
 import { seed } from '../src/seed.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
@@ -47,7 +48,12 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('doctor')} [module]       Validate a module against the Standard
   ${cyan('test')}                  Run the test suite
   ${cyan('ci')}                    build + typecheck + check + test, exactly as CI runs it
-  ${cyan('db:sync')}               Apply the schema derived from every manifest (dev only)
+  ${cyan('db:sync')}               Apply the schema derived from every manifest ${red('(dev only)')}
+  ${cyan('migrate')}               Apply pending migrations        [--dry-run]
+  ${cyan('migrate:status')}        What has run, and what has not
+  ${cyan('migrate:new')} <name>    Write an empty migration to fill in
+  ${cyan('migrate:generate')}      Write an additive migration from the manifest diff
+  ${cyan('migrate:mark')} <ver>    Record a migration as applied without running it
   ${cyan('seed')}                  Seed deterministic development data
   ${cyan('routes')}                Print the composed route registry
   ${cyan('smoke')}                 Open every navigation destination against a running admin
@@ -240,6 +246,7 @@ switch (command) {
         console.log(
           green(`\nApplied ${result.applied} statement(s) to ${result.dialect}.`),
         );
+        console.log(dim('  Development only — production uses `platform migrate`.'));
         for (const table of result.tables) console.log(dim(`  ${table}`));
         // Reported separately: a new table is expected, but a column appearing
         // on an existing one means the schema had drifted from the manifests.
@@ -349,6 +356,115 @@ switch (command) {
       .catch((error) => {
         console.error(red(`\nsmoke failed: ${error.message}`));
         console.error(dim('  Start the admin first: pnpm --filter @deservefirst/web start'));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'migrate': {
+    const flag = (name) => args.some((arg) => arg === `--${name}`);
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    migrate(ROOT, {
+      dryRun: flag('dry-run'),
+      ...(urlArg ? { url: urlArg.slice('--url='.length) } : {}),
+    })
+      .then((result) => {
+        if (result.dryRun) {
+          console.log(
+            result.pending.length === 0
+              ? green('\nNothing pending.')
+              : `\n${cyan('Would apply')} ${result.pending.join(', ')}`,
+          );
+          return;
+        }
+        console.log(
+          result.applied.length === 0
+            ? green('\nNothing pending — the database is up to date.')
+            : green(`\nApplied ${result.applied.length}: ${result.applied.join(', ')}`),
+        );
+      })
+      .catch((error) => {
+        console.error(red(`\nmigrate failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'migrate:status': {
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    migrateStatus(ROOT, urlArg ? { url: urlArg.slice('--url='.length) } : {})
+      .then((entries) => {
+        console.log(`\n${cyan('Migrations')}\n`);
+        if (entries.length === 0) console.log(dim('  none yet'));
+        for (const entry of entries) {
+          const label =
+            entry.state === 'applied'
+              ? green('applied ')
+              : entry.state === 'pending'
+                ? cyan('pending ')
+                : red(entry.state.toUpperCase().padEnd(8));
+          console.log(`  ${label}  ${entry.version}  ${entry.name}`);
+          if (entry.state === 'changed') {
+            console.log(red('              this file changed after it was applied — add a new one instead'));
+          }
+          if (entry.state === 'missing') {
+            console.log(red('              applied here but absent from this checkout'));
+          }
+        }
+        console.log('');
+        if (entries.some((entry) => entry.state === 'changed' || entry.state === 'missing')) {
+          process.exit(1);
+        }
+      })
+      .catch((error) => {
+        console.error(red(`\nmigrate:status failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'migrate:new': {
+    try {
+      const created = createMigration(ROOT, args.filter((arg) => !arg.startsWith('--')).join(' '));
+      console.log(green(`\nCreated ${created.path}`));
+      console.log(dim('  Fill it in, then `platform migrate`.'));
+    } catch (error) {
+      console.error(red(`\nmigrate:new failed: ${error.message}`));
+      process.exit(1);
+    }
+    break;
+  }
+  case 'migrate:generate': {
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    const nameArg = args.find((arg) => arg.startsWith('--name='));
+    generateMigration(ROOT, {
+      ...(urlArg ? { url: urlArg.slice('--url='.length) } : {}),
+      ...(nameArg ? { name: nameArg.slice('--name='.length) } : {}),
+    })
+      .then((result) => {
+        if (result.statements === 0) {
+          console.log(green('\nThe database already matches the manifests — nothing to generate.'));
+          return;
+        }
+        console.log(green(`\nCreated ${result.path} — ${result.statements} statement(s).`));
+        console.log(dim('  Additive only. Anything destructive is yours to write deliberately.'));
+      })
+      .catch((error) => {
+        console.error(red(`\nmigrate:generate failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'migrate:mark': {
+    const version = args.find((arg) => !arg.startsWith('--'));
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    markApplied(ROOT, version, urlArg ? { url: urlArg.slice('--url='.length) } : {})
+      .then((result) => {
+        console.log(
+          result.alreadyRecorded
+            ? dim(`\n${result.version} was already recorded.`)
+            : green(`\nRecorded ${result.version} as applied — it was NOT run.`),
+        );
+      })
+      .catch((error) => {
+        console.error(red(`\nmigrate:mark failed: ${error.message}`));
         process.exit(1);
       });
     break;
