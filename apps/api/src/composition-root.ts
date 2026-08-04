@@ -32,17 +32,20 @@ import {
   QueryGuard,
   RateLimiter,
   buildRouteRegistry,
+  createToolkitPorts,
   dialectFor,
   guardExecutor,
   type SqlDialect,
 } from './core';
 import { catalogManifest } from './modules/catalog/catalog.manifest';
 import { customersManifest } from './modules/customers/customers.manifest';
+import { CustomerService } from './modules/customers/application';
+import { CustomerRepositoryImpl } from './modules/customers/infrastructure';
 import { ordersManifest } from './modules/orders/orders.manifest';
 import { RequestService } from './modules/orders/application';
 import { SqlRequestRepository } from './modules/orders/infrastructure';
-import { ProductService } from './modules/catalog/application';
-import { createToolkitPorts, ProductRepositoryImpl } from './modules/catalog/infrastructure';
+import { CollectionService, ProductService } from './modules/catalog/application';
+import { CollectionRepositoryImpl, ProductRepositoryImpl } from './modules/catalog/infrastructure';
 
 export interface Platform {
   readonly registry: ModuleRegistry;
@@ -58,6 +61,8 @@ export interface Platform {
   /** Built per request: the service is scoped to whichever store is active. */
   productServiceFor(storeId: string): ProductService;
   requestServiceFor(storeId: string): RequestService;
+  collectionServiceFor(storeId: string): CollectionService;
+  customerServiceFor(storeId: string): CustomerService;
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
 }
@@ -144,6 +149,22 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Product',
   });
 
+  const collections = new CollectionRepositoryImpl(executor, dialect);
+  const collectionToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Collection',
+  });
+
+  const customerRecords = new CustomerRepositoryImpl(executor, dialect);
+  const customerToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Customer',
+  });
+
   const requests = new SqlRequestRepository(executor, dialect);
   const requestToolkit = createToolkitPorts({
     executor,
@@ -176,6 +197,10 @@ export async function bootstrap(): Promise<Platform> {
     // worker outside a request can build one too.
     productServiceFor: (storeId) =>
       new ProductService(products, toolkitPorts, storeId as never),
+    collectionServiceFor: (storeId) =>
+      new CollectionService(collections, collectionToolkit, storeId as never),
+    customerServiceFor: (storeId) =>
+      new CustomerService(customerRecords, customerToolkit, storeId as never),
     requestServiceFor: (storeId) =>
       new RequestService(
         requests,

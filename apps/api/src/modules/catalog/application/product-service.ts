@@ -14,7 +14,9 @@ import {
 } from '@deservefirst/contracts';
 
 import { productResource } from '../contracts';
-import { describeChange, diffFields } from '../../../core/entity-toolkit';
+import { describeChange, diffFields, type ToolkitPorts } from '../../../core/entity-toolkit';
+
+export type { ToolkitPorts };
 import {
   assertProductValid,
   assertTransitionAllowed,
@@ -37,19 +39,6 @@ export interface ProductRepository {
   insert(product: Product): Promise<Product>;
   update(product: Product, expectedVersion: number): Promise<Product>;
   softDelete(id: string): Promise<void>;
-}
-
-export interface ToolkitPorts {
-  slugify(input: string): string;
-  disambiguate(base: string, taken: ReadonlySet<string>): string;
-  recordTimeline(input: {
-    ownerId: string;
-    message: string;
-    changes: readonly { field: string; from: unknown; to: unknown }[];
-  }): Promise<void>;
-  emit(eventType: string, payload: Record<string, unknown>): Promise<void>;
-  newId(): string;
-  now(): Date;
 }
 
 export interface CreateProductInput {

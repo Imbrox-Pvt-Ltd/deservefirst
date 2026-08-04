@@ -23,6 +23,8 @@ import { AccessDeniedError } from './auth/application';
 import { ProductInvariantError } from './modules/catalog/domain';
 // Aliased: `Request` would collide with the transport's own Request type.
 import { RequestInvariantError, subtotal, type Request as QuoteRequest } from './modules/orders/domain';
+import { CollectionInvariantError, type Collection, type Condition } from './modules/catalog/domain';
+import { CustomerInvariantError, displayName, type Customer, type MarketingConsent } from './modules/customers/domain';
 import { bootstrap, newRequestId } from './composition-root';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
@@ -293,6 +295,127 @@ async function start(): Promise<void> {
     }),
   );
 
+  // --- collections ----------------------------------------------------------
+  // Rules are set as a whole set rather than one condition at a time: a
+  // per-condition endpoint would let a screen leave the collection in a state
+  // the engine cannot evaluate between two calls.
+
+  const toCollectionDto = (collection: Collection) => ({
+    id: collection.id,
+    handle: collection.handle,
+    title: collection.title,
+    description: collection.description,
+    type: collection.type,
+    match: collection.match,
+    conditions: collection.conditions,
+    exclusions: collection.exclusions,
+    productIds: collection.productIds,
+    sortOrder: collection.sortOrder,
+    version: collection.version,
+  });
+
+  app.get(`/${API_VERSION}/catalog/collections/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.read', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const found = await platform.collectionServiceFor(storeId).get(id);
+      return success(toCollectionDto(found), { requestId: context.requestId });
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/catalog/collections/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform.collectionServiceFor(storeId).updateDetails({
+        id,
+        expectedVersion: Number(body.version ?? -1),
+        ...(body.title === undefined ? {} : { title: String(body.title) }),
+        ...(body.description === undefined ? {} : { description: String(body.description) }),
+        ...(body.sortOrder === undefined ? {} : { sortOrder: body.sortOrder as Collection['sortOrder'] }),
+      });
+      return success(toCollectionDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  app.put(`/${API_VERSION}/catalog/collections/:id/rules`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform.collectionServiceFor(storeId).setRules({
+        id,
+        expectedVersion: Number(body.version ?? -1),
+        match: (body.match as 'all' | 'any') ?? 'all',
+        conditions: (body.conditions ?? []) as Condition[],
+        exclusions: (body.exclusions ?? []) as Condition[],
+      });
+      return success(toCollectionDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  // --- customers ------------------------------------------------------------
+  // Consent has its own endpoint, mirroring the service. Folding it into the
+  // generic update would let a bulk edit change consent by accident and would
+  // lose the before/after pair a compliance question needs.
+
+  const toCustomerDto = (customer: Customer) => ({
+    id: customer.id,
+    displayName: displayName(customer),
+    firstName: customer.firstName,
+    lastName: customer.lastName,
+    email: customer.email,
+    phone: customer.phone,
+    state: customer.state,
+    emailConsent: customer.emailConsent,
+    smsConsent: customer.smsConsent,
+    locale: customer.locale,
+    taxExempt: customer.taxExempt,
+    ordersCount: customer.ordersCount,
+    totalSpent: {
+      amount: toDecimalString(customer.totalSpent),
+      currency: customer.totalSpent.currency,
+    },
+    version: customer.version,
+  });
+
+  app.get(`/${API_VERSION}/customers/customers/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'customers.read', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const found = await platform.customerServiceFor(storeId).get(id);
+      return success(toCustomerDto(found), { requestId: context.requestId });
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/customers/customers/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform.customerServiceFor(storeId).update({
+        id,
+        expectedVersion: Number(body.version ?? -1),
+        ...(body.firstName === undefined ? {} : { firstName: body.firstName as string | null }),
+        ...(body.lastName === undefined ? {} : { lastName: body.lastName as string | null }),
+        ...(body.phone === undefined ? {} : { phone: body.phone as string | null }),
+        ...(body.note === undefined ? {} : { note: body.note as string | null }),
+        ...(body.taxExempt === undefined ? {} : { taxExempt: Boolean(body.taxExempt) }),
+      });
+      return success(toCustomerDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/customers/customers/:id/consent`, async (request, reply) =>
+    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform.customerServiceFor(storeId).changeConsent({
+        id,
+        channel: (body.channel as 'email' | 'sms') ?? 'email',
+        to: (body.to as MarketingConsent) ?? 'unknown',
+        expectedVersion: Number(body.version ?? -1),
+      });
+      return success(toCustomerDto(updated), { requestId: context.requestId });
+    }),
+  );
+
   // --- requests -------------------------------------------------------------
   // The quoting workflow. Each step is its own endpoint rather than a generic
   // "set status", because the transitions carry rules — a quote cannot be sent
@@ -436,6 +559,36 @@ async function start(): Promise<void> {
       return reply
         .status(422)
         .send(failure([apiError('validation_failed', 'Invalid product', message, error.field)], { requestId }));
+    }
+
+    if (error instanceof CustomerInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Invalid customer', message, error.field)], { requestId }));
+    }
+
+    if (name === 'CustomerNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
+    }
+
+    if (name === 'DuplicateCustomerError') {
+      return reply
+        .status(409)
+        .send(failure([apiError('conflict', 'Already exists', message)], { requestId }));
+    }
+
+    if (error instanceof CollectionInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Invalid collection', message, error.field)], { requestId }));
+    }
+
+    if (name === 'CollectionNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
     }
 
     if (error instanceof RequestInvariantError) {

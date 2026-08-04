@@ -7,3 +7,4 @@
  */
 
 export * from './product-service';
+export * from './collection-service';

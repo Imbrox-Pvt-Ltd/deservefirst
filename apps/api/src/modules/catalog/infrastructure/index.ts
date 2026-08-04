@@ -6,4 +6,4 @@
  */
 
 export * from './product.repository';
-export * from './toolkit-ports';
+export * from './collection.repository';

@@ -8,6 +8,7 @@
 
 import { type Connection, type ListQuery, money, type StoreId } from '@deservefirst/contracts';
 
+import type { ToolkitPorts } from '../../../core/entity-toolkit';
 import {
   assertCustomerValid,
   type Customer,
@@ -26,16 +27,8 @@ export interface CustomerRepository {
   softDelete(id: string): Promise<void>;
 }
 
-export interface CustomerPorts {
-  newId(): string;
-  now(): Date;
-  emit(eventType: string, payload: Record<string, unknown>): Promise<void>;
-  recordTimeline(input: {
-    ownerId: string;
-    message: string;
-    changes: readonly { field: string; from: unknown; to: unknown }[];
-  }): Promise<void>;
-}
+/** Core's toolkit ports; declared once there rather than per module (§32). */
+export type CustomerPorts = ToolkitPorts;
 
 export interface CreateCustomerInput {
   readonly email?: string | null;

@@ -1,0 +1,82 @@
+'use server';
+
+/**
+ * Web · app/actions/collections.ts
+ * Server actions for collection edits. Rules are saved as a whole set, matching
+ * the API — a per-condition call would let the collection sit in a state the
+ * rule engine cannot evaluate between two requests.
+ * Layer: web/actions.
+ */
+
+import { revalidatePath } from 'next/cache';
+
+import { ApiError, apiFetch } from '../../lib/api';
+import type { CollectionDto, ConditionDto } from '../../lib/types';
+
+const STORE_IDS: Record<string, string> = {
+  'acme-us': 'seed-store-us',
+  'acme-in': 'seed-store-in',
+};
+
+const PERMISSIONS = ['catalog.read', 'catalog.write'];
+
+export interface ActionResult<T> {
+  readonly ok: boolean;
+  readonly data?: T;
+  readonly error?: string;
+  readonly conflict?: boolean;
+}
+
+async function call(
+  handle: string,
+  path: string,
+  method: 'PATCH' | 'PUT',
+  body: Record<string, unknown>,
+): Promise<ActionResult<CollectionDto>> {
+  const storeId = STORE_IDS[handle];
+  if (!storeId) return { ok: false, error: `Unknown store "${handle}"` };
+
+  try {
+    const response = await apiFetch<CollectionDto>(
+      `/catalog/collections${path}`,
+      { storeId, permissions: PERMISSIONS },
+      { method, body: JSON.stringify(body) },
+    );
+    revalidatePath(`/store/${handle}/collections`);
+    return { ok: true, data: response.data };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { ok: false, error: error.message, conflict: error.code === 'conflict' };
+    }
+    return { ok: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+export async function saveCollectionDetails(
+  handle: string,
+  input: { id: string; version: number; title: string; description: string },
+) {
+  return call(handle, `/${input.id}`, 'PATCH', {
+    version: input.version,
+    title: input.title,
+    description: input.description,
+  });
+}
+
+export async function saveCollectionRules(
+  handle: string,
+  input: {
+    id: string;
+    version: number;
+    match: 'all' | 'any';
+    conditions: readonly ConditionDto[];
+    exclusions: readonly ConditionDto[];
+  },
+) {
+  return call(handle, `/${input.id}/rules`, 'PUT', {
+    version: input.version,
+    match: input.match,
+    conditions: input.conditions,
+    exclusions: input.exclusions,
+  });
+}

@@ -105,3 +105,42 @@ export interface RequestDto {
   readonly subtotal: MoneyDto;
   readonly lines: readonly RequestLineDto[];
 }
+
+export interface ConditionDto {
+  readonly field: string;
+  readonly operator: string;
+  readonly value: string;
+}
+
+export interface CollectionDto {
+  readonly id: string;
+  readonly handle: string;
+  readonly title: string;
+  readonly description: string;
+  readonly type: 'manual' | 'automated';
+  readonly match: 'all' | 'any';
+  readonly conditions: readonly ConditionDto[];
+  /** Applied after inclusion and always winning — see the rule engine. */
+  readonly exclusions: readonly ConditionDto[];
+  readonly productIds: readonly string[];
+  readonly sortOrder: string;
+  readonly version: number;
+}
+
+export interface CustomerDto {
+  readonly id: string;
+  readonly displayName: string;
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+  readonly email: string | null;
+  readonly phone: string | null;
+  readonly state: string;
+  /** Only "subscribed" permits marketing — see the customers module. */
+  readonly emailConsent: string;
+  readonly smsConsent: string;
+  readonly locale: string;
+  readonly taxExempt: boolean;
+  readonly ordersCount: number;
+  readonly totalSpent: MoneyDto;
+  readonly version: number;
+}
