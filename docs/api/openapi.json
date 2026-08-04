@@ -1,0 +1,6077 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DeserveFirst Admin API",
+    "version": "2026-01",
+    "description": "Generated from the platform's resource and route declarations on every build, so it cannot drift from the running API (§26.2). Do not edit by hand."
+  },
+  "servers": [
+    {
+      "url": "https://api.deservefirst.example"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ResponseEnvelope": {
+        "type": "object",
+        "description": "Every response has this shape, success or failure (§13.4).",
+        "properties": {
+          "data": {
+            "description": "The payload, or null when errors is non-empty."
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "pagination": {
+                "type": "object",
+                "properties": {
+                  "hasNextPage": {
+                    "type": "boolean"
+                  },
+                  "hasPreviousPage": {
+                    "type": "boolean"
+                  },
+                  "startCursor": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "endCursor": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            "required": [
+              "requestId"
+            ]
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "errors"
+        ]
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "validation_failed"
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "field": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "detail",
+          "status"
+        ]
+      },
+      "Product": {
+        "type": "object",
+        "description": "Products — declared by the Product entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "title": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "archived"
+            ],
+            "nullable": true
+          },
+          "vendor": {
+            "type": "string",
+            "nullable": true
+          },
+          "productType": {
+            "type": "string",
+            "nullable": true
+          },
+          "sku": {
+            "type": "string",
+            "nullable": true
+          },
+          "price": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "compareAtPrice": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "inventoryQuantity": {
+            "type": "integer",
+            "nullable": true
+          },
+          "optionNames": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "categoryId": {
+            "type": "string",
+            "description": "Id of a TaxonomyCategory.",
+            "nullable": true
+          },
+          "publishedChannels": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ProductVariant": {
+        "type": "object",
+        "description": "ProductVariants — declared by the ProductVariant entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of a Product.",
+            "nullable": true
+          },
+          "sku": {
+            "type": "string",
+            "nullable": true
+          },
+          "optionValues": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "price": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "compareAtPrice": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "inventoryQuantity": {
+            "type": "integer",
+            "nullable": true
+          },
+          "position": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Collection": {
+        "type": "object",
+        "description": "Collections — declared by the Collection entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "title": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "automated"
+            ],
+            "nullable": true
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "nullable": true
+          },
+          "conditions": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "exclusions": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "productIds": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "sortOrder": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "best-selling",
+              "title-asc",
+              "title-desc",
+              "price-asc",
+              "price-desc",
+              "created-desc"
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "description": "Customers — declared by the Customer entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "invited",
+              "active",
+              "declined"
+            ],
+            "nullable": true
+          },
+          "emailConsent": {
+            "type": "string",
+            "enum": [
+              "subscribed",
+              "not-subscribed",
+              "pending",
+              "unknown"
+            ],
+            "nullable": true
+          },
+          "smsConsent": {
+            "type": "string",
+            "enum": [
+              "subscribed",
+              "not-subscribed",
+              "pending",
+              "unknown"
+            ],
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxExempt": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "ordersCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "totalSpent": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "defaultAddress": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Segment": {
+        "type": "object",
+        "description": "Segments — declared by the Segment entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "name": {
+            "type": "string"
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any"
+            ],
+            "nullable": true
+          },
+          "conditions": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Request": {
+        "type": "object",
+        "description": "Requests — declared by the Request entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Id of a Customer.",
+            "nullable": true
+          },
+          "contactEmail": {
+            "type": "string",
+            "nullable": true
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "submitted",
+              "quoted",
+              "accepted",
+              "declined",
+              "expired",
+              "cancelled"
+            ],
+            "nullable": true
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true
+          },
+          "lineCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "subtotal": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string",
+                "example": "19.99",
+                "description": "Exact decimal, never a float."
+              },
+              "currency": {
+                "type": "string",
+                "example": "USD",
+                "description": "ISO 4217."
+              }
+            },
+            "required": [
+              "amount",
+              "currency"
+            ],
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "quoteExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "respondedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "description": "Pages — declared by the Page entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "title": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ],
+            "nullable": true
+          },
+          "templateSuffix": {
+            "type": "string",
+            "nullable": true
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MetaobjectDefinition": {
+        "type": "object",
+        "description": "MetaobjectDefinitions — declared by the MetaobjectDefinition entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "fields": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "displayNameKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MetaobjectEntry": {
+        "type": "object",
+        "description": "MetaobjectEntries — declared by the MetaobjectEntry entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "definitionId": {
+            "type": "string",
+            "description": "Id of a MetaobjectDefinition.",
+            "nullable": true
+          },
+          "handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "values": {
+            "description": "Arbitrary JSON declared by the module."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ],
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Location": {
+        "type": "object",
+        "description": "Locations — declared by the Location entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "countryCode": {
+            "type": "string"
+          },
+          "fulfilsOrders": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "archivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InventoryLevel": {
+        "type": "object",
+        "description": "InventoryLevels — declared by the InventoryLevel entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "locationId": {
+            "type": "string",
+            "description": "Id of a Location.",
+            "nullable": true
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of a Product.",
+            "nullable": true
+          },
+          "variantId": {
+            "type": "string",
+            "description": "Id of a ProductVariant.",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "sku": {
+            "type": "string",
+            "nullable": true
+          },
+          "onHand": {
+            "type": "integer",
+            "nullable": true
+          },
+          "committed": {
+            "type": "integer",
+            "nullable": true
+          },
+          "incoming": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "PurchaseOrder": {
+        "type": "object",
+        "description": "PurchaseOrders — declared by the PurchaseOrder entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "supplierName": {
+            "type": "string"
+          },
+          "destinationLocationId": {
+            "type": "string",
+            "description": "Id of a Location.",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "ordered",
+              "partial",
+              "received",
+              "cancelled"
+            ],
+            "nullable": true
+          },
+          "expectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lineCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Transfer": {
+        "type": "object",
+        "description": "Transfers — declared by the Transfer entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "reference": {
+            "type": "string",
+            "nullable": true
+          },
+          "originLocationId": {
+            "type": "string",
+            "description": "Id of a Location.",
+            "nullable": true
+          },
+          "destinationLocationId": {
+            "type": "string",
+            "description": "Id of a Location.",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "in-transit",
+              "received",
+              "cancelled"
+            ],
+            "nullable": true
+          },
+          "lineCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "permission": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Bearer token whose granted permissions must include the operation's."
+      }
+    }
+  },
+  "paths": {
+    "/2026-01/catalog/products": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List products",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of products.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Product"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "POST /products",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/products/{id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get one product",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Product"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "PATCH /products/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "DELETE /products/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/variants": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List productvariants",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of productvariants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/ProductVariant"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/variants/{id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get one productvariant",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ProductVariant"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/collections": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List collections",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of collections.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Collection"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "POST /collections",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/collections/{id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get one collection",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Collection"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "PATCH /collections/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/customers/customers": {
+      "get": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "List customers",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of customers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Customer"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "POST /customers",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/customers/customers/{id}": {
+      "get": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "Get one customer",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Customer"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "PATCH /customers/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/customers/segments": {
+      "get": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "List segments",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of segments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Segment"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/customers/segments/{id}": {
+      "get": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "Get one segment",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Segment"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "List requests",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Request"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get one request",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Request"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/content/pages": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "List pages",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of pages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Page"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "POST /pages",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/pages/{id}": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Get one page",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Page"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "content"
+        ],
+        "summary": "PATCH /pages/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobject-definitions": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "List metaobjectdefinitions",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of metaobjectdefinitions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/MetaobjectDefinition"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "POST /metaobject-definitions",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.definitions.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobject-definitions/{id}": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Get one metaobjectdefinition",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/MetaobjectDefinition"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "content"
+        ],
+        "summary": "PATCH /metaobject-definitions/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.definitions.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobjects": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "List metaobjectentries",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of metaobjectentries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/MetaobjectEntry"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "POST /metaobjects",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobjects/{id}": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Get one metaobjectentry",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/MetaobjectEntry"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "content"
+        ],
+        "summary": "PATCH /metaobjects/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/locations": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "List locations",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of locations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Location"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/locations/{id}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Get one location",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Location"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/inventory": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "List inventorylevels",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of inventorylevels.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/InventoryLevel"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/inventory/{id}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Get one inventorylevel",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/InventoryLevel"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "List purchaseorders",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of purchaseorders.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PurchaseOrder"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /purchase-orders",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders/{id}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Get one purchaseorder",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/PurchaseOrder"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "PATCH /purchase-orders/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "List transfers",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of transfers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Transfer"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /transfers",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers/{id}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Get one transfer",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Transfer"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "PATCH /transfers/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/products/{id}/detail": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "GET /products/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/products/{id}/publish": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "POST /products/:id/publish",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.publish"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/products/{id}/options": {
+      "put": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "PUT /products/:id/options",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/products/{id}/variants": {
+      "patch": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "PATCH /products/:id/variants",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/collections/{id}/detail": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "GET /collections/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/collections/{id}/rules": {
+      "put": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "PUT /collections/:id/rules",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.write"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/customers/customers/{id}/detail": {
+      "get": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "GET /customers/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/customers/customers/{id}/consent": {
+      "post": {
+        "tags": [
+          "customers"
+        ],
+        "summary": "POST /customers/:id/consent",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "customers.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/detail": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "GET /requests/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/lines": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/lines",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/lines/{lineId}": {
+      "delete": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "DELETE /requests/:id/lines/:lineId",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/lines/{lineId}/quote": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/lines/:lineId/quote",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.quote"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/submit": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/submit",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/quote": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/quote",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.quote"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/accept": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/accept",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/decline": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/decline",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/orders/requests/{id}/cancel": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "POST /requests/:id/cancel",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "orders.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/locations/active": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "GET /locations/active",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/inventory/adjust": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /inventory/adjust",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.adjust"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/inventory/{id}/history": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "GET /inventory/:id/history",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders/{id}/detail": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "GET /purchase-orders/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders/{id}/place": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /purchase-orders/:id/place",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders/{id}/receive": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /purchase-orders/:id/receive",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/purchase-orders/{id}/cancel": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /purchase-orders/:id/cancel",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers/{id}/detail": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "GET /transfers/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers/{id}/ship": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /transfers/:id/ship",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers/{id}/receive": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /transfers/:id/receive",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/inventory/transfers/{id}/cancel": {
+      "post": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "POST /transfers/:id/cancel",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "inventory.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/pages/{id}/detail": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "GET /pages/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/pages/{id}/status": {
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "POST /pages/:id/status",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.publish"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobject-definitions/{id}/detail": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "GET /metaobject-definitions/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobject-definitions/{id}/entries": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "GET /metaobject-definitions/:id/entries",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/metaobjects/{id}/detail": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "GET /metaobjects/:id/detail",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    }
+  }
+}

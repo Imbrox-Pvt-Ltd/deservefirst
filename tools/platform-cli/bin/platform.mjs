@@ -17,6 +17,7 @@ import { listModules } from '../../fitness/src/structure.mjs';
 import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
 import { listModuleStates, setModuleState } from '../src/module-state.mjs';
+import { writeApiDocument } from '../src/api-docs.mjs';
 import { seed } from '../src/seed.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
@@ -53,6 +54,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('module:enable')} <mod>    Make a module available again  [--store=handle]
   ${cyan('module:disable')} <mod>   Take a module away             [--store=handle] --reason=".."
   ${cyan('module:states')}          Show what is enabled, and where the decision was made
+  ${cyan('docs:api')}              Regenerate the API reference from the declarations
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
 ${dim('you name. `check` is what blocks a merge, so run it before you push.')}
@@ -179,6 +181,23 @@ function ci() {
     () => run('pnpm', ['-r', 'run', 'build'], 'build'),
     typecheck,
     () => {
+      // Regenerated here so `api-reference-current` compares against a fresh
+      // build; the rule then reports whether the COMMITTED copy matched.
+      console.log(`\n${cyan('docs:api')}`);
+      try {
+        const result = writeApiDocument(ROOT);
+        console.log(dim(`  ${result.operations} operations, ${result.schemas} schemas`));
+        if (result.changed) {
+          console.error(red('  The committed reference was stale — commit docs/api/openapi.json.'));
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error(red(`  ${error.message}`));
+        return false;
+      }
+    },
+    () => {
       const report = runFitness(ROOT);
       console.log(`\n${cyan('fitness')}`);
       console.log(formatReport(report));
@@ -233,6 +252,22 @@ switch (command) {
         console.error(red(`\ndb:sync failed: ${error.message}`));
         process.exit(1);
       });
+    break;
+  }
+  case 'docs:api': {
+    try {
+      const result = writeApiDocument(ROOT);
+      console.log(
+        green(
+          `\n${result.changed ? 'Updated' : 'Unchanged'}: ${result.path} — ` +
+            `${result.operations} operations, ${result.schemas} schemas.`,
+        ),
+      );
+      if (result.changed) console.log(dim('  Commit it: the reference travels with the change.'));
+    } catch (error) {
+      console.error(red(`\ndocs:api failed: ${error.message}`));
+      process.exit(1);
+    }
     break;
   }
   case 'module:enable':

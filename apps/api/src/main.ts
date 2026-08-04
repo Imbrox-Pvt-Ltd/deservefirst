@@ -41,6 +41,7 @@ import {
   type Page,
 } from './modules/content/domain';
 import { bootstrap, newRequestId } from './composition-root';
+import { generateOpenApi } from './describe';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
   moneyFromDecimalString,
@@ -54,6 +55,9 @@ import {
 
 /** Dated API version (§13.6). */
 const API_VERSION = '2026-01';
+
+/** What the reference tells an integrator to call. */
+const PUBLIC_API_URL = process.env.PUBLIC_API_URL ?? 'https://api.deservefirst.example';
 
 async function start(): Promise<void> {
   const platform = await bootstrap();
@@ -150,6 +154,16 @@ async function start(): Promise<void> {
       { requestId: contextFor(request as never).requestId },
     ),
   );
+
+  /**
+   * The API reference, built from the same declarations the routes come from.
+   * Served as well as committed: an integrator asks the deployment they are
+   * actually calling, not a file in a repository they cannot see.
+   */
+  app.get(`/${API_VERSION}/platform/openapi.json`, async (request) => {
+    void request;
+    return generateOpenApi(API_VERSION, PUBLIC_API_URL);
+  });
 
   app.get(`/${API_VERSION}/platform/settings`, async (request) =>
     success(
