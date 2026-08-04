@@ -13,7 +13,14 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 
-import type { ResolvedSettingDto, SettingDto, SettingSource } from '../lib/types';
+import type {
+  ResolvedSettingDto,
+  SettingDto,
+  SettingSource,
+  WebhookDeliveryDto,
+  WebhookSubscriptionDto,
+} from '../lib/types';
+import { WebhookSettings } from './WebhookSettings';
 import { resetSetting, saveSetting } from '../app/actions/settings';
 import {
   Badge,
@@ -38,6 +45,10 @@ export interface StoreSettingsProps {
   readonly contributed: readonly SettingDto[];
   /** Each declared setting's resolved value, and which level supplied it. */
   readonly effective: readonly ResolvedSettingDto[];
+  readonly subscriptions: readonly WebhookSubscriptionDto[];
+  readonly deliveries: readonly WebhookDeliveryDto[];
+  readonly eventTypes: readonly string[];
+  readonly canManage: boolean;
 }
 
 /** Core settings that exist regardless of which modules are installed. */
@@ -77,6 +88,10 @@ export function StoreSettings({
   organizationName,
   storeCount,
   section,
+  subscriptions,
+  deliveries,
+  eventTypes,
+  canManage,
   contributed,
   effective,
 }: StoreSettingsProps) {
@@ -162,7 +177,17 @@ export function StoreSettings({
         </Banner>
       ) : null}
 
-      {bySection.size === 0 ? (
+      {section === 'notifications' ? (
+        <WebhookSettings
+          handle={handle}
+          subscriptions={subscriptions}
+          deliveries={deliveries}
+          eventTypes={eventTypes}
+          canManage={canManage}
+        />
+      ) : null}
+
+      {bySection.size === 0 && section !== 'notifications' ? (
         <SettingsCard title={sectionTitle(section)}>
           <Text as="p" tone="subdued">
             No settings are contributed to this section yet. Modules declare a settings schema

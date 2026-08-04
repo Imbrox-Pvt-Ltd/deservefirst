@@ -14,6 +14,7 @@ export * from './entitlements/entitlements.service';
 export * from './rate-limit/rate-limiter';
 export * from './dashboard';
 export * from './docs';
+export * from './webhooks';
 export * from './http';
 export * from './adapters';
 export * from './entity-toolkit';

@@ -481,6 +481,9 @@ async function start(): Promise<void> {
     }),
   );
 
+  // --- outbound webhooks -----------------------------------------------------
+  // Registered by the store, delivered by the platform (§31.9).
+
   // --- generic read surface -------------------------------------------------
   // Every REST-exposed resource gets list and get from its declaration alone.
   // Writes stay module-owned: a generic writer would be a way around the domain.
@@ -764,7 +767,25 @@ async function start(): Promise<void> {
     `API listening on :${port} — ${platform.registry.enabled().length} modules, ${platform.routes.length} routes, ${platform.dialect.name}`,
   );
 
+  /**
+   * Sends what is due, every few seconds.
+   *
+   * In-process is honest for one node and wrong for several: two would both
+   * claim the same due rows and deliver twice. The fix when that day comes is a
+   * claim on the row (SELECT … FOR UPDATE SKIP LOCKED), not a bigger interval —
+   * writing that down here because "it worked on one box" is exactly how
+   * duplicate deliveries reach production.
+   */
+  const drainTimer = setInterval(() => {
+    void platform.drainWebhooks().catch((error: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error('[webhooks] drain failed', error);
+    });
+  }, 5_000);
+  drainTimer.unref();
+
   const shutdown = async () => {
+    clearInterval(drainTimer);
     await app.close();
     await platform.shutdown();
     process.exit(0);

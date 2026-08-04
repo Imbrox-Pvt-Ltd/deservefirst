@@ -9,7 +9,7 @@
  * Layer: tooling.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { API_DOC_PATH, apiDocumentIsCurrent } from '../../platform-cli/src/api-docs.mjs';
@@ -47,4 +47,52 @@ export const apiReferenceCurrent = {
   },
 };
 
-export const docsRules = [apiReferenceCurrent];
+/**
+ * Every controller the server mounts is also one the reference describes.
+ *
+ * There are two lists of controllers by necessity: the composition root builds
+ * them with real services, and describe.ts builds them with stubs so the docs
+ * can be generated without a database. Nothing forced the two to agree, and
+ * when they disagreed the failure was silent in the worst direction — the
+ * endpoint worked, so nobody noticed it was missing from the reference until an
+ * integrator asked where it was. `api-reference-current` cannot catch this: a
+ * route absent from BOTH the document and the generator is perfectly current.
+ */
+export const controllersAreDescribed = {
+  name: 'controllers-are-described',
+  description: 'Every controller the server mounts appears in describe.ts (§26.2)',
+  run(_sources, rootDir) {
+    const read = (path) => {
+      const full = join(rootDir, path);
+      return existsSync(full) ? readFileSync(full, 'utf8') : null;
+    };
+
+    const composition = read('apps/api/src/composition-root.ts');
+    const describe = read('apps/api/src/describe.ts');
+    if (!composition || !describe) return [];
+
+    // Controllers are constructed as `xController({` or `xController(unused)`,
+    // always suffixed `Controller` by the naming rule the skeleton enforces.
+    const named = (source) =>
+      new Set([...source.matchAll(/\b([a-zA-Z][\w]*Controller)\s*\(/g)].map((match) => match[1]));
+
+    const mounted = named(composition);
+    const described = named(describe);
+
+    const lines = composition.split('\n');
+    return [...mounted]
+      .filter((name) => !described.has(name))
+      // Reported against the mount, which is the line that exists and can be
+      // navigated to; the fix is one line in describe.ts and the message says so.
+      .map((name) => ({
+        file: 'apps/api/src/composition-root.ts',
+        line: lines.findIndex((line) => line.includes(`${name}(`)) + 1,
+        rule: 'controllers-are-described',
+        message:
+          `${name} is mounted here but never built in describe.ts, so none of its ` +
+          'routes reach the API reference. Add `' + name + '(unused)` there.',
+      }));
+  },
+};
+
+export const docsRules = [apiReferenceCurrent, controllersAreDescribed];

@@ -6944,6 +6944,380 @@
           }
         }
       }
+    },
+    "/2026-01/platform/webhook-events": {
+      "get": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "GET /webhook-events",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.settings.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/platform/webhooks": {
+      "get": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "GET /webhooks",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.settings.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "POST /webhooks",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.webhooks.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/platform/webhooks/{id}": {
+      "delete": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "DELETE /webhooks/:id",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.webhooks.manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/platform/webhook-deliveries": {
+      "get": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "GET /webhook-deliveries",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.settings.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/platform/webhook-deliveries/{id}/replay": {
+      "post": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "POST /webhook-deliveries/:id/replay",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.webhooks.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/platform/webhook-deliveries/drain": {
+      "post": {
+        "tags": [
+          "platform"
+        ],
+        "summary": "POST /webhook-deliveries/drain",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.webhooks.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
     }
   }
 }

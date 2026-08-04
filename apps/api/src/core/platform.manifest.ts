@@ -72,6 +72,41 @@ export const platformManifest: ModuleManifest = {
       ],
     },
     {
+      // Registered by a store; delivered to by the platform. Store-scoped,
+      // because who receives a store's events is the store's business.
+      name: 'WebhookSubscription',
+      tableName: 'webhook_subscriptions',
+      toolkit: OPERATOR_TOOLKIT,
+      fields: [
+        { name: 'eventType', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'url', type: 'string', required: true },
+        // Never returned after creation — see the service.
+        { name: 'secret', type: 'string', required: true, visibility: 'private' },
+        { name: 'status', type: 'enum', values: ['active', 'paused', 'disabled'], filterable: true },
+        { name: 'consecutiveFailures', type: 'integer' },
+        { name: 'disabledReason', type: 'text' },
+      ],
+    },
+    {
+      // The outbox. Rows are written before anything is sent and KEPT after —
+      // the history is the answer to "we never received it".
+      name: 'WebhookDelivery',
+      tableName: 'webhook_deliveries',
+      toolkit: { ...OPERATOR_TOOLKIT, timeline: false, softDelete: false },
+      fields: [
+        { name: 'subscriptionId', type: 'reference', references: 'WebhookSubscription', indexed: true },
+        { name: 'eventId', type: 'string', indexed: true, filterable: true },
+        { name: 'eventType', type: 'string', indexed: true, filterable: true },
+        { name: 'payload', type: 'text' },
+        { name: 'status', type: 'enum', values: ['pending', 'delivered', 'failed', 'dead'], filterable: true },
+        { name: 'attempts', type: 'integer' },
+        { name: 'responseStatus', type: 'integer' },
+        { name: 'error', type: 'text' },
+        { name: 'nextAttemptAt', type: 'datetime', indexed: true, sortable: true },
+        { name: 'deliveredAt', type: 'datetime', sortable: true },
+      ],
+    },
+    {
       name: 'PlatformSetting',
       tableName: 'platform_settings',
       scope: 'platform',
@@ -99,6 +134,12 @@ export const platformManifest: ModuleManifest = {
       description:
         'Turn a module off for every store at once. This overrides every store setting and cannot be undone from a store.',
       categories: ['organization'],
+    },
+    {
+      key: 'store.webhooks.manage',
+      label: 'Manage webhook endpoints',
+      description: 'Register where this store\'s events are delivered, and replay a delivery.',
+      categories: ['organization', 'store'],
     },
     {
       key: 'platform.settings.manage',

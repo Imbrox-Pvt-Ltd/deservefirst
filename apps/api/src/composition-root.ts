@@ -27,6 +27,7 @@ import {
   type SessionIdentity,
 } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
+import { requireStoreContext, withRequestContext } from './core/tenant-context';
 import {
   CacheService,
   DashboardService,
@@ -43,7 +44,12 @@ import {
   QueryGuard,
   RateLimiter,
   SettingsService,
+  SqlWebhookDeliveryRepository,
+  SqlWebhookSubscriptionRepository,
+  WebhookDeliveryService,
   buildRouteRegistry,
+  httpTransport,
+  webhooksController,
   createToolkitPorts,
   dialectFor,
   guardExecutor,
@@ -107,6 +113,18 @@ export interface Platform {
   readonly settings: SettingsService;
   /** Home and the other slots, composed from what the modules contribute. */
   readonly dashboard: DashboardService;
+  readonly webhooks: WebhookDeliveryService;
+  /**
+   * Sends what is due, across every store.
+   *
+   * Runs in a PLATFORM-scoped context, which is the escape hatch the tenant
+   * guard already defines for exactly this: background work that legitimately
+   * spans tenants (§14.2). Wrapping it here rather than loosening the guard
+   * keeps the rule intact and makes the one place that crosses stores visible.
+   */
+  drainWebhooks(limit?: number): Promise<{ attempted: number; delivered: number; dead: number }>;
+  readonly webhookSubscriptions: SqlWebhookSubscriptionRepository;
+  readonly webhookDeliveries: SqlWebhookDeliveryRepository;
   readonly identity: SqlIdentityRepository;
   readonly auth: AuthService;
   /**
@@ -372,9 +390,70 @@ export async function bootstrap(): Promise<Platform> {
     isModuleAvailable: (storeId, moduleId) => moduleState.isEnabledForStore(storeId, moduleId),
   });
 
+  /**
+   * Outbound webhooks.
+   *
+   * Subscribed to EVERY event type any module declares as emitted, so a module
+   * gets an integration surface by declaring an event rather than by knowing
+   * webhooks exist (§31.9). Delivery is recorded here and sent on the drain, so
+   * a slow receiver never makes a merchant's save slow.
+   */
+  const webhookSubscriptions = new SqlWebhookSubscriptionRepository(executor, dialect);
+  const webhookDeliveries = new SqlWebhookDeliveryRepository(executor, dialect);
+  const webhooks = new WebhookDeliveryService({
+    subscriptions: webhookSubscriptions,
+    deliveries: webhookDeliveries,
+    transport: httpTransport(),
+  });
+
+  for (const entry of registry.events()) {
+    if (entry.item.direction !== 'emits') continue;
+    events.subscribe('core.webhooks', entry.item.type, async (envelope) => {
+      const storeId = requireStoreContext('core.webhooks').storeId;
+      await webhooks.enqueue({
+        storeId,
+        eventId: envelope.id,
+        eventType: envelope.type,
+        occurredAt: envelope.occurredAt,
+        payload: envelope.payload,
+      });
+    });
+  }
+
   // 5. Compose the API surface. Throws on collision rather than picking a winner.
   composeApiRoutes(registry);
   const routes = buildRouteRegistry(registry);
+
+  /**
+   * Sends what is due, across every store.
+   *
+   * Runs in a PLATFORM-scoped context, which is the escape hatch the tenant
+   * guard already defines for exactly this: background work that legitimately
+   * spans tenants. Wrapping it here rather than loosening the guard keeps the
+   * rule intact and makes the one place that crosses stores visible.
+   */
+  const drainWebhooks = (limit?: number) =>
+    withRequestContext(
+      {
+        requestId: randomUUID(),
+        correlationId: randomUUID(),
+        actorType: 'system',
+        userId: null,
+        organizationId: null,
+        businessEntityId: null,
+        storeId: null,
+        partnerId: null,
+        accessType: 'platform',
+        roleKeys: [],
+        permissions: [],
+        supportSessionId: null,
+        entitlementsHash: null,
+        locale: 'en-US',
+        timeZone: 'UTC',
+        shardKey: null,
+      },
+      () => webhooks.drain(limit),
+    );
 
   return {
     registry,
@@ -388,6 +467,10 @@ export async function bootstrap(): Promise<Platform> {
     moduleState,
     settings,
     dashboard,
+    webhooks,
+    drainWebhooks,
+    webhookSubscriptions,
+    webhookDeliveries,
     identity,
     auth,
 
@@ -496,6 +579,17 @@ export async function bootstrap(): Promise<Platform> {
       contentController({
         pages: new PageService(pageRecords, pageToolkit),
         metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
+      }),
+      // Core's own routes go through the same door as a module's, so they are
+      // authorised the same way and — the reason this matters — appear in the
+      // generated API reference. A hand-registered endpoint does not.
+      webhooksController({
+        registry,
+        moduleState,
+        deliveries: webhookDeliveries,
+        subscriptions: webhookSubscriptions,
+        webhooks,
+        drainWebhooks,
       }),
     ],
     routes,

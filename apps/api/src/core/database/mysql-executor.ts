@@ -13,6 +13,8 @@ import type { GuardableExecutor } from '../tenant-context/query-guard';
 export interface MysqlPool {
   query(sql: string, values?: readonly unknown[]): Promise<[unknown, unknown]>;
   end(): Promise<void>;
+  /** Fires for each new physical connection, so per-session state can be set. */
+  on(event: 'connection', listener: (connection: { query(sql: string): unknown }) => void): void;
 }
 
 export interface MysqlExecutorOptions {
@@ -71,7 +73,7 @@ export async function createMysqlPool(url: string): Promise<MysqlPool> {
   };
 
   const parsed = new URL(url);
-  return mysql.createPool({
+  const pool = mysql.createPool({
     host: parsed.hostname,
     port: parsed.port ? Number(parsed.port) : 3306,
     user: decodeURIComponent(parsed.username),
@@ -84,6 +86,27 @@ export async function createMysqlPool(url: string): Promise<MysqlPool> {
     supportBigNumbers: true,
     bigNumberStrings: true,
     dateStrings: false,
+    // Every Date the driver writes is converted to UTC, and every DATETIME it
+    // reads is interpreted as UTC. That round-trips correctly on its own — see
+    // the session time zone below for the half it does NOT cover.
     timezone: 'Z',
   });
+
+  /**
+   * Forces the SERVER's clock into UTC too, per connection.
+   *
+   * `timezone: 'Z'` only governs values the driver marshals. Columns defaulted
+   * to CURRENT_TIMESTAMP are filled in by the server, in the server's local
+   * zone — so on any host that is not UTC, `created_at` was written in local
+   * time and then read back as though it were UTC. The two kinds of timestamp
+   * silently disagreed by the offset, which matters most where they are
+   * compared: keyset pagination pages on `created_at` against a cursor the
+   * driver supplied, so a non-UTC host skipped or repeated a page's worth of
+   * rows at the boundary. Pinning the session makes both halves UTC.
+   */
+  pool.on('connection', (connection) => {
+    connection.query("SET time_zone = '+00:00'");
+  });
+
+  return pool;
 }

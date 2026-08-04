@@ -6,14 +6,18 @@
  * Layer: web.
  */
 
-import { apiFetch } from '../../../../../lib/api';
-import { StoreSettings } from '../../../../../components/StoreSettings';
-import type { ResolvedSettingDto, SettingDto } from '../../../../../lib/types';
+import { redirect } from 'next/navigation';
 
-const STORES: Record<string, { id: string; name: string }> = {
-  'acme-us': { id: 'seed-store-us', name: 'Acme US' },
-  'acme-in': { id: 'seed-store-in', name: 'Acme India' },
-};
+import { apiFetch } from '../../../../../lib/api';
+import { currentSession } from '../../../../../lib/stores';
+import { StoreSettings } from '../../../../../components/StoreSettings';
+import type {
+  ResolvedSettingDto,
+  SettingDto,
+  WebhookDeliveryDto,
+  WebhookEventDto,
+  WebhookSubscriptionDto,
+} from '../../../../../lib/types';
 
 export default async function SettingsPage({
   params,
@@ -21,8 +25,15 @@ export default async function SettingsPage({
   params: Promise<{ handle: string; section?: string[] }>;
 }) {
   const { handle, section } = await params;
-  const store = STORES[handle] ?? STORES['acme-us']!;
   const active = section?.[0] ?? 'general';
+
+  const session = await currentSession();
+  if (!session) redirect('/login');
+
+  const store = session.stores.find((entry) => entry.handle === handle);
+  // A handle this operator has no membership for is a 404 to them, not a
+  // silent fallback to whichever store happens to be first.
+  if (!store) redirect('/');
 
   let contributed: SettingDto[] = [];
   let effective: ResolvedSettingDto[] = [];
@@ -43,15 +54,41 @@ export default async function SettingsPage({
     effective = [];
   }
 
+  // Fetched only for the section that shows them. Every section paying for the
+  // delivery log is three wasted round trips on the eighteen that never use it.
+  let subscriptions: WebhookSubscriptionDto[] = [];
+  let deliveries: WebhookDeliveryDto[] = [];
+  let eventTypes: string[] = [];
+  if (active === 'notifications') {
+    try {
+      const [subs, dels, events] = await Promise.all([
+        apiFetch<WebhookSubscriptionDto[]>('/platform/webhooks'),
+        apiFetch<WebhookDeliveryDto[]>('/platform/webhook-deliveries'),
+        apiFetch<WebhookEventDto[]>('/platform/webhook-events'),
+      ]);
+      subscriptions = subs.data;
+      deliveries = dels.data;
+      eventTypes = events.data.map((event) => event.type);
+    } catch {
+      subscriptions = [];
+      deliveries = [];
+      eventTypes = [];
+    }
+  }
+
   return (
     <StoreSettings
       handle={handle}
       storeName={store.name}
       organizationName="Acme Group"
-      storeCount={Object.keys(STORES).length}
+      storeCount={session.stores.length}
       section={active}
       contributed={contributed}
       effective={effective}
+      subscriptions={subscriptions}
+      deliveries={deliveries}
+      eventTypes={eventTypes}
+      canManage={session.permissions.includes('store.webhooks.manage')}
     />
   );
 }

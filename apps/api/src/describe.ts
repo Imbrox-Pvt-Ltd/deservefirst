@@ -25,6 +25,7 @@ import { contentController } from './modules/content/api/content.controller';
 import { customersController } from './modules/customers/api/customers.controller';
 import { inventoryController } from './modules/inventory/api/inventory.controller';
 import { ordersController } from './modules/orders/api/orders.controller';
+import { webhooksController } from './core/webhooks/webhooks.controller';
 
 /**
  * Stands in for a module's services while its routes are read.
@@ -71,6 +72,9 @@ export function describePlatform(): {
       ordersController(unused),
       inventoryController(unused),
       contentController(unused),
+      // Core contributes routes too, and they are the ones an integrator needs
+      // most — they are how a partner receives anything at all.
+      webhooksController(unused),
     ],
   };
 }

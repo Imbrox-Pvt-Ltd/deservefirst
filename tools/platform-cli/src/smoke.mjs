@@ -50,7 +50,7 @@ export function navigationDestinations(rootDir, handle) {
   const navDist = join(rootDir, 'packages/ui/dist/navigation.js');
   if (!existsSync(navDist)) return [];
 
-  const { composeNavigation } = require(navDist);
+  const { composeNavigation, SETTINGS_NAV } = require(navDist);
   const contributed = [];
 
   const modulesDir = join(rootDir, 'apps/api/dist/modules');
@@ -96,6 +96,14 @@ export function navigationDestinations(rootDir, handle) {
     // fitness rule covers those statically; this walks what can be opened cold.
     if (resolved.includes(':')) continue;
     paths.add(resolved);
+  }
+
+  // Every settings section is its own shareable URL (§8.5), so every one of them
+  // is a screen that can be opened cold and has to render. They were skipped
+  // here because they are not navigation entries — which meant the whole
+  // settings surface, nineteen destinations, was never walked at all.
+  for (const section of SETTINGS_NAV) {
+    paths.add(`/store/${handle}/settings/${section.id}`);
   }
 
   return [...paths].sort();
@@ -158,7 +166,11 @@ async function chooseStore(apiUrl, cookie, storeId) {
 }
 
 export async function smoke(rootDir, options = {}) {
-  const baseUrl = (options.baseUrl ?? 'http://127.0.0.1:4100').replace(/\/$/, '');
+  // 3000 because that is the port `apps/web` actually serves — see its dev and
+  // start scripts. This defaulted to 4100, which nothing has ever listened on,
+  // so a bare `platform smoke` reported all 33 destinations broken and the
+  // honest reading of that was "the admin is down".
+  const baseUrl = (options.baseUrl ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
   const apiUrl = (options.apiUrl ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
   const handle = options.handle ?? 'acme-us';
   const cookie = await signIn(

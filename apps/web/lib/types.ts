@@ -353,3 +353,36 @@ export interface CompanyDto {
   readonly contacts: readonly CompanyContactDto[];
   readonly version: number;
 }
+
+export interface WebhookSubscriptionDto {
+  readonly id: string;
+  readonly eventType: string;
+  readonly url: string;
+  readonly status: 'active' | 'paused' | 'disabled';
+  readonly consecutiveFailures: number;
+  readonly disabledReason: string | null;
+  readonly version: number;
+  /** Present only on the create response — see the actions file. */
+  readonly secret?: string;
+}
+
+export interface WebhookDeliveryDto {
+  readonly id: string;
+  readonly subscriptionId: string;
+  /** Stable across retries, so a receiver can deduplicate on it. */
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly status: 'pending' | 'delivered' | 'failed' | 'dead';
+  readonly attempts: number;
+  readonly responseStatus: number | null;
+  readonly error: string | null;
+  readonly nextAttemptAt: string | null;
+  readonly deliveredAt: string | null;
+}
+
+export interface WebhookEventDto {
+  readonly type: string;
+  readonly label: string;
+  readonly description: string | null;
+  readonly moduleId: string;
+}
