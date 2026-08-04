@@ -37,6 +37,7 @@ import {
   type SqlDialect,
 } from './core';
 import { catalogManifest } from './modules/catalog/catalog.manifest';
+import { customersManifest } from './modules/customers/customers.manifest';
 import { ProductService } from './modules/catalog/application';
 import { createToolkitPorts, ProductRepositoryImpl } from './modules/catalog/infrastructure';
 
@@ -65,6 +66,7 @@ export async function bootstrap(): Promise<Platform> {
   const registry = new ModuleRegistry();
   registry.register(authManifest);
   registry.register(catalogManifest);
+  registry.register(customersManifest);
   registry.seal();
 
   // 2. Database. The dialect follows the URL scheme, so moving to Postgres is a

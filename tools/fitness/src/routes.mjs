@@ -113,30 +113,91 @@ export const routeCoherence = {
   },
 };
 
+/**
+ * Splits a path into segments and marks which are parameters, so two routes can
+ * be compared for shadowing rather than only for exact equality.
+ */
+function segmentsOf(path) {
+  return path.split('/').filter(Boolean).map((segment) => ({
+    literal: segment.startsWith(':') ? null : segment,
+    isParam: segment.startsWith(':'),
+  }));
+}
+
+/**
+ * Whether `pattern` would swallow `candidate` — same arity, and every segment
+ * either matches literally or is a parameter in the pattern.
+ */
+function shadows(pattern, candidate) {
+  const a = segmentsOf(pattern);
+  const b = segmentsOf(candidate);
+  if (a.length !== b.length) return false;
+  if (pattern === candidate) return false;
+
+  let strictlyMoreGeneral = false;
+
+  for (let index = 0; index < a.length; index += 1) {
+    const segment = a[index];
+    const other = b[index];
+
+    if (segment.isParam) {
+      // A parameter matches anything, including another parameter — two params
+      // in the same position are equivalent, not a conflict. Shadowing only
+      // happens where the pattern is a param and the candidate is a literal.
+      if (!other.isParam) strictlyMoreGeneral = true;
+      continue;
+    }
+
+    // A literal in the pattern must match exactly, or the paths never overlap.
+    if (segment.literal !== other.literal) return false;
+  }
+
+  return strictlyMoreGeneral;
+}
+
 /** No two modules may claim the same path — routing would become order-dependent. */
 export const routeCollisions = {
   name: 'route-collisions',
-  description: 'No two modules claim the same route path (§24.5)',
+  description: 'No two modules claim or shadow the same route path (§24.5)',
   run(_sources, rootDir) {
     const violations = [];
     const manifests = loadManifests(rootDir);
     const owners = new Map();
+    const all = [];
 
     for (const manifest of manifests) {
+      const file = `apps/api/src/modules/${manifest.id}/${manifest.id}.manifest.ts`;
       for (const route of manifest.routes ?? []) {
         const existing = owners.get(route.path);
         if (existing && existing !== manifest.id) {
           violations.push(
-            violation(
-              `apps/api/src/modules/${manifest.id}/${manifest.id}.manifest.ts`,
-              1,
-              'route-collisions',
-              `"${route.path}" is claimed by both "${existing}" and "${manifest.id}"`,
-            ),
+            violation(file, 1, 'route-collisions', `"${route.path}" is claimed by both "${existing}" and "${manifest.id}"`),
           );
         } else {
           owners.set(route.path, manifest.id);
         }
+        all.push({ moduleId: manifest.id, path: route.path, file });
+      }
+    }
+
+    // Shadowing across modules: "/customers/:id" from one module swallows
+    // "/customers/segments" from another, and whether the literal route is
+    // reachable then depends on the router's precedence rules rather than on
+    // anything either author declared. Within a single module this is a normal,
+    // well-understood pattern, so only cross-module shadowing is reported.
+    for (const pattern of all) {
+      for (const candidate of all) {
+        if (pattern.moduleId === candidate.moduleId) continue;
+        if (!shadows(pattern.path, candidate.path)) continue;
+
+        violations.push(
+          violation(
+            candidate.file,
+            1,
+            'route-collisions',
+            `"${candidate.path}" is shadowed by "${pattern.path}" from module "${pattern.moduleId}" — reachability would depend on router precedence`,
+          ),
+        );
       }
     }
 
