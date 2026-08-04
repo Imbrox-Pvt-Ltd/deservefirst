@@ -70,6 +70,10 @@ export const productResource: ResourceDefinition = {
     { name: 'compareAtPrice', type: 'money' },
     { name: 'costPerItem', type: 'money', visibility: 'private' },
     { name: 'inventoryQuantity', type: 'integer', filterable: true, sortable: true },
+    // The option NAMES in order (["Size","Colour"]); the values live on the
+    // variants. Order matters — it is the order the storefront renders the
+    // selectors in, and reordering it would reshuffle every variant's meaning.
+    { name: 'optionNames', type: 'json' },
     { name: 'categoryId', type: 'reference', references: 'TaxonomyCategory', filterable: true },
     // Declared because the detail screen reads it. A field the UI uses but the
     // resource does not declare simply arrives undefined at runtime.

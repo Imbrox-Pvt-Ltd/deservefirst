@@ -25,7 +25,7 @@ export default async function ProductDetailPage({
   const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   try {
-    const response = await apiFetch<ProductDto>(`/catalog/products/${id}`, { storeId });
+    const response = await apiFetch<ProductDto>(`/catalog/products/${id}/detail`, { storeId });
     return <ProductDetail handle={handle} product={response.data} />;
   } catch (error) {
     const notFound = isNotFound(error);

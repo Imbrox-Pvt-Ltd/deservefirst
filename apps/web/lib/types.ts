@@ -32,6 +32,15 @@ export interface MoneyDto {
   readonly currency: string;
 }
 
+export interface ProductVariantDto {
+  readonly id: string;
+  readonly sku: string | null;
+  /** Keyed by option name; meaningless without the product's optionNames order. */
+  readonly optionValues: Readonly<Record<string, string>>;
+  readonly price: MoneyDto;
+  readonly inventoryQuantity: number;
+}
+
 export interface ProductDto {
   readonly id: string;
   readonly handle: string;
@@ -43,6 +52,8 @@ export interface ProductDto {
   readonly price: MoneyDto;
   readonly compareAtPrice: MoneyDto | null;
   readonly publishedChannels: readonly string[];
+  readonly optionNames: readonly string[];
+  readonly variants: readonly ProductVariantDto[];
   readonly version: number;
 }
 

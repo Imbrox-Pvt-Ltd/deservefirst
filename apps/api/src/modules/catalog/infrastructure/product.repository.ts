@@ -19,9 +19,20 @@ import { type SqlDialect, postgresDialect } from '../../../core/list-engine/dial
 import { requireStoreContext } from '../../../core/tenant-context';
 import { productResource } from '../contracts';
 import type { ProductRepository } from '../application';
-import type { Product } from '../domain';
+import type { Product, ProductVariant } from '../domain';
 
 const TABLE = 'products';
+const VARIANT_TABLE = 'product_variants';
+
+interface VariantRow extends Record<string, unknown> {
+  id: string;
+  sku: string | null;
+  option_values: unknown;
+  price_amount_minor: string | null;
+  price_currency: string | null;
+  inventory_quantity: number | null;
+  position: number;
+}
 
 interface ProductRow extends Record<string, unknown> {
   id: string;
@@ -73,7 +84,7 @@ export class ProductRepositoryImpl implements ProductRepository {
       [this.storeId(), id],
     );
     const row = rows[0];
-    return row ? toDomain(row) : null;
+    return row ? this.withVariants(toDomain(row)) : null;
   }
 
   async findByHandle(handle: string): Promise<Product | null> {
@@ -83,13 +94,79 @@ export class ProductRepositoryImpl implements ProductRepository {
       [this.storeId(), handle],
     );
     const row = rows[0];
-    return row ? toDomain(row) : null;
+    return row ? this.withVariants(toDomain(row)) : null;
   }
 
   /**
    * Handles that would collide with a new one. Soft-deleted rows are included:
    * a restored product must not find its handle stolen while it was away.
    */
+  /**
+   * Loads the variants belonging to a product.
+   *
+   * Variants are part of the Product aggregate (§14.3): nothing outside reaches
+   * into them, and a product is never handed out without them — a caller that
+   * received `variants: []` for a product that has three would happily save that
+   * back and delete them.
+   */
+  private async withVariants(product: Product): Promise<Product> {
+    const [p1, p2] = this.args(2);
+    const rows = await this.executor.query<VariantRow>(
+      `SELECT * FROM ${this.q(VARIANT_TABLE)}
+        WHERE ${this.q('store_id')} = ${p1}
+          AND ${this.q('product_id')} = ${p2}
+          AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('position')} ASC`,
+      [this.storeId(), product.id],
+    );
+
+    return { ...product, variants: rows.map(toVariant) };
+  }
+
+  /**
+   * Replaces a product's variants wholesale.
+   *
+   * Deleted rather than soft-deleted: a variant that no longer exists in the
+   * matrix is not a record someone might want back, it is a combination the
+   * merchant removed, and leaving tombstones would make the unique index on
+   * (product, option values) refuse the combination if it were ever re-added.
+   */
+  async replaceVariants(productId: string, variants: readonly ProductVariant[]): Promise<void> {
+    const [d1, d2] = this.args(2);
+    await this.executor.query(
+      `DELETE FROM ${this.q(VARIANT_TABLE)}
+        WHERE ${this.q('store_id')} = ${d1} AND ${this.q('product_id')} = ${d2}`,
+      [this.storeId(), productId],
+    );
+
+    const columns = [
+      'id', 'store_id', 'handle', 'product_id', 'sku', 'option_values',
+      'price_amount_minor', 'price_currency', 'inventory_quantity', 'position', 'version',
+    ];
+
+    for (const [position, variant] of variants.entries()) {
+      await this.executor.query(
+        `INSERT INTO ${this.q(VARIANT_TABLE)} (${columns.map((c) => this.q(c)).join(', ')})
+         VALUES (${this.args(columns.length).join(', ')})`,
+        [
+          variant.id,
+          this.storeId(),
+          // Variants are addressed through their product, so the handle only has
+          // to be unique — it is never typed by anyone or shown in a URL.
+          `${productId}-${position + 1}`,
+          productId,
+          variant.sku,
+          JSON.stringify(variant.optionValues),
+          variant.price.amountMinor.toString(),
+          variant.price.currency,
+          variant.inventoryQuantity,
+          position,
+          1,
+        ],
+      );
+    }
+  }
+
   async takenHandles(prefix: string): Promise<ReadonlySet<string>> {
     const [p1, p2] = this.args(2);
     const rows = await this.executor.query<{ handle: string }>(
@@ -115,7 +192,7 @@ export class ProductRepositoryImpl implements ProductRepository {
       'price_amount_minor', 'price_currency',
       'compare_at_price_amount_minor', 'compare_at_price_currency',
       'cost_per_item_amount_minor', 'cost_per_item_currency',
-      'published_channels', 'version',
+      'published_channels', 'option_names', 'version',
     ];
 
     await this.executor.query(
@@ -137,6 +214,7 @@ export class ProductRepositoryImpl implements ProductRepository {
         product.costPerItem?.amountMinor.toString() ?? null,
         product.costPerItem?.currency ?? null,
         JSON.stringify(product.publishedChannels),
+        JSON.stringify(product.optionNames),
         product.version,
       ],
     );
@@ -154,7 +232,7 @@ export class ProductRepositoryImpl implements ProductRepository {
       'price_amount_minor', 'price_currency',
       'compare_at_price_amount_minor', 'compare_at_price_currency',
       'cost_per_item_amount_minor', 'cost_per_item_currency',
-      'published_channels', 'version',
+      'published_channels', 'option_names', 'version',
     ];
 
     const parameters: unknown[] = [
@@ -171,6 +249,7 @@ export class ProductRepositoryImpl implements ProductRepository {
       product.costPerItem?.amountMinor.toString() ?? null,
       product.costPerItem?.currency ?? null,
       JSON.stringify(product.publishedChannels),
+      JSON.stringify(product.optionNames),
       product.version,
       this.storeId(),
       product.id,
@@ -239,6 +318,27 @@ export class ProductRepositoryImpl implements ProductRepository {
   }
 }
 
+function toVariant(row: VariantRow): ProductVariant {
+  const values = row.option_values;
+  const parsed = typeof values === 'string' ? safeJson(values) : values;
+
+  return {
+    id: row.id,
+    sku: row.sku,
+    optionValues: (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, string>,
+    price: money(BigInt(row.price_amount_minor ?? '0'), row.price_currency ?? 'USD'),
+    inventoryQuantity: Number(row.inventory_quantity ?? 0),
+  };
+}
+
+function safeJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function toDomain(row: ProductRow): Product {
   return {
     id: row.id,
@@ -263,8 +363,10 @@ function toDomain(row: ProductRow): Product {
             BigInt(row.cost_per_item_amount_minor),
             row.cost_per_item_currency ?? row.price_currency ?? 'USD',
           ),
+    // Filled in by the repository: variants live in their own table, so the row
+    // mapper cannot produce them and must not pretend the product has none.
     variants: [],
-    optionNames: [],
+    optionNames: parseChannels(row.option_names),
     publishedChannels: parseChannels(row.published_channels),
     version: Number(row.version),
   };

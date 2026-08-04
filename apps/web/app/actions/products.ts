@@ -141,3 +141,48 @@ export async function archiveProduct(
     return toResult<{ id: string }>(error);
   }
 }
+
+/** Sends a write to the catalog's product surface and revalidates the screens. */
+async function write(
+  handle: string,
+  path: string,
+  method: 'PUT' | 'PATCH',
+  body: Record<string, unknown>,
+): Promise<ActionResult<ProductDto>> {
+  try {
+    const response = await apiFetch<ProductDto>(
+      `/catalog/products${path}`,
+      { storeId: storeFor(handle), permissions: ['catalog.read', 'catalog.write'] },
+      { method, body: JSON.stringify(body) },
+    );
+    revalidatePath(`/store/${handle}/products`);
+    return { ok: true, data: response.data };
+  } catch (error) {
+    return toResult<ProductDto>(error);
+  }
+}
+
+/** Replaces the option sets, regenerating the variant matrix server-side. */
+export async function setProductOptions(
+  handle: string,
+  id: string,
+  version: number,
+  options: readonly { name: string; values: readonly string[] }[],
+) {
+  return write(handle, `/${id}/options`, 'PUT', { version, options });
+}
+
+/** Per-variant price, SKU and stock. Which variants exist is not editable here. */
+export async function saveVariants(
+  handle: string,
+  id: string,
+  version: number,
+  variants: readonly {
+    id: string;
+    sku: string | null;
+    price: { amount: string; currency: string };
+    inventoryQuantity: number;
+  }[],
+) {
+  return write(handle, `/${id}/variants`, 'PATCH', { version, variants });
+}

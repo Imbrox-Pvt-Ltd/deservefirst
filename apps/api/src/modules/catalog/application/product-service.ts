@@ -22,8 +22,11 @@ import {
   assertTransitionAllowed,
   canPublish,
   type Product,
+  buildVariantMatrix,
   ProductInvariantError,
+  type ProductOption,
   type ProductStatus,
+  type ProductVariant,
 } from '../domain';
 import { CATALOG_EVENTS } from '../events';
 
@@ -38,6 +41,7 @@ export interface ProductRepository {
   list(query: ListQuery): Promise<Connection<Product>>;
   insert(product: Product): Promise<Product>;
   update(product: Product, expectedVersion: number): Promise<Product>;
+  replaceVariants(productId: string, variants: readonly ProductVariant[]): Promise<void>;
   softDelete(id: string): Promise<void>;
 }
 
@@ -120,6 +124,93 @@ export class ProductService {
     });
 
     return saved;
+  }
+
+  /**
+   * Replaces a product's option sets, regenerating the variant matrix.
+   *
+   * Prices and SKUs already entered are carried across by option combination,
+   * so adding a colour does not blank the sizes someone spent an afternoon
+   * pricing. Combinations that no longer exist are dropped — that is what
+   * removing an option value means — and the screen warns before saving.
+   */
+  async setOptions(
+    id: string,
+    expectedVersion: number,
+    options: readonly ProductOption[],
+  ): Promise<Product> {
+    const existing = await this.get(id);
+
+    const variants = buildVariantMatrix(options, existing.variants, {
+      price: existing.price,
+      newId: () => this.toolkit.newId(),
+    });
+
+    const next: Product = {
+      ...existing,
+      optionNames: options
+        .filter((option) => option.name.trim() !== '' && option.values.length > 0)
+        .map((option) => option.name),
+      variants,
+      version: existing.version + 1,
+    };
+
+    assertProductValid(next);
+    const saved = await this.repository.update(next, expectedVersion);
+    await this.repository.replaceVariants(saved.id, variants);
+
+    await this.toolkit.recordTimeline({
+      ownerId: saved.id,
+      message:
+        variants.length === 0
+          ? `options removed from "${saved.title}"`
+          : `options changed on "${saved.title}" — ${variants.length} variants`,
+      changes: [{ field: 'optionNames', from: existing.optionNames, to: next.optionNames }],
+    });
+
+    return { ...saved, variants };
+  }
+
+  /**
+   * Per-variant price, SKU and stock. The matrix itself is not editable here:
+   * which combinations exist follows from the options, and letting this endpoint
+   * add one would let the two disagree.
+   */
+  async updateVariants(
+    id: string,
+    expectedVersion: number,
+    patches: readonly { id: string; sku?: string | null; price?: Money; inventoryQuantity?: number }[],
+  ): Promise<Product> {
+    const existing = await this.get(id);
+    const byId = new Map(patches.map((patch) => [patch.id, patch]));
+
+    for (const patchId of byId.keys()) {
+      if (!existing.variants.some((variant) => variant.id === patchId)) {
+        throw new ProductInvariantError('variants', `no variant "${patchId}" on this product`);
+      }
+    }
+
+    const variants: ProductVariant[] = existing.variants.map((variant) => {
+      const patch = byId.get(variant.id);
+      if (!patch) return variant;
+      return {
+        ...variant,
+        sku: patch.sku === undefined ? variant.sku : patch.sku,
+        price: patch.price ?? variant.price,
+        inventoryQuantity:
+          patch.inventoryQuantity === undefined ? variant.inventoryQuantity : patch.inventoryQuantity,
+      };
+    });
+
+    const next: Product = { ...existing, variants, version: existing.version + 1 };
+
+    // Validated before anything is written: a variant priced in another currency
+    // must not land in the table and then fail the product's own check.
+    assertProductValid(next);
+    const saved = await this.repository.update(next, expectedVersion);
+    await this.repository.replaceVariants(saved.id, variants);
+
+    return { ...saved, variants };
   }
 
   async update(input: UpdateProductInput): Promise<Product> {

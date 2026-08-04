@@ -15,6 +15,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { archiveProduct, publishProduct, saveProduct } from '../app/actions/products';
 
 
+import { ProductVariants } from './ProductVariants';
 import type { ProductDto } from '../lib/types';
 import {
   Banner,
@@ -112,6 +113,14 @@ export function ProductDetail({ handle, product }: { handle: string; product: Pr
           />
         </BlockStack>
       ),
+    },
+    {
+      id: 'variants',
+      title: 'Variants',
+      // Rendered from `saved`, not `draft`: options and variants have their own
+      // saves, so showing them against unsaved edits to the title would suggest
+      // the two commit together.
+      content: <ProductVariants handle={handle} product={saved} />,
     },
     {
       id: 'pricing',

@@ -31,6 +31,14 @@ export interface ProductDto {
   readonly price: { amount: string; currency: string };
   readonly compareAtPrice: { amount: string; currency: string } | null;
   readonly publishedChannels: readonly string[];
+  readonly optionNames: readonly string[];
+  readonly variants: readonly {
+    readonly id: string;
+    readonly sku: string | null;
+    readonly optionValues: Readonly<Record<string, string>>;
+    readonly price: { amount: string; currency: string };
+    readonly inventoryQuantity: number;
+  }[];
   readonly version: number;
 }
 
@@ -48,6 +56,17 @@ export function toProductDto(product: Product): ProductDto {
       ? { amount: toDecimalString(product.compareAtPrice), currency: product.compareAtPrice.currency }
       : null,
     publishedChannels: product.publishedChannels,
+    // The option NAMES in order, and every combination. Both travel together
+    // because a variant's optionValues are meaningless without the order that
+    // says which selector each one belongs to.
+    optionNames: product.optionNames,
+    variants: product.variants.map((variant) => ({
+      id: variant.id,
+      sku: variant.sku,
+      optionValues: variant.optionValues,
+      price: { amount: toDecimalString(variant.price), currency: variant.price.currency },
+      inventoryQuantity: variant.inventoryQuantity,
+    })),
     version: product.version,
   };
 }

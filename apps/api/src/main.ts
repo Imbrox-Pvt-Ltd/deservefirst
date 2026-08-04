@@ -775,6 +775,58 @@ async function start(): Promise<void> {
     );
   }
 
+  // --- product options and variants ------------------------------------------
+
+  /**
+   * The full Product aggregate, variants included.
+   *
+   * The generic reader cannot serve this: it projects the resource's DECLARED
+   * fields, and variants live in their own table. A screen that asked the
+   * generic surface for a product got `variants: undefined` and crashed the
+   * moment it tried to render them.
+   */
+  app.get(`/${API_VERSION}/catalog/products/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.read', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const product = await platform.productServiceFor(storeId).get(id);
+      return success(toProductDto(product), { requestId: context.requestId });
+    }),
+  );
+
+  app.put(`/${API_VERSION}/catalog/products/:id/options`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const product = await platform.productServiceFor(storeId).setOptions(
+        id,
+        Number(body.version ?? -1),
+        (body.options ?? []) as never,
+      );
+      return success(toProductDto(product), { requestId: context.requestId });
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/catalog/products/:id/variants`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const patches = ((body.variants ?? []) as Record<string, unknown>[]).map((entry) => ({
+        id: String(entry.id ?? ''),
+        sku: entry.sku === undefined ? undefined : ((entry.sku ?? null) as string | null),
+        price: entry.price === undefined ? undefined : parseMoney(entry.price),
+        inventoryQuantity:
+          entry.inventoryQuantity === undefined ? undefined : Number(entry.inventoryQuantity),
+      }));
+
+      const product = await platform.productServiceFor(storeId).updateVariants(
+        id,
+        Number(body.version ?? -1),
+        patches,
+      );
+      return success(toProductDto(product), { requestId: context.requestId });
+    }),
+  );
+
   // --- content --------------------------------------------------------------
 
   const toPageDto = (page: Page) => ({
