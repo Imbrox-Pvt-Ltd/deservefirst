@@ -54,6 +54,9 @@ export const appsManifest: ModuleManifest = {
         // Hashed, never stored in the clear: a database disclosure must not
         // hand somebody the ability to impersonate every installed app.
         { name: 'clientSecretHash', type: 'string', visibility: 'internal' },
+        { name: 'webhookUrl', type: 'string' },
+        // Recoverable, because an HMAC cannot be computed from a digest.
+        { name: 'webhookSecret', type: 'string', visibility: 'internal' },
       ],
     },
     {

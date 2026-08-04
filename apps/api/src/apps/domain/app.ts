@@ -72,6 +72,17 @@ export interface App {
   readonly requestedScopes: readonly string[];
   readonly clientId: string;
   readonly clientSecretHash: string;
+  /**
+   * Where lifecycle events are sent. Optional — an app that does no background
+   * work does not need one.
+   */
+  readonly webhookUrl: string | null;
+  /**
+   * Signs those deliveries. Stored recoverably, unlike the client secret,
+   * because an HMAC cannot be computed from a digest — a different secret for a
+   * different job rather than reusing the one that grants tokens.
+   */
+  readonly webhookSecret: string | null;
   readonly version: number;
 }
 

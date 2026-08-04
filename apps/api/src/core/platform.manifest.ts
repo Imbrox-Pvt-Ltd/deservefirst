@@ -80,6 +80,9 @@ export const platformManifest: ModuleManifest = {
       fields: [
         { name: 'eventType', type: 'string', required: true, indexed: true, filterable: true },
         { name: 'url', type: 'string', required: true },
+        // Set when the endpoint belongs to an installed app; null for a store's
+        // own integration. See `deliversTo` for why this must exist.
+        { name: 'appId', type: 'string', indexed: true, filterable: true },
         // Never returned after creation — see the service.
         { name: 'secret', type: 'string', required: true, visibility: 'private' },
         { name: 'status', type: 'enum', values: ['active', 'paused', 'disabled'], filterable: true },

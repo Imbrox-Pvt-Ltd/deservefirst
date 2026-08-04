@@ -319,6 +319,24 @@ export async function bootstrap(): Promise<Platform> {
     // Nothing is approved yet — the review workflow is not built. Failing
     // closed means a restricted scope cannot reach a merchant by accident.
     approvedScopesFor: async () => [],
+    ensureAppSubscription: async ({ appId, storeId, url, secret, eventTypes }) => {
+      const existing = await webhookSubscriptions.forApp(storeId, appId);
+      for (const eventType of eventTypes) {
+        const already = existing.find((entry) => entry.eventType === eventType);
+        if (already) continue;
+        await webhookSubscriptions.insert({
+          id: randomUUID(),
+          appId,
+          eventType,
+          url,
+          secret,
+          status: 'active',
+          consecutiveFailures: 0,
+          disabledReason: null,
+          version: 1,
+        });
+      }
+    },
   });
   const partnerRecords = new SqlPartnerRepository(executor, dialect);
   const partnerService = new PartnerService({

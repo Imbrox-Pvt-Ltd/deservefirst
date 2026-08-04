@@ -26,6 +26,7 @@ const date = (value: unknown): Date | null => (value ? new Date(value as string)
 
 interface SubscriptionRow extends Record<string, unknown> {
   id: string;
+  app_id: string | null;
   event_type: string;
   url: string;
   secret: string;
@@ -52,6 +53,7 @@ export class SqlWebhookSubscriptionRepository implements WebhookSubscriptionRepo
   private toDomain(row: SubscriptionRow): WebhookSubscription {
     return {
       id: row.id,
+      appId: row.app_id,
       eventType: row.event_type,
       url: row.url,
       secret: row.secret,
@@ -60,6 +62,17 @@ export class SqlWebhookSubscriptionRepository implements WebhookSubscriptionRepo
       disabledReason: row.disabled_reason,
       version: Number(row.version),
     };
+  }
+
+  /** An app's own endpoint on one store, if it has registered one. */
+  async forApp(storeId: StoreId, appId: string): Promise<readonly WebhookSubscription[]> {
+    const rows = await this.executor.query<SubscriptionRow>(
+      `SELECT * FROM ${this.q('webhook_subscriptions')}
+        WHERE ${this.q('store_id')} = ${this.p(1)} AND ${this.q('app_id')} = ${this.p(2)}
+          AND ${this.q('deleted_at')} IS NULL`,
+      [storeId, appId],
+    );
+    return rows.map((row) => this.toDomain(row));
   }
 
   async listening(storeId: StoreId, eventType: string): Promise<readonly WebhookSubscription[]> {
@@ -127,6 +140,7 @@ export class SqlWebhookSubscriptionRepository implements WebhookSubscriptionRepo
       id: subscription.id,
       store_id: requireStoreContext('core.webhooks').storeId,
       handle: subscription.id,
+      app_id: subscription.appId,
       event_type: subscription.eventType,
       url: subscription.url,
       secret: subscription.secret,

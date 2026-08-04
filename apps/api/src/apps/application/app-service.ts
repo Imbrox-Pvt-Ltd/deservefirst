@@ -21,6 +21,7 @@ import {
   OAuthError,
   assertAppValid,
   assertChallengeValid,
+  assertRedirectUriValid,
   assertInstallTransition,
   assertInstallable,
   assertPublishable,
@@ -64,8 +65,26 @@ export interface AppServicePorts {
    * one can be published.
    */
   readonly approvedScopesFor: (appId: string) => Promise<readonly string[]>;
+  /**
+   * Makes sure the app's own endpoint is registered on this store.
+   *
+   * Done at install rather than left to the app to subscribe, because the one
+   * event an app cannot afford to miss is its own uninstall — and an app that
+   * forgot to subscribe is exactly the app that will keep calling with a dead
+   * token until somebody investigates the 401s.
+   */
+  readonly ensureAppSubscription: (input: {
+    appId: string;
+    storeId: StoreId;
+    url: string;
+    secret: string;
+    eventTypes: readonly string[];
+  }) => Promise<void>;
   readonly now?: () => Date;
 }
+
+/** The events an app is told about, whether or not it asked. */
+export const APP_LIFECYCLE_EVENTS = ['apps.app.uninstalled', 'apps.scopes.updated'] as const;
 
 /** 256 bits, url-safe. Long enough that guessing is not a strategy. */
 function secret(): string {
@@ -100,7 +119,8 @@ export class AppService {
     redirectUris: readonly string[];
     requestedScopes: readonly string[];
     distribution?: 'public' | 'custom';
-  }): Promise<{ app: App; clientSecret: string }> {
+    webhookUrl?: string | null;
+  }): Promise<{ app: App; clientSecret: string; webhookSecret: string | null }> {
     const known = new Set(this.ports.scopeCatalog().map((entry) => entry.key));
     const unknown = input.requestedScopes.filter((key) => !known.has(key));
     if (unknown.length > 0) {
@@ -110,6 +130,10 @@ export class AppService {
     }
 
     const clientSecret = secret();
+    // A separate secret for a separate job. Reusing the client secret to sign
+    // webhooks would mean an app cannot rotate one without breaking the other.
+    const webhookSecret = input.webhookUrl ? secret() : null;
+
     const app: App = {
       id: randomUUID(),
       partnerId: input.partnerId,
@@ -122,13 +146,16 @@ export class AppService {
       requestedScopes: [...input.requestedScopes],
       clientId: randomUUID(),
       clientSecretHash: digestOf(clientSecret),
+      webhookUrl: input.webhookUrl ?? null,
+      webhookSecret,
       version: 1,
     };
     assertAppValid(app);
+    if (app.webhookUrl) assertRedirectUriValid(app.webhookUrl);
 
     await this.ports.apps.insertApp(app);
-    // Returned exactly once. There is no endpoint that shows it again.
-    return { app, clientSecret };
+    // Both returned exactly once. There is no endpoint that shows either again.
+    return { app, clientSecret, webhookSecret };
   }
 
   async appsForPartner(partnerId: string): Promise<readonly App[]> {
@@ -142,6 +169,7 @@ export class AppService {
       name?: string;
       status?: App['status'];
       appUrl?: string | null;
+      webhookUrl?: string | null;
       redirectUris?: readonly string[];
       requestedScopes?: readonly string[];
       version: number;
@@ -159,6 +187,7 @@ export class AppService {
       name: changes.name?.trim() ?? current.name,
       status: changes.status ?? current.status,
       appUrl: changes.appUrl === undefined ? current.appUrl : changes.appUrl,
+      webhookUrl: changes.webhookUrl === undefined ? current.webhookUrl : changes.webhookUrl,
       redirectUris: changes.redirectUris ? [...changes.redirectUris] : current.redirectUris,
       requestedScopes: changes.requestedScopes
         ? [...changes.requestedScopes]
@@ -282,6 +311,16 @@ export class AppService {
       await this.ports.publish({
         type: 'apps.app.installed',
         payload: { appId: app.id, storeId: input.storeId, scopes: granted },
+      });
+    }
+
+    if (app.webhookUrl && app.webhookSecret) {
+      await this.ports.ensureAppSubscription({
+        appId: app.id,
+        storeId: input.storeId,
+        url: app.webhookUrl,
+        secret: app.webhookSecret,
+        eventTypes: [...APP_LIFECYCLE_EVENTS],
       });
     }
 
@@ -410,6 +449,13 @@ export class AppService {
     });
     await this.ports.apps.revokeTokensFor(appId, storeId, at);
 
+    /**
+     * Emitted AFTER the revoke and after the row is saved.
+     *
+     * The subscription is deliberately left active: `attempt()` re-reads it and
+     * refuses to send to one that is paused, so pausing here would guarantee
+     * the uninstall notice is the one delivery that never arrives.
+     */
     await this.ports.publish({
       type: 'apps.app.uninstalled',
       payload: { appId, storeId },

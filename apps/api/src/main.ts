@@ -604,18 +604,30 @@ async function start(): Promise<void> {
     });
 
     const body = request.body as Record<string, unknown>;
-    const granted = await platform.apps.grantAuthorization({
-      clientId: String(body.clientId ?? ''),
-      redirectUri: String(body.redirectUri ?? ''),
-      scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : [],
-      storeId: context.storeId,
-      userId: context.userId as string,
-      tokenType: body.tokenType === 'online' ? 'online' : 'offline',
-      state: typeof body.state === 'string' ? body.state : null,
-      codeChallenge: typeof body.codeChallenge === 'string' ? body.codeChallenge : null,
-      codeChallengeMethod:
-        typeof body.codeChallengeMethod === 'string' ? body.codeChallengeMethod : null,
-    });
+
+    /**
+     * Runs INSIDE the request context, unlike the read above.
+     *
+     * Granting consent writes store-scoped rows — the installation, and the
+     * app's own webhook endpoint — and every one of those asks the ambient
+     * context which store it is in. Resolving the context without entering it
+     * left them with none, and the install failed with a tenant-guard error
+     * that named neither the route nor the reason.
+     */
+    const granted = await withRequestContext(context, () =>
+      platform.apps.grantAuthorization({
+        clientId: String(body.clientId ?? ''),
+        redirectUri: String(body.redirectUri ?? ''),
+        scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : [],
+        storeId: context.storeId as StoreId,
+        userId: context.userId as string,
+        tokenType: body.tokenType === 'online' ? 'online' : 'offline',
+        state: typeof body.state === 'string' ? body.state : null,
+        codeChallenge: typeof body.codeChallenge === 'string' ? body.codeChallenge : null,
+        codeChallengeMethod:
+          typeof body.codeChallengeMethod === 'string' ? body.codeChallengeMethod : null,
+      }),
+    );
 
     return success(granted, { requestId: context.requestId });
   });
@@ -686,6 +698,7 @@ async function start(): Promise<void> {
         status: entry.status,
         distribution: entry.distribution,
         appUrl: entry.appUrl,
+        webhookUrl: entry.webhookUrl,
         redirectUris: entry.redirectUris,
         requestedScopes: entry.requestedScopes,
         clientId: entry.clientId,
@@ -704,7 +717,7 @@ async function start(): Promise<void> {
     await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
 
     const body = request.body as Record<string, unknown>;
-    const { app: registered, clientSecret } = await platform.apps.register({
+    const { app: registered, clientSecret, webhookSecret } = await platform.apps.register({
       partnerId,
       name: String(body.name ?? ''),
       handle: String(body.handle ?? ''),
@@ -712,6 +725,7 @@ async function start(): Promise<void> {
       redirectUris: Array.isArray(body.redirectUris) ? (body.redirectUris as string[]) : [],
       requestedScopes: Array.isArray(body.requestedScopes) ? (body.requestedScopes as string[]) : [],
       distribution: body.distribution === 'custom' ? 'custom' : 'public',
+      webhookUrl: typeof body.webhookUrl === 'string' && body.webhookUrl ? body.webhookUrl : null,
     });
 
     return reply.status(201).send(
@@ -721,8 +735,9 @@ async function start(): Promise<void> {
           name: registered.name,
           handle: registered.handle,
           clientId: registered.clientId,
-          // Shown once, here, and never again.
+          // Both shown once, here, and never again.
           clientSecret,
+          webhookSecret,
           version: registered.version,
         },
         { requestId: context.requestId },

@@ -113,6 +113,9 @@ export function webhooksController(deps: WebhookControllerDeps): ModuleControlle
 
         const subscription: WebhookSubscription = {
           id: randomUUID(),
+          // A merchant registering their own endpoint. App-owned endpoints are
+          // created by the install, not by this route.
+          appId: null,
           eventType: String(body.eventType ?? ''),
           url: String(body.url ?? ''),
           secret,

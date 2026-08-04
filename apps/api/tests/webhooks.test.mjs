@@ -13,6 +13,7 @@ import { beforeEach, test } from 'node:test';
 
 import {
   MAX_ATTEMPTS,
+  deliversTo,
   WebhookDeliveryService,
   applyAttempt,
   applyToSubscription,
@@ -353,4 +354,24 @@ test('replay sends again and keeps the original attempt history', async () => {
   assert.equal(rows.get(originalId).delivery.responseStatus, 500);
   // Same event id, so the receiver can deduplicate.
   assert.equal(replayed.eventId, 'evt-1');
+});
+
+
+test('an app-scoped endpoint hears only about its own app', () => {
+  const forApp = (appId) => ({
+    id: 's-1', appId, eventType: 'apps.app.uninstalled', url: 'https://a.test/h',
+    secret: 'x'.repeat(32), status: 'active', consecutiveFailures: 0,
+    disabledReason: null, version: 1,
+  });
+
+  assert.equal(deliversTo(forApp('app-1'), { appId: 'app-1' }), true);
+  // Without this, every app installed on a store learns — with an id — that a
+  // competitor was just uninstalled from it.
+  assert.equal(deliversTo(forApp('app-1'), { appId: 'app-2' }), false);
+  assert.equal(deliversTo(forApp('app-1'), {}), false);
+
+  // A store's own endpoint is not app-scoped and sees everything it subscribed
+  // to, which is what a merchant's own integration wants.
+  assert.equal(deliversTo(forApp(null), { appId: 'app-2' }), true);
+  assert.equal(deliversTo(forApp(null), {}), true);
 });

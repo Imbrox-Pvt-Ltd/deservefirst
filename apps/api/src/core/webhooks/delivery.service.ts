@@ -23,6 +23,7 @@ import type { StoreId } from '@deservefirst/contracts';
 import {
   applyAttempt,
   applyToSubscription,
+  deliversTo,
   isListening,
   type WebhookDelivery,
   type WebhookSubscription,
@@ -78,8 +79,12 @@ export class WebhookDeliveryService {
     occurredAt: Date;
     payload: unknown;
   }): Promise<number> {
+    // An app-scoped endpoint hears only about its own app. A store's own
+    // endpoint hears everything — see `deliversTo`.
+    const subject = (input.payload ?? {}) as { appId?: string | null };
     const listening = (await this.options.subscriptions.listening(input.storeId, input.eventType))
-      .filter(isListening);
+      .filter(isListening)
+      .filter((subscription) => deliversTo(subscription, subject));
 
     const body = webhookBody({
       eventId: input.eventId,

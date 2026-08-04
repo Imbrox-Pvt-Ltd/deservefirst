@@ -21,6 +21,15 @@ export type SubscriptionStatus = 'active' | 'paused' | 'disabled';
 
 export interface WebhookSubscription {
   readonly id: string;
+  /**
+   * Set when this endpoint belongs to an installed app rather than the store.
+   *
+   * Without it, every app installed on a store receives every OTHER app's
+   * lifecycle events — app A would be told, with an id, that app B had just
+   * been uninstalled. Store-owned endpoints leave it null and see everything
+   * the store emits, which is what a merchant's own integration wants.
+   */
+  readonly appId: string | null;
   /** The event this wants, e.g. `catalog.product.published`. */
   readonly eventType: string;
   readonly url: string;
@@ -201,4 +210,20 @@ export function applyToSubscription(
 /** Whether this subscription should receive anything right now. */
 export function isListening(subscription: WebhookSubscription): boolean {
   return subscription.status === 'active';
+}
+
+/**
+ * Whether this particular event belongs to this particular subscriber.
+ *
+ * Separate from `isListening` because they answer different questions — one is
+ * about the endpoint's health, the other about whose business the event is —
+ * and folding them together is how an app-scoped endpoint quietly starts
+ * receiving another app's events after somebody edits the health check.
+ */
+export function deliversTo(
+  subscription: WebhookSubscription,
+  event: { readonly appId?: string | null },
+): boolean {
+  if (subscription.appId === null) return true;
+  return subscription.appId === event.appId;
 }

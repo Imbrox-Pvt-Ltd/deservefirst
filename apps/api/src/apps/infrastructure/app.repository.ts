@@ -42,6 +42,8 @@ interface AppRow extends Record<string, unknown> {
   requested_scopes: unknown;
   client_id: string;
   client_secret_hash: string;
+  webhook_url: string | null;
+  webhook_secret: string | null;
   version: number;
 }
 
@@ -109,6 +111,8 @@ function toApp(row: AppRow): App {
     requestedScopes: toList(row.requested_scopes),
     clientId: row.client_id,
     clientSecretHash: row.client_secret_hash,
+    webhookUrl: row.webhook_url,
+    webhookSecret: row.webhook_secret,
     version: Number(row.version),
   };
 }
@@ -215,7 +219,8 @@ export class SqlAppRepository {
   async insertApp(app: App): Promise<void> {
     const columns = [
       'id', 'partner_id', 'name', 'handle', 'status', 'distribution', 'app_url',
-      'redirect_uris', 'requested_scopes', 'client_id', 'client_secret_hash', 'version',
+      'redirect_uris', 'requested_scopes', 'client_id', 'client_secret_hash',
+      'webhook_url', 'webhook_secret', 'version',
     ];
     await this.executor.query(
       `INSERT INTO ${this.q('apps')} (${columns.map((c) => this.q(c)).join(', ')})
@@ -223,7 +228,7 @@ export class SqlAppRepository {
       [
         app.id, app.partnerId, app.name, app.handle, app.status, app.distribution, app.appUrl,
         JSON.stringify(app.redirectUris), JSON.stringify(app.requestedScopes),
-        app.clientId, app.clientSecretHash, app.version,
+        app.clientId, app.clientSecretHash, app.webhookUrl, app.webhookSecret, app.version,
       ],
     );
   }
@@ -237,11 +242,13 @@ export class SqlAppRepository {
          ${this.q('app_url')} = ${this.p(4)},
          ${this.q('redirect_uris')} = ${this.p(5)},
          ${this.q('requested_scopes')} = ${this.p(6)},
+         ${this.q('webhook_url')} = ${this.p(7)},
          ${this.q('version')} = ${this.q('version')} + 1
-       WHERE ${this.q('id')} = ${this.p(7)} AND ${this.q('version')} = ${this.p(8)}`,
+       WHERE ${this.q('id')} = ${this.p(8)} AND ${this.q('version')} = ${this.p(9)}`,
       [
         app.name, app.status, app.distribution, app.appUrl,
         JSON.stringify(app.redirectUris), JSON.stringify(app.requestedScopes),
+        app.webhookUrl,
         app.id, app.version,
       ],
     );
