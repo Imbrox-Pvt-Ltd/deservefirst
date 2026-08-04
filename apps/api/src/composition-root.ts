@@ -41,6 +41,8 @@ import { catalogManifest } from './modules/catalog/catalog.manifest';
 import { customersManifest } from './modules/customers/customers.manifest';
 import { CustomerService } from './modules/customers/application';
 import { CustomerRepositoryImpl } from './modules/customers/infrastructure';
+import { contentManifest } from './modules/content/content.manifest';
+import { inventoryManifest } from './modules/inventory/inventory.manifest';
 import { ordersManifest } from './modules/orders/orders.manifest';
 import { RequestService } from './modules/orders/application';
 import { SqlRequestRepository } from './modules/orders/infrastructure';
@@ -77,6 +79,8 @@ export async function bootstrap(): Promise<Platform> {
   registry.register(catalogManifest);
   registry.register(customersManifest);
   registry.register(ordersManifest);
+  registry.register(contentManifest);
+  registry.register(inventoryManifest);
   registry.seal();
 
   // 2. Database. The dialect follows the URL scheme, so moving to Postgres is a

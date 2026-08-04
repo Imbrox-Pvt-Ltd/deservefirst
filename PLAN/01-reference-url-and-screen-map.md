@@ -133,7 +133,7 @@ Sub-nav appears inline under the active section:
 /store/{h}/draft_orders/new                 /store/{h}/draft_orders/{id}
 /store/{h}/shipping_labels?kind=fulfillment&order=SHIPPING_LABEL_PURCHASE_SESSION_ID&orderDirection=DESCENDING
 /store/{h}/products                         /store/{h}/products/new      /store/{h}/products/{id}
-/store/{h}/products/inventory?location_id={id}
+/store/{h}/products/inventory?location_id={id}   # WE DEVIATE — see note below
 /store/{h}/collections/new
 /store/{h}/purchase_orders/new
 /store/{h}/transfers
@@ -170,6 +170,14 @@ Sub-nav appears inline under the active section:
    ```
    A generic `/bulk/{entity}` screen parameterised by which fields are editable, with an explicit
    `return_to`. One implementation serves every entity — build it once in the Entity Toolkit.
+
+> **Deviation, recorded deliberately.** We serve inventory at
+> `/store/{h}/inventory`, not `/store/{h}/products/inventory`. The captured path
+> is shadowed by `/store/{h}/products/:id`, which the catalog module owns. The
+> reference product resolves that static-before-dynamic inside one router; across
+> two independent modules neither author declares the precedence, so reachability
+> would depend on discovery order. Our route-collision fitness rule refuses it.
+> A top-level path is unambiguous and costs nothing.
 
 ### 3.5 Store settings — `admin.<host>/store/{h}/settings`
 
