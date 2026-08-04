@@ -316,6 +316,9 @@ export async function bootstrap(): Promise<Platform> {
     publish: async (event) => {
       await events.emit(event.type, event.payload);
     },
+    // Nothing is approved yet — the review workflow is not built. Failing
+    // closed means a restricted scope cannot reach a merchant by accident.
+    approvedScopesFor: async () => [],
   });
   const partnerRecords = new SqlPartnerRepository(executor, dialect);
   const partnerService = new PartnerService({

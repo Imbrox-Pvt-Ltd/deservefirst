@@ -63,6 +63,9 @@ interface CodeRow extends Record<string, unknown> {
   redirect_uri: string;
   scopes: unknown;
   token_type: string;
+  state: string | null;
+  code_challenge: string | null;
+  code_challenge_method: string | null;
   expires_at: Date;
   used_at: Date | null;
 }
@@ -131,6 +134,9 @@ function toCode(row: CodeRow): AuthorizationCode {
     redirectUri: row.redirect_uri,
     scopes: toList(row.scopes),
     tokenType: row.token_type as AuthorizationCode['tokenType'],
+    state: row.state,
+    codeChallenge: row.code_challenge,
+    codeChallengeMethod: row.code_challenge_method as 'S256' | null,
     expiresAt: row.expires_at,
     usedAt: row.used_at,
   };
@@ -312,7 +318,8 @@ export class SqlAppRepository {
   async insertCode(code: AuthorizationCode): Promise<void> {
     const columns = [
       'id', 'code', 'app_id', 'store_id', 'user_id', 'redirect_uri', 'scopes',
-      'token_type', 'expires_at', 'used_at',
+      'token_type', 'state', 'code_challenge', 'code_challenge_method',
+      'expires_at', 'used_at',
     ];
     await this.executor.query(
       `INSERT INTO ${this.q('app_authorization_codes')} (${columns.map((c) => this.q(c)).join(', ')})
@@ -321,7 +328,9 @@ export class SqlAppRepository {
         // The code doubles as the row id: it is unique, unguessable, and this
         // removes a second identifier that would have to be kept in step.
         code.code, code.code, code.appId, code.storeId, code.userId, code.redirectUri,
-        JSON.stringify(code.scopes), code.tokenType, code.expiresAt, code.usedAt,
+        JSON.stringify(code.scopes), code.tokenType,
+        code.state, code.codeChallenge, code.codeChallengeMethod,
+        code.expiresAt, code.usedAt,
       ],
     );
   }

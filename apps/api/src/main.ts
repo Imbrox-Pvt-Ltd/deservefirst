@@ -572,6 +572,12 @@ async function start(): Promise<void> {
         },
         scopes: preview.scopes,
         alreadyInstalled: preview.alreadyInstalled,
+        // Echoed straight back so the consent screen can hand them to the POST
+        // without having to parse the query string a second time.
+        redirectUri: query.get('redirect_uri') ?? '',
+        state: query.get('state'),
+        codeChallenge: query.get('code_challenge'),
+        codeChallengeMethod: query.get('code_challenge_method'),
       },
       { requestId: context.requestId },
     );
@@ -605,6 +611,10 @@ async function start(): Promise<void> {
       storeId: context.storeId,
       userId: context.userId as string,
       tokenType: body.tokenType === 'online' ? 'online' : 'offline',
+      state: typeof body.state === 'string' ? body.state : null,
+      codeChallenge: typeof body.codeChallenge === 'string' ? body.codeChallenge : null,
+      codeChallengeMethod:
+        typeof body.codeChallengeMethod === 'string' ? body.codeChallengeMethod : null,
     });
 
     return success(granted, { requestId: context.requestId });
@@ -618,11 +628,30 @@ async function start(): Promise<void> {
    */
   app.post(`/${API_VERSION}/oauth/token`, async (request, reply) => {
     const body = request.body as Record<string, unknown>;
+
+    /**
+     * Limited per client id, and per source address when there is none.
+     *
+     * The token endpoint is the one place a client SECRET is presented, so it
+     * is the one place guessing one is possible. Unlimited, an attacker with a
+     * client id has an offline problem made online. Keyed on the client id so
+     * one noisy integrator cannot lock out everybody else's exchanges.
+     */
+    const limitKey = String(body.client_id ?? body.clientId ?? request.ip ?? 'unknown');
+    await platform.rateLimiter.enforce(`oauth:token:${limitKey}`, {
+      refillPerSecond: 1,
+      capacity: 10,
+    });
+
     const issued = await platform.apps.exchangeCode({
       clientId: String(body.client_id ?? body.clientId ?? ''),
       clientSecret: String(body.client_secret ?? body.clientSecret ?? ''),
       code: String(body.code ?? ''),
       redirectUri: String(body.redirect_uri ?? body.redirectUri ?? ''),
+      codeVerifier:
+        typeof (body.code_verifier ?? body.codeVerifier) === 'string'
+          ? String(body.code_verifier ?? body.codeVerifier)
+          : null,
     });
 
     return reply.send({
@@ -1076,6 +1105,23 @@ async function start(): Promise<void> {
     const status = (error as { status?: number }).status ?? 500;
     const name = (error as { name?: string }).name ?? 'Error';
     const message = (error as { message?: string }).message ?? 'Unknown error';
+
+    /**
+     * Rate limiting, with the one header that makes it actionable.
+     *
+     * This fell through to the generic mapper, which returned the right STATUS
+     * with the wrong code — and a client library branches on the code. Without
+     * `Retry-After` a throttled caller retries immediately, which is how a
+     * limit designed to shed load becomes a source of it.
+     */
+    if (name === 'RateLimitedError') {
+      const retryAfter = (error as { decision?: { retryAfterSeconds?: number } }).decision
+        ?.retryAfterSeconds;
+      if (typeof retryAfter === 'number') reply.header('retry-after', String(Math.ceil(retryAfter)));
+      return reply
+        .status(429)
+        .send(failure([apiError('rate_limited', 'Too many requests', message)], { requestId }));
+    }
 
     if (name === 'InvalidTokenError') {
       return reply

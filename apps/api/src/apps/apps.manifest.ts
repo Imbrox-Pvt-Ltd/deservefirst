@@ -85,6 +85,10 @@ export const appsManifest: ModuleManifest = {
         { name: 'redirectUri', type: 'string' },
         { name: 'scopes', type: 'json' },
         { name: 'tokenType', type: 'enum', values: ['online', 'offline'] },
+        // The app's own CSRF token. Carried, never interpreted.
+        { name: 'state', type: 'text' },
+        { name: 'codeChallenge', type: 'string' },
+        { name: 'codeChallengeMethod', type: 'string' },
         { name: 'expiresAt', type: 'datetime', filterable: true },
         /** Set on exchange. Its presence is what makes a code single-use. */
         { name: 'usedAt', type: 'datetime', filterable: true },

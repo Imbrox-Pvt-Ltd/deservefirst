@@ -13,7 +13,11 @@ import { test } from 'node:test';
 
 import {
   assertAppValid,
+  assertChallengeValid,
   assertCodeUsable,
+  assertPublishable,
+  assertVerifier,
+  challengeFor,
   assertInstallTransition,
   assertInstallable,
   effectiveScopes,
@@ -61,6 +65,9 @@ const code = (over = {}) => ({
   redirectUri: 'https://stocksync.example/callback',
   scopes: ['read_products', 'write_products'],
   tokenType: 'offline',
+  state: null,
+  codeChallenge: null,
+  codeChallengeMethod: null,
   expiresAt: new Date('2026-01-01T00:05:00Z'),
   usedAt: null,
   ...over,
@@ -213,4 +220,56 @@ test('scopes become ordinary permissions at the edge', () => {
 test('reinstalling is a fresh consent', () => {
   assert.doesNotThrow(() => assertInstallTransition('installed', 'uninstalled'));
   assert.doesNotThrow(() => assertInstallTransition('uninstalled', 'installed'));
+});
+
+// --- PKCE --------------------------------------------------------------------
+
+test('only S256 is accepted, because plain protects nothing', () => {
+  const challenge = challengeFor('a'.repeat(64));
+
+  assert.deepEqual(assertChallengeValid(challenge, 'S256'), { challenge, method: 'S256' });
+  // A missing method with a challenge present means S256; that is the default.
+  assert.deepEqual(assertChallengeValid(challenge, null), { challenge, method: 'S256' });
+
+  // `plain` sends the verifier as the challenge, so anyone who saw the
+  // authorization request can complete the exchange. Offering it would let a
+  // client appear to use PKCE while opting out of it.
+  assert.throws(() => assertChallengeValid(challenge, 'plain'), /Only the S256/);
+  assert.throws(() => assertChallengeValid('short', 'S256'), /not a valid S256 digest/);
+  assert.throws(() => assertChallengeValid(null, 'S256'), /needs a challenge/);
+});
+
+test('a code issued with a challenge cannot be spent without the verifier', () => {
+  const verifier = 'v'.repeat(64);
+  const guarded = code({ codeChallenge: challengeFor(verifier), codeChallengeMethod: 'S256' });
+
+  assert.doesNotThrow(() => assertVerifier(guarded, verifier));
+
+  // The most common way PKCE is implemented wrongly: an attacker who
+  // intercepted the code simply omits the field and the protection evaporates.
+  assert.throws(() => assertVerifier(guarded, null), /requires a code verifier/);
+  assert.throws(() => assertVerifier(guarded, 'w'.repeat(64)), /does not match the challenge/);
+  assert.throws(() => assertVerifier(guarded, 'short'), /wrong length/);
+});
+
+test('a code issued without a challenge rejects a verifier rather than ignoring it', () => {
+  // Silently accepting one would hide a client that thinks it is protected.
+  assert.throws(() => assertVerifier(code(), 'v'.repeat(64)), /not issued with a code challenge/);
+  assert.doesNotThrow(() => assertVerifier(code(), null));
+});
+
+// --- restricted scopes -------------------------------------------------------
+
+test('an app asking for a restricted scope cannot be published unapproved', () => {
+  const restricted = (scope) => scope === 'read_customer_contact';
+
+  assert.doesNotThrow(() => assertPublishable(app(), restricted, []));
+
+  const sensitive = app({ requestedScopes: ['read_products', 'read_customer_contact'] });
+  assert.throws(
+    () => assertPublishable(sensitive, restricted, []),
+    /read_customer_contact needs platform approval/,
+  );
+  // Approved for THIS app specifically, not for the scope globally.
+  assert.doesNotThrow(() => assertPublishable(sensitive, restricted, ['read_customer_contact']));
 });

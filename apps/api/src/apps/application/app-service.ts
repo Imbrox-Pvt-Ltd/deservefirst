@@ -20,8 +20,11 @@ import {
   CODE_TTL_SECONDS,
   OAuthError,
   assertAppValid,
+  assertChallengeValid,
   assertInstallTransition,
   assertInstallable,
+  assertPublishable,
+  assertVerifier,
   effectiveScopes,
   needsReconsent,
   permissionsForScopes,
@@ -52,6 +55,15 @@ export interface AppServicePorts {
   /** Every scope the installed modules declare, keyed for lookup. */
   readonly scopeCatalog: () => readonly ScopeCatalogEntry[];
   readonly publish: (event: { type: string; payload: Record<string, unknown> }) => Promise<void>;
+  /**
+   * Restricted scopes the platform has approved for one app.
+   *
+   * A port rather than a table read, because the approval workflow does not
+   * exist yet and this is the seam it will arrive at. Returning nothing today
+   * is the safe default: no restricted scope is approved, so no app asking for
+   * one can be published.
+   */
+  readonly approvedScopesFor: (appId: string) => Promise<readonly string[]>;
   readonly now?: () => Date;
 }
 
@@ -155,6 +167,18 @@ export class AppService {
     };
     assertAppValid(next);
 
+    if (next.status === 'published' && current.status !== 'published') {
+      // The restricted mark was decoration until this: an app could ask every
+      // merchant for their customer contact details with nobody having looked
+      // at it. Gated at publish rather than registration, so a partner can
+      // build and test against their own development stores first.
+      assertPublishable(
+        next,
+        (scope) => this.scope(scope)?.restricted === true,
+        await this.ports.approvedScopesFor(next.id),
+      );
+    }
+
     if (!(await this.ports.apps.updateApp(next))) {
       throw new AppRuleError('version', 'this app changed since you loaded it — reload and retry');
     }
@@ -216,7 +240,10 @@ export class AppService {
     storeId: StoreId;
     userId: string;
     tokenType: TokenType;
-  }): Promise<{ code: string; redirectUri: string }> {
+    state?: string | null;
+    codeChallenge?: string | null;
+    codeChallengeMethod?: string | null;
+  }): Promise<{ code: string; redirectUri: string; state: string | null }> {
     const app = await this.ports.apps.findAppByClientId(input.clientId);
     if (!app) throw new OAuthError('invalid_client', 'No app is registered with that client id.');
 
@@ -258,6 +285,11 @@ export class AppService {
       });
     }
 
+    const pkce = assertChallengeValid(
+      input.codeChallenge ?? null,
+      input.codeChallengeMethod ?? null,
+    );
+
     const code = secret();
     await this.ports.apps.insertCode({
       code,
@@ -267,11 +299,16 @@ export class AppService {
       redirectUri: input.redirectUri,
       scopes: granted,
       tokenType: input.tokenType,
+      state: input.state ?? null,
+      codeChallenge: pkce.challenge,
+      codeChallengeMethod: pkce.method,
       expiresAt: new Date(at.getTime() + CODE_TTL_SECONDS * 1000),
       usedAt: null,
     });
 
-    return { code, redirectUri: input.redirectUri };
+    // The state goes back exactly as it arrived. Normalising it — trimming,
+    // re-encoding — would break the app's own comparison against what it sent.
+    return { code, redirectUri: input.redirectUri, state: input.state ?? null };
   }
 
   /**
@@ -286,6 +323,7 @@ export class AppService {
     clientSecret: string;
     code: string;
     redirectUri: string;
+    codeVerifier?: string | null;
   }): Promise<{ accessToken: string; scopes: readonly string[]; expiresAt: Date | null }> {
     const app = await this.ports.apps.findAppByClientId(input.clientId);
     if (!app) throw new OAuthError('invalid_client', 'No app is registered with that client id.');
@@ -311,6 +349,11 @@ export class AppService {
     if (stored.expiresAt.getTime() <= this.now().getTime()) {
       throw new OAuthError('invalid_grant', 'This authorization code has expired.');
     }
+
+    // Checked BEFORE the code is claimed. A wrong verifier must leave the code
+    // spendable by the real client — burning it would turn a failed attack into
+    // a denial of service against the app it was aimed at.
+    assertVerifier(stored, input.codeVerifier ?? null);
 
     if (!(await this.ports.apps.claimCode(stored.code, this.now()))) {
       throw new OAuthError('invalid_grant', 'This authorization code has already been used.');

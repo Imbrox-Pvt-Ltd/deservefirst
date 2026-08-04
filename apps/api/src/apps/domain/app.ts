@@ -20,6 +20,8 @@
  * Layer: domain (pure).
  */
 
+import { createHash } from 'node:crypto';
+
 import type { StoreId } from '@deservefirst/contracts';
 
 export type AppStatus = 'draft' | 'published' | 'suspended';
@@ -98,6 +100,17 @@ export interface AuthorizationCode {
   readonly redirectUri: string;
   readonly scopes: readonly string[];
   readonly tokenType: TokenType;
+  /**
+   * The app's own CSRF token, echoed back untouched on the redirect.
+   *
+   * Ours to carry, not to interpret. Dropping it — which this did — leaves the
+   * app unable to tell its own authorization apart from one an attacker
+   * started, which is the entire attack `state` exists to stop.
+   */
+  readonly state: string | null;
+  /** PKCE: the S256 digest of a verifier only the real client holds. */
+  readonly codeChallenge: string | null;
+  readonly codeChallengeMethod: 'S256' | null;
   readonly expiresAt: Date;
   /** Set the moment it is exchanged. A second exchange must fail. */
   readonly usedAt: Date | null;
@@ -229,6 +242,90 @@ export function needsReconsent(
 }
 
 // --- exchanging the code -----------------------------------------------------
+
+/**
+ * PKCE, S256 only.
+ *
+ * `plain` is in the specification and is worth nothing: the challenge and the
+ * verifier are the same string, so anyone who intercepted the authorization
+ * request can complete the exchange. Supporting it would let a client opt out
+ * of the protection while appearing to use it, so it is not offered.
+ */
+export function assertChallengeValid(
+  challenge: string | null,
+  method: string | null,
+): { challenge: string | null; method: 'S256' | null } {
+  if (challenge === null || challenge.length === 0) {
+    if (method) throw new OAuthError('invalid_request', 'A code challenge method needs a challenge.');
+    return { challenge: null, method: null };
+  }
+  if (method !== null && method !== 'S256') {
+    throw new OAuthError('invalid_request', 'Only the S256 code challenge method is supported.');
+  }
+  if (challenge.length < 43) {
+    // 43 chars is base64url of 32 bytes — anything shorter is not a digest.
+    throw new OAuthError('invalid_request', 'The code challenge is not a valid S256 digest.');
+  }
+  return { challenge, method: 'S256' };
+}
+
+/** base64url(sha256(verifier)), which is what the challenge should equal. */
+export function challengeFor(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
+}
+
+/**
+ * Checks the verifier against the challenge recorded at authorize time.
+ *
+ * A code issued WITH a challenge may only be exchanged WITH a verifier. Letting
+ * a missing verifier pass would mean an attacker who intercepted the code just
+ * omits the field and the protection evaporates — which is the most common way
+ * PKCE is implemented wrongly.
+ */
+export function assertVerifier(code: AuthorizationCode, verifier: string | null): void {
+  if (code.codeChallenge === null) {
+    if (verifier) {
+      throw new OAuthError('invalid_grant', 'This code was not issued with a code challenge.');
+    }
+    return;
+  }
+
+  if (!verifier) {
+    throw new OAuthError('invalid_grant', 'This code requires a code verifier.');
+  }
+  if (verifier.length < 43 || verifier.length > 128) {
+    throw new OAuthError('invalid_grant', 'The code verifier is the wrong length.');
+  }
+  if (challengeFor(verifier) !== code.codeChallenge) {
+    throw new OAuthError('invalid_grant', 'The code verifier does not match the challenge.');
+  }
+}
+
+/**
+ * Whether this app may be published asking for what it asks for.
+ *
+ * A restricted scope is one that reaches personal data, and marking it without
+ * enforcing it is decoration. The gate is at PUBLISH rather than at
+ * registration, so a partner can build and test against their own development
+ * stores before anybody reviews them.
+ */
+export function assertPublishable(
+  app: App,
+  isRestricted: (scope: string) => boolean,
+  approvedScopes: readonly string[],
+): void {
+  const approved = new Set(approvedScopes);
+  const blocked = app.requestedScopes.filter(
+    (scope) => isRestricted(scope) && !approved.has(scope),
+  );
+
+  if (blocked.length > 0) {
+    throw new AppRuleError(
+      'requestedScopes',
+      `${blocked.join(', ')} ${blocked.length === 1 ? 'needs' : 'need'} platform approval before this app can be published`,
+    );
+  }
+}
 
 export function assertCodeUsable(code: AuthorizationCode, now: Date): void {
   if (code.usedAt !== null) {
