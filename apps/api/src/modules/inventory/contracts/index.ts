@@ -84,6 +84,12 @@ export const purchaseOrderResource: ResourceDefinition = {
     { name: 'destinationLocationId', type: 'reference', references: 'Location', filterable: true },
     { name: 'status', type: 'enum', values: ['draft', 'ordered', 'partial', 'received', 'cancelled'], filterable: true, sortable: true },
     { name: 'expectedAt', type: 'datetime', filterable: true, sortable: true },
+    // Lines live as JSON on the order rather than as rows: they are read and
+    // written only as a whole set, and a table would add joins and ordering
+    // concerns for no query we intend to run. Internal so the list surface does
+    // not ship every line of every order to a screen showing four columns —
+    // the detail endpoint returns them.
+    { name: 'lines', type: 'json', visibility: 'internal' },
     { name: 'lineCount', type: 'integer', sortable: true },
     { name: 'createdAt', type: 'datetime', sortable: true },
   ],
@@ -110,6 +116,7 @@ export const transferResource: ResourceDefinition = {
     { name: 'originLocationId', type: 'reference', references: 'Location', filterable: true },
     { name: 'destinationLocationId', type: 'reference', references: 'Location', filterable: true },
     { name: 'status', type: 'enum', values: ['draft', 'in-transit', 'received', 'cancelled'], filterable: true, sortable: true },
+    { name: 'lines', type: 'json', visibility: 'internal' },
     { name: 'lineCount', type: 'integer', sortable: true },
     { name: 'createdAt', type: 'datetime', sortable: true },
   ],

@@ -217,10 +217,23 @@ const TRANSFER_TRANSITIONS: Readonly<Record<TransferStatus, readonly TransferSta
   cancelled: [],
 };
 
+/**
+ * Every status change a transfer may make, including staying put.
+ *
+ * Re-entering a state used to be waved through as a no-op, which is true of the
+ * STATUS and false of everything the transition causes: shipping an already
+ * shipped transfer removed the stock a second time, and receiving a received one
+ * added it again. A repeated request is exactly what a double-submitted form or
+ * a retried call looks like, so the state machine has to refuse it rather than
+ * assume nobody will ask twice.
+ */
 export function assertTransferTransition(from: TransferStatus, to: TransferStatus): void {
-  if (from === to) return;
   if (!TRANSFER_TRANSITIONS[from].includes(to)) {
-    throw new InventoryInvariantError('status', `a transfer cannot move from ${from} to ${to}`);
+    const detail =
+      from === to
+        ? `a transfer is already ${from}`
+        : `a transfer cannot move from ${from} to ${to}`;
+    throw new InventoryInvariantError('status', detail);
   }
 }
 

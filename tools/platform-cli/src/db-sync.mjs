@@ -98,6 +98,7 @@ export async function dbSync(root, options = {}) {
 
   const pool = await createMysqlPool(url);
   const tables = [];
+  const addedColumns = [];
   let applied = 0;
 
   try {
@@ -105,6 +106,18 @@ export async function dbSync(root, options = {}) {
       await pool.query(ddl.createTable);
       tables.push(ddl.table);
       applied += 1;
+
+      // CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
+      // so declaring a new field used to change nothing at all — the failure
+      // surfaced later as "unknown column" on the first write. Missing columns
+      // are added; existing ones are never altered or dropped, because a type
+      // change needs an expand → migrate → contract migration (§17.2), not a
+      // convenience command.
+      for (const column of await missingColumns(pool, ddl)) {
+        await pool.query(`ALTER TABLE \`${ddl.table}\` ADD COLUMN ${column.definition}`);
+        addedColumns.push(`${ddl.table}.${column.name}`);
+        applied += 1;
+      }
 
       for (const index of ddl.indexes) {
         try {
@@ -121,5 +134,21 @@ export async function dbSync(root, options = {}) {
     await pool.end();
   }
 
-  return { applied, tables, dialect: dialectName };
+  return { applied, tables, addedColumns, dialect: dialectName };
+}
+
+/**
+ * Declared columns the live table does not have.
+ *
+ * Compared by name only. A column whose TYPE has changed is deliberately left
+ * alone: narrowing one silently truncates data, and choosing whether that is
+ * acceptable is a migration decision, not something a development helper should
+ * make on someone's behalf.
+ */
+async function missingColumns(pool, ddl) {
+  if (!ddl.columns || ddl.columns.length === 0) return [];
+
+  const [rows] = await pool.query(`SHOW COLUMNS FROM \`${ddl.table}\``);
+  const present = new Set(rows.map((row) => String(row.Field)));
+  return ddl.columns.filter((column) => !present.has(column.name));
 }

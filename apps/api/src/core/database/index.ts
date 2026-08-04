@@ -5,5 +5,6 @@
  * Layer: core/infrastructure.
  */
 
+export * from './aggregate-repository';
 export * from './mysql-executor';
 export * from './schema-builder';

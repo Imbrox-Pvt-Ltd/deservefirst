@@ -43,6 +43,18 @@ import { CustomerService } from './modules/customers/application';
 import { CustomerRepositoryImpl } from './modules/customers/infrastructure';
 import { contentManifest } from './modules/content/content.manifest';
 import { inventoryManifest } from './modules/inventory/inventory.manifest';
+import {
+  InventoryService,
+  PurchaseOrderService,
+  TransferService,
+} from './modules/inventory/application';
+import {
+  SqlAdjustmentRepository,
+  SqlLevelRepository,
+  SqlLocationRepository,
+  SqlPurchaseOrderRepository,
+  SqlTransferRepository,
+} from './modules/inventory/infrastructure';
 import { ordersManifest } from './modules/orders/orders.manifest';
 import { RequestService } from './modules/orders/application';
 import { SqlRequestRepository } from './modules/orders/infrastructure';
@@ -65,6 +77,14 @@ export interface Platform {
   requestServiceFor(storeId: string): RequestService;
   collectionServiceFor(storeId: string): CollectionService;
   customerServiceFor(storeId: string): CustomerService;
+  /**
+   * Inventory has no per-store constructor argument: every one of its queries
+   * reads the active store from the request context, so a service built once is
+   * already scoped. The others take a storeId only because they predate that.
+   */
+  readonly inventory: InventoryService;
+  readonly purchaseOrders: PurchaseOrderService;
+  readonly transfers: TransferService;
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
 }
@@ -177,6 +197,36 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Request',
   });
 
+  const locations = new SqlLocationRepository(executor, dialect);
+  const levels = new SqlLevelRepository(executor, dialect);
+  const adjustments = new SqlAdjustmentRepository(executor, dialect);
+  const purchaseOrders = new SqlPurchaseOrderRepository(executor, dialect);
+  const transfers = new SqlTransferRepository(executor, dialect);
+
+  // One inventory service, shared by the purchase-order and transfer services.
+  // Receiving stock must leave the same audit trail whatever caused it, and it
+  // does so precisely because there is only one code path that moves a level.
+  const inventoryToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'InventoryLevel',
+  });
+  const inventory = new InventoryService(levels, adjustments, locations, inventoryToolkit);
+
+  const purchaseOrderToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'PurchaseOrder',
+  });
+  const transferToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Transfer',
+  });
+
   /** Store settings, from the registry's declared defaults until storage exists. */
   const settingDefaults = new Map(
     registry.settings().map((entry) => [entry.item.key, entry.item.defaultValue]),
@@ -214,6 +264,9 @@ export async function bootstrap(): Promise<Platform> {
         },
         storeId as never,
       ),
+    inventory,
+    purchaseOrders: new PurchaseOrderService(purchaseOrders, locations, inventory, purchaseOrderToolkit),
+    transfers: new TransferService(transfers, locations, inventory, transferToolkit),
     routes,
     shutdown: async () => {
       await pool.end();

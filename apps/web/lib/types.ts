@@ -109,6 +109,83 @@ export interface RequestDto {
   readonly lines: readonly RequestLineDto[];
 }
 
+export interface LocationDto {
+  readonly id: string;
+  readonly name: string;
+  readonly address: string | null;
+  readonly countryCode: string;
+  readonly fulfilsOrders: boolean;
+  readonly archivedAt: string | null;
+  readonly version: number;
+}
+
+export interface InventoryLevelDto {
+  readonly id: string;
+  readonly locationId: string;
+  readonly productId: string;
+  readonly variantId: string | null;
+  readonly title: string;
+  readonly sku: string | null;
+  readonly onHand: number;
+  readonly committed: number;
+  readonly incoming: number;
+  /** Derived from on hand and committed — never negative, even when on hand is. */
+  readonly available: number;
+  readonly version: number;
+}
+
+export interface AdjustmentDto {
+  readonly id: string;
+  readonly locationId: string;
+  readonly productId: string;
+  readonly variantId: string | null;
+  readonly delta: number;
+  readonly reason: string;
+  readonly reference: string | null;
+  readonly occurredAt: string;
+}
+
+export interface PurchaseOrderLineDto {
+  readonly id: string;
+  readonly productId: string;
+  readonly variantId: string | null;
+  readonly title: string;
+  readonly ordered: number;
+  readonly received: number;
+}
+
+export interface PurchaseOrderDto {
+  readonly id: string;
+  readonly reference: string;
+  readonly supplierName: string;
+  readonly destinationLocationId: string;
+  readonly status: 'draft' | 'ordered' | 'partial' | 'received' | 'cancelled';
+  readonly expectedAt: string | null;
+  readonly lines: readonly PurchaseOrderLineDto[];
+  readonly version: number;
+}
+
+export interface TransferLineDto {
+  readonly id: string;
+  readonly productId: string;
+  readonly variantId: string | null;
+  readonly title: string;
+  readonly quantity: number;
+  readonly receivedQuantity: number;
+}
+
+export interface TransferDto {
+  readonly id: string;
+  readonly reference: string;
+  readonly originLocationId: string;
+  readonly destinationLocationId: string;
+  readonly status: 'draft' | 'in-transit' | 'received' | 'cancelled';
+  readonly lines: readonly TransferLineDto[];
+  /** Units that have left the origin but not arrived — owned by neither. */
+  readonly inTransit: number;
+  readonly version: number;
+}
+
 export interface ConditionDto {
   readonly field: string;
   readonly operator: string;

@@ -15,6 +15,7 @@ import type { StoreId, UserId } from '@deservefirst/contracts';
 
 import type { EventBus } from '../event-bus/event-bus';
 import { disambiguateHandle, slugifyHandle } from './base-entity';
+import { snakeCase } from './column-mapping';
 import { redactChanges } from './timeline';
 import type { QueryExecutor } from '../list-engine';
 import { type SqlDialect, postgresDialect } from '../list-engine/dialect';
@@ -40,6 +41,12 @@ export interface ToolkitPortsOptions {
   readonly events: EventBus;
   readonly dialect?: SqlDialect;
   readonly ownerEntity: string;
+  /**
+   * The owner's physical table, when it is not the entity name pluralised.
+   * Supply it whenever the manifest does — guessing and being wrong produces a
+   * write to a table that does not exist, at the moment someone edits a record.
+   */
+  readonly ownerTable?: string;
   readonly now?: () => Date;
 }
 
@@ -51,7 +58,12 @@ export interface ToolkitPortsOptions {
 export function createToolkitPorts(options: ToolkitPortsOptions): ToolkitPorts {
   const dialect = options.dialect ?? postgresDialect;
   const now = options.now ?? (() => new Date());
-  const table = `${options.ownerEntity.toLowerCase()}s_timeline`;
+  // The schema builder names this `{tableName}_timeline`. Lowercasing the entity
+  // name matched that only for single-word entities: "PurchaseOrder" produced
+  // `purchaseorders_timeline` against a real table of `purchase_orders_timeline`,
+  // so the first timeline entry on any multi-word entity would have failed.
+  const ownerTable = options.ownerTable ?? `${snakeCase(options.ownerEntity)}s`;
+  const table = `${ownerTable}_timeline`;
 
   const q = (name: string) => dialect.quoteIdentifier(name);
   const args = (count: number) =>

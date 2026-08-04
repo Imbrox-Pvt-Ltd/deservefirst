@@ -111,6 +111,16 @@ export interface TableDdl {
   readonly table: string;
   readonly createTable: string;
   readonly indexes: readonly { name: string; sql: string }[];
+  /**
+   * Every column this table should have, with the SQL fragment that defines it.
+   *
+   * Exposed so a sync can tell a table that is MISSING from one that is merely
+   * out of date. `CREATE TABLE IF NOT EXISTS` silently does nothing to a table
+   * that already exists, so adding a field to a resource used to change nothing
+   * — and the first write to the new column failed with "unknown column",
+   * hundreds of lines away from the declaration that was supposed to create it.
+   */
+  readonly columns: readonly { name: string; definition: string }[];
 }
 
 export function buildEntityDdl(
@@ -149,11 +159,12 @@ export function buildEntityDdl(
     });
   }
 
-  const definitions = columns.map((column) => {
-    const parts = [`${quote(column.name)} ${column.type}`, column.nullable ? 'NULL' : 'NOT NULL'];
-    if (column.defaultValue) parts.push(`DEFAULT ${column.defaultValue}`);
-    return `  ${parts.join(' ')}`;
-  });
+  const specs = columns.map((column) => ({
+    name: column.name,
+    definition: definitionOf(quote, column),
+  }));
+
+  const definitions = specs.map((column) => `  ${column.definition}`);
   definitions.push(`  PRIMARY KEY (${quote('id')})`);
 
   const createTable = `CREATE TABLE IF NOT EXISTS ${quote(entity.tableName)} (\n${definitions.join(',\n')}\n)`;
@@ -183,7 +194,29 @@ export function buildEntityDdl(
         },
       ];
 
-  return { table: entity.tableName, createTable, indexes };
+  return { table: entity.tableName, createTable, indexes, columns: specs };
+}
+
+/** `\`price\` DECIMAL(19,4) NULL DEFAULT 0` — one column, as CREATE and ALTER both want it. */
+function definitionOf(
+  quote: (name: string) => string,
+  column: { name: string; type: string; nullable: boolean; defaultValue?: string },
+): string {
+  const parts = [`${quote(column.name)} ${column.type}`, column.nullable ? 'NULL' : 'NOT NULL'];
+  if (column.defaultValue) parts.push(`DEFAULT ${column.defaultValue}`);
+  return parts.join(' ');
+}
+
+/**
+ * Splits a generated column definition back into its name and itself.
+ *
+ * Safe because these strings are produced right here by `quote(name) + ...`,
+ * never parsed from user input or from a live database.
+ */
+function named(definition: string): { name: string; definition: string } {
+  const trimmed = definition.trim();
+  const match = /^[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?/.exec(trimmed);
+  return { name: match?.[1] ?? trimmed, definition: trimmed };
 }
 
 /** DDL for the toolkit's satellite tables — metafields, tags, timeline and friends. */
@@ -204,16 +237,21 @@ export function buildToolkitDdl(dialect: SqlDialect, entity: EntityDeclaration):
     indexes: { name: string; columns: string[]; unique?: boolean }[],
   ) => {
     const name = `${entity.tableName}_${suffix}`;
+    const all = [
+      `${quote('id')} ${id} NOT NULL`,
+      `${quote('store_id')} ${id} NOT NULL`,
+      `${quote('owner_id')} ${id} NOT NULL`,
+      ...columns,
+      `${quote('created_at')} ${ts} NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`,
+    ];
+
     tables.push({
       table: name,
       createTable: `CREATE TABLE IF NOT EXISTS ${quote(name)} (\n${[
-        `  ${quote('id')} ${id} NOT NULL`,
-        `  ${quote('store_id')} ${id} NOT NULL`,
-        `  ${quote('owner_id')} ${id} NOT NULL`,
-        ...columns.map((column) => `  ${column}`),
-        `  ${quote('created_at')} ${ts} NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`,
+        ...all.map((column) => `  ${column}`),
         `  PRIMARY KEY (${quote('id')})`,
       ].join(',\n')}\n)`,
+      columns: all.map(named),
       indexes: indexes.map((index) => ({
         name: index.name,
         sql: `CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${index.name} ON ${quote(name)} (${index.columns
@@ -303,21 +341,26 @@ export function buildToolkitDdl(dialect: SqlDialect, entity: EntityDeclaration):
     // record, but a saved view belongs to a *user* and applies to the whole
     // list. Reusing `owner_id` here would give the same column two meanings.
     const name = `${entity.tableName}_saved_views`;
+    const all = [
+      `${quote('id')} ${id} NOT NULL`,
+      `${quote('store_id')} ${id} NOT NULL`,
+      `${quote('user_id')} ${id} NULL`,
+      `${quote('name')} ${text} NOT NULL`,
+      `${quote('query')} ${long} NULL`,
+      `${quote('sort')} ${text} NULL`,
+      `${quote('columns')} ${json} NULL`,
+      `${quote('shared')} ${mysql ? 'TINYINT(1)' : 'BOOLEAN'} NOT NULL DEFAULT 0`,
+      `${quote('position')} ${mysql ? 'INT' : 'INTEGER'} NOT NULL DEFAULT 0`,
+      `${quote('created_at')} ${ts} NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`,
+    ];
+
     tables.push({
       table: name,
       createTable: `CREATE TABLE IF NOT EXISTS ${quote(name)} (\n${[
-        `  ${quote('id')} ${id} NOT NULL`,
-        `  ${quote('store_id')} ${id} NOT NULL`,
-        `  ${quote('user_id')} ${id} NULL`,
-        `  ${quote('name')} ${text} NOT NULL`,
-        `  ${quote('query')} ${long} NULL`,
-        `  ${quote('sort')} ${text} NULL`,
-        `  ${quote('columns')} ${json} NULL`,
-        `  ${quote('shared')} ${mysql ? 'TINYINT(1)' : 'BOOLEAN'} NOT NULL DEFAULT 0`,
-        `  ${quote('position')} ${mysql ? 'INT' : 'INTEGER'} NOT NULL DEFAULT 0`,
-        `  ${quote('created_at')} ${ts} NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`,
+        ...all.map((column) => `  ${column}`),
         `  PRIMARY KEY (${quote('id')})`,
       ].join(',\n')}\n)`,
+      columns: all.map(named),
       indexes: [
         {
           name: `idx_${entity.tableName}_sv`,

@@ -25,6 +25,14 @@ import { ProductInvariantError } from './modules/catalog/domain';
 import { RequestInvariantError, subtotal, type Request as QuoteRequest } from './modules/orders/domain';
 import { CollectionInvariantError, type Collection, type Condition } from './modules/catalog/domain';
 import { CustomerInvariantError, displayName, type Customer, type MarketingConsent } from './modules/customers/domain';
+import {
+  InventoryInvariantError,
+  inTransit,
+  type InventoryAdjustment,
+  type PurchaseOrder,
+  type Transfer,
+} from './modules/inventory/domain';
+import type { StoredLevel, StoredLocation } from './modules/inventory/application';
 import { bootstrap, newRequestId } from './composition-root';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
@@ -231,7 +239,12 @@ async function start(): Promise<void> {
         .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
     }
 
-    await platform.access.assert({ context, permission, moduleId: 'catalog' });
+    // The module is derived from the permission's own namespace rather than
+    // passed in. It used to be hardcoded to 'catalog' for every route, so the
+    // entitlement half of this check asked whether CATALOG was enabled before
+    // letting someone edit a customer — the right answer by luck, and the wrong
+    // one the moment a store runs without catalog.
+    await platform.access.assert({ context, permission, moduleId: moduleForPermission(permission) });
     return withRequestContext(context, () => handler(context.storeId as StoreId, context));
   };
 
@@ -532,6 +545,229 @@ async function start(): Promise<void> {
     );
   }
 
+  // --- inventory ------------------------------------------------------------
+  // Levels are read through the generic surface like any other resource; these
+  // are the operations that MOVE stock, which is where the invariants live.
+
+  const toLocationDto = (location: StoredLocation) => ({
+    id: location.id,
+    name: location.name,
+    address: location.address,
+    countryCode: location.countryCode,
+    fulfilsOrders: location.fulfilsOrders,
+    archivedAt: location.archivedAt?.toISOString() ?? null,
+    version: location.version,
+  });
+
+  const toLevelDto = (level: StoredLevel) => ({
+    id: level.id,
+    locationId: level.locationId,
+    productId: level.productId,
+    variantId: level.variantId,
+    title: level.title,
+    sku: level.sku,
+    onHand: level.onHand,
+    committed: level.committed,
+    incoming: level.incoming,
+    // Derived, never stored — a stored copy is one more thing that can disagree
+    // with the numbers it is derived from.
+    available: platform.inventory.availableFor(level),
+    version: level.version,
+  });
+
+  const toAdjustmentDto = (adjustment: InventoryAdjustment) => ({
+    id: adjustment.id,
+    locationId: adjustment.locationId,
+    productId: adjustment.productId,
+    variantId: adjustment.variantId,
+    delta: adjustment.delta,
+    reason: adjustment.reason,
+    reference: adjustment.reference,
+    occurredAt: adjustment.occurredAt.toISOString(),
+  });
+
+  const toPurchaseOrderDto = (order: PurchaseOrder) => ({
+    id: order.id,
+    reference: order.reference,
+    supplierName: order.supplierName,
+    destinationLocationId: order.destinationLocationId,
+    status: order.status,
+    expectedAt: order.expectedAt?.toISOString() ?? null,
+    lines: order.lines,
+    version: order.version,
+  });
+
+  const toTransferDto = (transfer: Transfer) => ({
+    id: transfer.id,
+    reference: transfer.reference,
+    originLocationId: transfer.originLocationId,
+    destinationLocationId: transfer.destinationLocationId,
+    status: transfer.status,
+    lines: transfer.lines,
+    inTransit: inTransit(transfer),
+    version: transfer.version,
+  });
+
+  app.get(`/${API_VERSION}/inventory/locations/active`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) =>
+      success(
+        (await platform.inventory.locationsForPicker()).map(toLocationDto),
+        { requestId: context.requestId },
+      ),
+    ),
+  );
+
+  app.post(`/${API_VERSION}/inventory/inventory/adjust`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.adjust', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+
+      // Two ways to say the same thing: a signed movement, or a counted total.
+      // The service turns the count into a movement so the log only ever holds
+      // deltas with reasons.
+      const level =
+        body.onHand === undefined
+          ? await platform.inventory.adjust({
+              locationId: String(body.locationId ?? ''),
+              productId: String(body.productId ?? ''),
+              variantId: (body.variantId ?? null) as string | null,
+              delta: Number(body.delta ?? 0),
+              reason: (body.reason ?? 'correction') as never,
+              reference: (body.reference ?? null) as string | null,
+              title: body.title === undefined ? undefined : String(body.title),
+              sku: (body.sku ?? null) as string | null,
+            })
+          : await platform.inventory.recount({
+              locationId: String(body.locationId ?? ''),
+              productId: String(body.productId ?? ''),
+              variantId: (body.variantId ?? null) as string | null,
+              onHand: Number(body.onHand),
+              title: body.title === undefined ? undefined : String(body.title),
+              sku: (body.sku ?? null) as string | null,
+            });
+
+      return success(toLevelDto(level), { requestId: context.requestId });
+    }),
+  );
+
+  app.get(`/${API_VERSION}/inventory/inventory/:id/history`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const level = await platform.inventory.get(id);
+      const history = await platform.inventory.history(level.locationId, level.productId);
+      return success(
+        { level: toLevelDto(level), history: history.map(toAdjustmentDto) },
+        { requestId: context.requestId },
+      );
+    }),
+  );
+
+  app.get(`/${API_VERSION}/inventory/purchase-orders/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      return success(toPurchaseOrderDto(await platform.purchaseOrders.get(id)), {
+        requestId: context.requestId,
+      });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/inventory/purchase-orders`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const order = await platform.purchaseOrders.create({
+        supplierName: String(body.supplierName ?? ''),
+        destinationLocationId: String(body.destinationLocationId ?? ''),
+        expectedAt: (body.expectedAt ?? null) as string | null,
+        lines: (body.lines ?? []) as never,
+      });
+      return reply.status(201).send(success(toPurchaseOrderDto(order), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/inventory/purchase-orders/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const order = await platform.purchaseOrders.update(id, Number(body.version ?? -1), {
+        supplierName: body.supplierName === undefined ? undefined : String(body.supplierName),
+        expectedAt: body.expectedAt as string | null | undefined,
+        lines: body.lines as never,
+      });
+      return success(toPurchaseOrderDto(order), { requestId: context.requestId });
+    }),
+  );
+
+  for (const action of ['place', 'receive', 'cancel'] as const) {
+    app.post(`/${API_VERSION}/inventory/purchase-orders/:id/${action}`, async (request, reply) =>
+      withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+        const { id } = request.params as { id: string };
+        const body = request.body as Record<string, unknown>;
+        const version = Number(body.version ?? -1);
+
+        const order =
+          action === 'place'
+            ? await platform.purchaseOrders.place(id, version)
+            : action === 'receive'
+              ? await platform.purchaseOrders.receive(id, version, (body.lines ?? []) as never)
+              : await platform.purchaseOrders.cancel(id, version);
+
+        return success(toPurchaseOrderDto(order), { requestId: context.requestId });
+      }),
+    );
+  }
+
+  app.get(`/${API_VERSION}/inventory/transfers/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      return success(toTransferDto(await platform.transfers.get(id)), {
+        requestId: context.requestId,
+      });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/inventory/transfers`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const transfer = await platform.transfers.create({
+        originLocationId: String(body.originLocationId ?? ''),
+        destinationLocationId: String(body.destinationLocationId ?? ''),
+        lines: (body.lines ?? []) as never,
+      });
+      return reply.status(201).send(success(toTransferDto(transfer), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/inventory/transfers/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const transfer = await platform.transfers.update(id, Number(body.version ?? -1), {
+        destinationLocationId:
+          body.destinationLocationId === undefined ? undefined : String(body.destinationLocationId),
+        lines: body.lines as never,
+      });
+      return success(toTransferDto(transfer), { requestId: context.requestId });
+    }),
+  );
+
+  for (const action of ['ship', 'receive', 'cancel'] as const) {
+    app.post(`/${API_VERSION}/inventory/transfers/:id/${action}`, async (request, reply) =>
+      withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
+        const { id } = request.params as { id: string };
+        const body = request.body as Record<string, unknown>;
+        const version = Number(body.version ?? -1);
+
+        const transfer =
+          action === 'ship'
+            ? await platform.transfers.ship(id, version)
+            : action === 'receive'
+              ? await platform.transfers.receive(id, version, (body.lines ?? []) as never)
+              : await platform.transfers.cancel(id, version);
+
+        return success(toTransferDto(transfer), { requestId: context.requestId });
+      }),
+    );
+  }
+
   // --- error shape ----------------------------------------------------------
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -591,6 +827,18 @@ async function start(): Promise<void> {
         .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
     }
 
+    if (error instanceof InventoryInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Invalid inventory change', message, error.field)], { requestId }));
+    }
+
+    if (name === 'InventoryNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
+    }
+
     if (error instanceof RequestInvariantError) {
       return reply
         .status(422)
@@ -637,6 +885,31 @@ async function start(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+}
+
+/**
+ * The module a permission belongs to, from its namespace: `inventory.adjust` →
+ * `inventory`. Permission keys are already namespaced by module (§31.4), so the
+ * mapping is the convention rather than a second table to keep in step.
+ *
+ * The two that do not follow their own name are listed explicitly. Silently
+ * falling back to the first segment for them would ask the entitlement check
+ * about a module that does not exist, and a module that does not exist is not
+ * enabled — every catalog write would have been refused.
+ */
+const MODULE_BY_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
+  catalog: 'catalog',
+  orders: 'orders',
+  customers: 'customers',
+  inventory: 'inventory',
+  content: 'content',
+  store: 'catalog',
+  auth: 'auth',
+};
+
+function moduleForPermission(permission: string): string {
+  const prefix = permission.split('.')[0] ?? '';
+  return MODULE_BY_PERMISSION_PREFIX[prefix] ?? prefix;
 }
 
 /** Accepts `{ amount: "19.99", currency: "USD" }` and refuses anything else. */

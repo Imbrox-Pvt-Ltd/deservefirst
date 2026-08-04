@@ -214,6 +214,12 @@ switch (command) {
           green(`\nApplied ${result.applied} statement(s) to ${result.dialect}.`),
         );
         for (const table of result.tables) console.log(dim(`  ${table}`));
+        // Reported separately: a new table is expected, but a column appearing
+        // on an existing one means the schema had drifted from the manifests.
+        if (result.addedColumns?.length) {
+          console.log(green(`\nAdded ${result.addedColumns.length} missing column(s):`));
+          for (const column of result.addedColumns) console.log(dim(`  ${column}`));
+        }
       })
       .catch((error) => {
         console.error(red(`\ndb:sync failed: ${error.message}`));
