@@ -71,6 +71,9 @@ export const productResource: ResourceDefinition = {
     { name: 'costPerItem', type: 'money', visibility: 'private' },
     { name: 'inventoryQuantity', type: 'integer', filterable: true, sortable: true },
     { name: 'categoryId', type: 'reference', references: 'TaxonomyCategory', filterable: true },
+    // Declared because the detail screen reads it. A field the UI uses but the
+    // resource does not declare simply arrives undefined at runtime.
+    { name: 'publishedChannels', type: 'json' },
     { name: 'createdAt', type: 'datetime', sortable: true },
     { name: 'updatedAt', type: 'datetime', sortable: true },
     // Internal fields never leak into the public schema or the reference docs.

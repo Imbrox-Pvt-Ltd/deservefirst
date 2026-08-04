@@ -190,7 +190,9 @@ export function compileListQuery(options: CompileOptions): CompiledQuery {
     const field = byName.get(name);
     return field ? physicalColumnsFor(field) : [snakeCase(name)];
   });
-  const columns = new Set(['id', columnFor(resource, sort.field), ...projectedColumns]);
+  // id and version always ship: id builds the cursor, and version is what a
+  // client sends back to prove its write is not stale.
+  const columns = new Set(['id', 'version', columnFor(resource, sort.field), ...projectedColumns]);
 
   const limit = Math.min(query.limit, MAX_PAGE_SIZE) + 1;
 

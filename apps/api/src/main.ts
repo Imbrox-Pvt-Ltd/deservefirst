@@ -9,7 +9,16 @@
 
 import Fastify from 'fastify';
 
-import { apiError, failure, paginated, success, withRequestContext } from './core';
+import {
+  apiError,
+  bindResources,
+  failure,
+  GenericReader,
+  paginated,
+  serializeRow,
+  success,
+  withRequestContext,
+} from './core';
 import { AccessDeniedError } from './auth/application';
 import { ProductInvariantError } from './modules/catalog/domain';
 import { bootstrap, newRequestId } from './composition-root';
@@ -129,40 +138,74 @@ async function start(): Promise<void> {
     ),
   );
 
-  // --- catalog --------------------------------------------------------------
+  // --- generic read surface -------------------------------------------------
+  // Every REST-exposed resource gets list and get from its declaration alone.
+  // Writes stay module-owned: a generic writer would be a way around the domain.
 
-  app.get(`/${API_VERSION}/catalog/products`, async (request, reply) => {
-    const context = contextFor(request as never);
-    if (context.storeId === null) {
-      return reply
-        .status(400)
-        .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
-    }
+  const bindings = bindResources(platform.registry);
+  const reader = new GenericReader(platform.executor, platform.dialect);
 
-    return withRequestContext(context, async () => {
-      const url = new URL(request.url, 'http://internal');
-      const connection = await platform.products.list(parseListQuery(url.searchParams));
-      return paginated(
-        { ...connection, nodes: connection.nodes.map(toProductDto) },
-        { requestId: context.requestId },
-      );
-    });
-  });
+  for (const [key, binding] of bindings) {
+    const moduleId = key.split(':')[0]!;
+    const base = `/${API_VERSION}/${moduleId}/${binding.resource.urlSegment}`;
 
-  app.get(`/${API_VERSION}/catalog/products/:id`, async (request, reply) => {
-    const context = contextFor(request as never);
-    const { id } = request.params as { id: string };
-
-    return withRequestContext(context, async () => {
-      const product = await platform.products.findById(id);
-      if (!product) {
-        return reply
-          .status(404)
-          .send(failure([apiError('not_found', 'Not found', `No product "${id}" in this store.`)], { requestId: context.requestId }));
+    const guardStore = (request: never, reply: { status(code: number): { send(body: unknown): unknown } }) => {
+      const context = contextFor(request);
+      if (context.storeId === null) {
+        reply
+          .status(400)
+          .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
+        return null;
       }
-      return success(toProductDto(product), { requestId: context.requestId });
+      return context;
+    };
+
+    app.get(base, async (request, reply) => {
+      const context = guardStore(request as never, reply as never);
+      if (!context) return reply;
+
+      await platform.access.assert({
+        context,
+        permission: binding.resource.permissions.read,
+        moduleId: binding.moduleId,
+      });
+
+      return withRequestContext(context, async () => {
+        const url = new URL(request.url, 'http://internal');
+        const connection = await reader.list(binding, parseListQuery(url.searchParams));
+        return paginated(
+          { ...connection, nodes: connection.nodes.map((row) => serializeRow(binding.resource, row)) },
+          { requestId: context.requestId },
+        );
+      });
     });
-  });
+
+    app.get(`${base}/:id`, async (request, reply) => {
+      const context = guardStore(request as never, reply as never);
+      if (!context) return reply;
+      const { id } = request.params as { id: string };
+
+      await platform.access.assert({
+        context,
+        permission: binding.resource.permissions.read,
+        moduleId: binding.moduleId,
+      });
+
+      return withRequestContext(context, async () => {
+        const row = await reader.get(binding, id);
+        if (!row) {
+          return reply
+            .status(404)
+            .send(failure([apiError('not_found', 'Not found', `No ${binding.resource.name} "${id}" in this store.`)], { requestId: context.requestId }));
+        }
+        return success(serializeRow(binding.resource, row), { requestId: context.requestId });
+      });
+    });
+  }
+
+  // --- catalog writes -------------------------------------------------------
+  // Reads come from the generic surface above. Writes stay here because they go
+  // through the module's service, where invariants and events live.
 
   /**
    * Every write goes through the same shape: establish context, check the

@@ -33,6 +33,21 @@ const PRODUCTS = [
   ['Short Sleeve Tshirt', 'short-sleeve-tshirt', 10000, 'Hydrogen Vendor', 'Apparel', 'active', 25],
 ];
 
+const COLLECTIONS = [
+  ['Snowboards', 'snowboards', 'automated', 'all', [{ field: 'type', operator: 'equals', value: 'Snowboard' }], []],
+  // The captured case that only works because exclusions are a first-class rule
+  // set: everything tagged Sale, except anything tagged Clearance.
+  ['Sale', 'sale', 'automated', 'any', [{ field: 'tag', operator: 'equals', value: 'Sale' }], [{ field: 'tag', operator: 'equals', value: 'Clearance' }]],
+  ['Staff picks', 'staff-picks', 'manual', 'all', [], []],
+];
+
+const CUSTOMERS = [
+  ['Ada', 'Lovelace', 'ada@example.test', 'active', 'subscribed', 4, 24999],
+  ['Grace', 'Hopper', 'grace@example.test', 'active', 'not-subscribed', 2, 8500],
+  ['Alan', 'Turing', 'alan@example.test', 'invited', 'pending', 0, 0],
+  ['Katherine', 'Johnson', 'katherine@example.test', 'disabled', 'unknown', 1, 4999],
+];
+
 export async function seed(root, options = {}) {
   const dist = join(root, 'apps/api/dist');
   const { createMysqlPool, MysqlExecutor } = require(join(dist, 'core/database/mysql-executor.js'));
@@ -120,7 +135,36 @@ export async function seed(root, options = {}) {
       );
     }
 
-    return { organizations: 1, businessEntities: 2, stores: 2, users: 1, products: count };
+    // Collections and customers, so the generic list screens have real data.
+    let collections = 0;
+    let customers = 0;
+    for (const [storeId, currency] of [[SEED.storeA, 'USD'], [SEED.storeB, 'INR']]) {
+      await executor.query('DELETE FROM collections WHERE store_id = ?', [storeId]);
+      await executor.query('DELETE FROM customers WHERE store_id = ?', [storeId]);
+
+      for (const [title, handle, type, match, conditions, exclusions] of COLLECTIONS) {
+        await executor.query(
+          `INSERT INTO collections (id, store_id, handle, title, description, type, \`match\`, conditions, exclusions, product_ids, sort_order, version)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
+          [`seed-${storeId}-${handle}`, storeId, handle, title, '', type, match,
+           JSON.stringify(conditions), JSON.stringify(exclusions), '[]', 'manual'],
+        );
+        collections += 1;
+      }
+
+      for (const [first, last, email, state, consent, orders, spent] of CUSTOMERS) {
+        const id = `seed-${storeId}-${email.split('@')[0]}`;
+        await executor.query(
+          `INSERT INTO customers (id, store_id, handle, first_name, last_name, email, phone, state, email_consent, sms_consent, locale, tax_exempt, orders_count, total_spent_amount_minor, total_spent_currency, default_address, note, version)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          [id, storeId, id, first, last, email, null, state, consent, 'unknown', 'en-US', 0,
+           orders, String(spent), currency, null, null],
+        );
+        customers += 1;
+      }
+    }
+
+    return { organizations: 1, businessEntities: 2, stores: 2, users: 1, products: count, collections, customers };
   } finally {
     await pool.end();
   }
