@@ -59,17 +59,36 @@ export const contentManifest: ModuleManifest = {
     { path: '/store/:handle/pages', screen: 'ListScreen', entity: 'Page', permission: 'content.read' },
     { path: '/store/:handle/pages/new', screen: 'CreateScreen', entity: 'Page', permission: 'content.manage' },
     { path: '/store/:handle/pages/:id', screen: 'DetailScreen', entity: 'Page', permission: 'content.read' },
-    { path: '/store/:handle/content/metaobjects', screen: 'ListScreen', entity: 'MetaobjectEntry', permission: 'content.read' },
-    { path: '/store/:handle/content/metaobject-definitions', screen: 'ListScreen', entity: 'MetaobjectDefinition', permission: 'content.read' },
+    // Metaobjects are browsed definition-first: a merchant thinks "edit an
+    // Author", not "edit entry 41". The definition id is therefore part of the
+    // path rather than a filter on a flat entry list.
+    { path: '/store/:handle/content/metaobjects', screen: 'ListScreen', entity: 'MetaobjectDefinition', permission: 'content.read' },
+    { path: '/store/:handle/content/metaobjects/new', screen: 'CreateScreen', entity: 'MetaobjectDefinition', permission: 'content.manage' },
+    { path: '/store/:handle/content/metaobjects/:id', screen: 'DetailScreen', entity: 'MetaobjectDefinition', permission: 'content.read' },
+    { path: '/store/:handle/content/metaobjects/:id/entries', screen: 'ListScreen', entity: 'MetaobjectEntry', permission: 'content.read' },
+    { path: '/store/:handle/content/metaobjects/:id/entries/new', screen: 'CreateScreen', entity: 'MetaobjectEntry', permission: 'content.manage' },
+    { path: '/store/:handle/content/metaobjects/:id/entries/:entryId', screen: 'DetailScreen', entity: 'MetaobjectEntry', permission: 'content.read' },
   ],
 
   navigation: [
     {
+      // "Content" opens Pages — the captured nav lists Metaobjects, Files,
+      // Menus and Blog posts beneath it, but not Pages, because Pages is the
+      // section's own screen.
       id: 'content',
       label: 'Content',
       path: '/store/:handle/pages',
       section: 'primary',
       position: 40,
+      permission: 'content.read',
+    },
+    {
+      id: 'metaobjects',
+      label: 'Metaobjects',
+      path: '/store/:handle/content/metaobjects',
+      parentId: 'content',
+      section: 'primary',
+      position: 41,
       permission: 'content.read',
     },
   ],

@@ -131,16 +131,71 @@ export function buildRouteRegistry(registry: ModuleRegistry): readonly RouteRegi
   }));
 }
 
-/** Screen routes contributed by modules, for the frontend route tree (§24.1). */
+/**
+ * Screen routes contributed by modules, for the frontend route tree (§24.1),
+ * in the order they must be matched.
+ *
+ * A route that declares `shadows` is emitted before the routes it names, so the
+ * precedence a module author decided is the precedence the router applies. Every
+ * router has *some* rule for this — usually static-before-dynamic — but relying
+ * on it means the answer changes with the router, and nothing in the manifests
+ * records which route was meant to win.
+ */
 export function composeScreenRoutes(registry: ModuleRegistry) {
-  return registry.routes().map((entry) => ({
+  const routes = registry.routes().map((entry) => ({
     moduleId: entry.moduleId,
     path: entry.item.path,
     screen: entry.item.screen,
     entity: entry.item.entity ?? null,
     permission: entry.item.permission,
     presentation: entry.item.presentation ?? 'page',
+    shadows: entry.item.shadows ?? [],
   }));
+
+  return orderByDeclaredPrecedence(routes);
+}
+
+/**
+ * Topological order over declared shadows: if A shadows B, A comes first.
+ * Cycles are impossible to satisfy — A before B before A — so they are reported
+ * rather than resolved arbitrarily.
+ */
+function orderByDeclaredPrecedence<T extends { path: string; shadows: readonly string[] }>(
+  routes: readonly T[],
+): T[] {
+  const byPath = new Map(routes.map((route) => [route.path, route]));
+  const ordered: T[] = [];
+  const state = new Map<string, 'visiting' | 'done'>();
+
+  const visit = (route: T, trail: readonly string[]): void => {
+    const status = state.get(route.path);
+    if (status === 'done') return;
+    if (status === 'visiting') {
+      throw new RouteCompositionError(
+        `route precedence is circular: ${[...trail, route.path].join(' → ')}`,
+      );
+    }
+
+    state.set(route.path, 'visiting');
+    // Emitted before anything it shadows — that is the whole point of the order.
+    // It stays "visiting" for the duration so a shadow pointing back up the
+    // trail is caught rather than producing an order that satisfies neither.
+    ordered.push(route);
+
+    for (const shadowed of route.shadows) {
+      const target = byPath.get(shadowed);
+      if (target) visit(target, [...trail, route.path]);
+    }
+
+    state.set(route.path, 'done');
+  };
+
+  // Routes that shadow something are placed first; the rest keep declaration
+  // order, which keeps the table readable and diffs small.
+  for (const route of routes) if (route.shadows.length > 0) visit(route, []);
+  for (const route of routes) visit(route, []);
+
+  return ordered;
 }
 
 /** Mounts a route under the dated API version: `/2026-01/catalog/products`. */

@@ -54,6 +54,9 @@ export interface NavigationDto {
   readonly section: 'primary' | 'sales-channels' | 'apps' | 'settings';
   readonly position: number;
   readonly permission: string;
+  /** Nests the entry under a core section — see NavigationDeclaration.parentId. */
+  readonly parentId?: string;
+  readonly icon?: string;
 }
 
 export interface SettingDto {

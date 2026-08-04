@@ -8,6 +8,9 @@
 
 export * from './primitives';
 export * from './navigation';
+export * from './components/icons';
+export * from './components/AdminFrame';
+export * from './components/UnavailableSection';
 export * from './theme/tokens';
 export * from './templates/use-list-state';
 export * from './templates/ListScreen';

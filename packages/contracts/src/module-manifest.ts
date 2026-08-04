@@ -59,6 +59,22 @@ export interface RouteDeclaration {
   readonly permission: string;
   /** Overlay routes render above the parent, which stays mounted (§8.5). */
   readonly presentation?: 'page' | 'overlay' | 'drawer';
+  /**
+   * Paths in OTHER modules that this route deliberately takes precedence over.
+   *
+   * `/products/inventory` sits inside catalog's `/products/:id`. That is not an
+   * accident to be renamed away — it is the reference product's information
+   * architecture, and inventory genuinely belongs under products. What makes
+   * cross-module shadowing dangerous is not the shadow, it is that neither
+   * author ever said which should win, leaving reachability to whichever router
+   * happens to be underneath.
+   *
+   * Declaring it here makes the precedence a reviewed decision: the collision
+   * rule accepts the overlap only when the more specific route names the one it
+   * covers, and the composer registers in that order rather than trusting the
+   * router's defaults.
+   */
+  readonly shadows?: readonly string[];
 }
 
 export interface NavigationDeclaration {
@@ -69,6 +85,17 @@ export interface NavigationDeclaration {
   readonly section: 'primary' | 'sales-channels' | 'apps' | 'settings';
   readonly position: number;
   readonly permission: string;
+  /**
+   * The id of the nav entry this one belongs under. Inventory, purchase orders
+   * and transfers are children of Products in the reference admin, but they are
+   * owned by the inventory module — without this they can only be contributed as
+   * top-level siblings, which is how they were wrongly rendered before.
+   *
+   * An unknown parent is a boot failure rather than a silent promotion to
+   * top-level: a nav entry quietly appearing in the wrong place is the kind of
+   * defect nobody files a bug for, they just stop trusting the menu.
+   */
+  readonly parentId?: string;
   readonly children?: readonly Omit<NavigationDeclaration, 'section' | 'children'>[];
 }
 

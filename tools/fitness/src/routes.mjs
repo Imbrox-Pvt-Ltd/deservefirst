@@ -97,15 +97,38 @@ export const routeCoherence = {
       }
 
       // A resource declaring a list screen with no route is unreachable.
+      //
+      // Matched on the route's declared ENTITY, not on its path. Matching the
+      // path against `urlSegment` conflated two different namespaces: the API
+      // segment is ours and kebab-cased, while the admin URL follows the
+      // reference product (`/purchase_orders`, `/content/metaobjects`). Those
+      // legitimately differ, and a string comparison called it an error — while
+      // still passing a resource whose route happened to end in the right word
+      // but pointed at another entity.
+      // SettingsScreen counts: locations, sales channels and the like are listed
+      // inside settings rather than as a primary section, and that screen is a
+      // real, reachable list. What the rule is protecting against is a resource
+      // nothing can open at all.
+      const LISTING_SCREENS = new Set(['ListScreen', 'SettingsScreen']);
+      const listedEntities = new Set(
+        (manifest.routes ?? [])
+          .filter((route) => LISTING_SCREENS.has(route.screen) && route.entity)
+          .map((route) => route.entity),
+      );
+
       for (const resource of manifest.resources ?? []) {
         if (!resource.screens?.includes('list')) continue;
-        const expected = `/${resource.urlSegment}`;
-        const reachable = [...routePaths].some((path) => path.endsWith(expected));
-        if (!reachable && (manifest.routes ?? []).length > 0) {
-          violations.push(
-            violation(file, 1, 'route-coherence', `resource "${resource.name}" declares a list screen but no route ends in "${expected}"`),
-          );
-        }
+        if (listedEntities.has(resource.entity)) continue;
+        if ((manifest.routes ?? []).length === 0) continue;
+
+        violations.push(
+          violation(
+            file,
+            1,
+            'route-coherence',
+            `resource "${resource.name}" declares a list screen but no route declares screen "ListScreen" for entity "${resource.entity}"`,
+          ),
+        );
       }
     }
 
@@ -176,7 +199,12 @@ export const routeCollisions = {
         } else {
           owners.set(route.path, manifest.id);
         }
-        all.push({ moduleId: manifest.id, path: route.path, file });
+        all.push({
+          moduleId: manifest.id,
+          path: route.path,
+          file,
+          shadows: route.shadows ?? [],
+        });
       }
     }
 
@@ -185,17 +213,43 @@ export const routeCollisions = {
     // reachable then depends on the router's precedence rules rather than on
     // anything either author declared. Within a single module this is a normal,
     // well-understood pattern, so only cross-module shadowing is reported.
+    //
+    // The exception is a DECLARED shadow. When the more specific route names the
+    // general one in `shadows`, an author has stated which wins and the composer
+    // registers in that order — the precedence is a reviewed decision rather
+    // than an accident of discovery order. That is what the rule was protecting
+    // against; it was never the nesting itself.
     for (const pattern of all) {
       for (const candidate of all) {
         if (pattern.moduleId === candidate.moduleId) continue;
         if (!shadows(pattern.path, candidate.path)) continue;
+        if (candidate.shadows.includes(pattern.path)) continue;
 
         violations.push(
           violation(
             candidate.file,
             1,
             'route-collisions',
-            `"${candidate.path}" is shadowed by "${pattern.path}" from module "${pattern.moduleId}" — reachability would depend on router precedence`,
+            `"${candidate.path}" is shadowed by "${pattern.path}" from module "${pattern.moduleId}" — ` +
+              `declare shadows: ['${pattern.path}'] to take precedence deliberately, or change the path`,
+          ),
+        );
+      }
+    }
+
+    // A declaration that names a route nothing owns is stale — usually the other
+    // module renamed its path. Left unreported it reads as a live precedence
+    // decision while protecting nothing.
+    for (const route of all) {
+      for (const shadowed of route.shadows) {
+        const owner = all.find((other) => other.path === shadowed && other.moduleId !== route.moduleId);
+        if (owner) continue;
+        violations.push(
+          violation(
+            route.file,
+            1,
+            'route-collisions',
+            `"${route.path}" declares it shadows "${shadowed}", which no other module declares`,
           ),
         );
       }

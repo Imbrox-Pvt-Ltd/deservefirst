@@ -161,9 +161,15 @@ export const storePaths = {
   content: (h: string) => `${store(h)}/content`,
   metaobjects: (h: string) => `${store(h)}/content/metaobjects`,
   metaobject: (h: string, id: string) => `${store(h)}/content/metaobjects/${id}`,
+  metaobjectEntries: (h: string, definitionId: string) =>
+    `${store(h)}/content/metaobjects/${definitionId}/entries`,
+  metaobjectEntry: (h: string, definitionId: string, entryId: string) =>
+    `${store(h)}/content/metaobjects/${definitionId}/entries/${entryId}`,
   pages: (h: string) => `${store(h)}/pages`,
   pageNew: (h: string) => `${store(h)}/pages/new`,
   page: (h: string, id: string) => `${store(h)}/pages/${id}`,
+  files: (h: string) => `${store(h)}/content/files`,
+  blogs: (h: string) => `${store(h)}/blogs`,
   blogPost: (h: string, blogId: string, postId: string) =>
     `${store(h)}/blogs/${blogId}/posts/${postId}`,
   navigation: (h: string) => `${store(h)}/navigation`,

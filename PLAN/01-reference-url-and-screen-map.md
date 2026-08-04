@@ -133,7 +133,7 @@ Sub-nav appears inline under the active section:
 /store/{h}/draft_orders/new                 /store/{h}/draft_orders/{id}
 /store/{h}/shipping_labels?kind=fulfillment&order=SHIPPING_LABEL_PURCHASE_SESSION_ID&orderDirection=DESCENDING
 /store/{h}/products                         /store/{h}/products/new      /store/{h}/products/{id}
-/store/{h}/products/inventory?location_id={id}   # WE DEVIATE — see note below
+/store/{h}/products/inventory?location_id={id}   # nests inside /products/:id — see note below
 /store/{h}/collections/new
 /store/{h}/purchase_orders/new
 /store/{h}/transfers
@@ -171,13 +171,27 @@ Sub-nav appears inline under the active section:
    A generic `/bulk/{entity}` screen parameterised by which fields are editable, with an explicit
    `return_to`. One implementation serves every entity — build it once in the Entity Toolkit.
 
-> **Deviation, recorded deliberately.** We serve inventory at
-> `/store/{h}/inventory`, not `/store/{h}/products/inventory`. The captured path
-> is shadowed by `/store/{h}/products/:id`, which the catalog module owns. The
-> reference product resolves that static-before-dynamic inside one router; across
-> two independent modules neither author declares the precedence, so reachability
-> would depend on discovery order. Our route-collision fitness rule refuses it.
-> A top-level path is unambiguous and costs nothing.
+> **Declared precedence, not a deviation.** We serve inventory at the captured
+> `/store/{h}/products/inventory`. It nests inside `/store/{h}/products/:id`,
+> which the catalog module owns, and our route-collision rule refuses
+> cross-module shadowing — because normally *neither author has said which
+> should win*, so reachability depends on discovery order.
+>
+> The inventory manifest therefore declares it:
+>
+> ```ts
+> { path: '/store/:handle/products/inventory', …, shadows: ['/store/:handle/products/:id'] }
+> ```
+>
+> The rule accepts an overlap only when the more specific route names the one it
+> covers, and `composeScreenRoutes` emits declared shadows first so the router
+> applies the precedence the author chose rather than its own default. A stale
+> declaration — naming a path no module owns — is itself a violation, so this
+> cannot rot into a comment that protects nothing.
+>
+> An earlier revision of this plan moved inventory to a top-level `/inventory`
+> to dodge the overlap. That silenced the rule without answering its question,
+> and cost a URL the reference product deliberately nests.
 
 ### 3.5 Store settings — `admin.<host>/store/{h}/settings`
 

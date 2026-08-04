@@ -1,3 +1,488 @@
 /* Design-system stylesheet, re-exported so screens import it from
    @deservefirst/ui rather than the vendor package (§8.1). */
 @import '@shopify/polaris/build/esm/styles.css';
+
+/* ---------------------------------------------------------------------------
+   Admin chrome (AdminFrame)
+
+   Measured from the captured reference admin at 2× and halved: a 56px dark bar,
+   a 240px navigation rail, 32px rows on an 8px radius. Written as plain CSS on
+   `df-` classes rather than as tokens because this is the one surface that is
+   deliberately NOT themeable — the shell is the product's shape, and a store
+   that re-themes it stops looking like the same application.
+   --------------------------------------------------------------------------- */
+
+.df-shell {
+  --df-topbar-h: 56px;
+  --df-nav-w: 240px;
+  --df-bar: #1a1a1a;
+  --df-bar-raised: #303030;
+  --df-bar-text: #e3e3e3;
+  --df-bar-muted: #b5b5b5;
+  --df-nav-bg: #ebebeb;
+  --df-ink: #303030;
+  --df-ink-muted: #616161;
+
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--df-bar);
+}
+
+/* --- top bar --------------------------------------------------------------- */
+
+.df-topbar {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 2fr) 1fr;
+  align-items: center;
+  gap: 12px;
+  height: var(--df-topbar-h);
+  padding: 0 12px;
+  background: var(--df-bar);
+  color: var(--df-bar-text);
+  flex: 0 0 auto;
+}
+
+.df-topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.df-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.df-brand:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.df-brand__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(160deg, #5bc17f, #2f9e5e);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.df-brand__name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.df-brand__release {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  color: var(--df-bar-text);
+  font-size: 12px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.df-topbar__center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.df-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  max-width: 480px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--df-bar-raised);
+  color: var(--df-bar-muted);
+}
+
+.df-search:focus-within {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: #3a3a3a;
+}
+
+.df-search__icon {
+  display: flex;
+  color: var(--df-bar-muted);
+}
+
+.df-search__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+}
+
+.df-search__input::placeholder {
+  color: var(--df-bar-muted);
+}
+
+/* The browser's own clear affordance sits badly on a dark field. */
+.df-search__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.df-search__shortcut {
+  display: flex;
+  gap: 4px;
+}
+
+.df-search__shortcut kbd {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: #4a4a4a;
+  color: var(--df-bar-text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.df-topbar__pill,
+.df-iconbutton,
+.df-store {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--df-bar-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.df-topbar__pill {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  white-space: nowrap;
+}
+
+.df-topbar__pill:hover,
+.df-iconbutton:hover,
+.df-store:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.df-topbar__account {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.df-iconbutton {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+.df-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e0102a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.df-store {
+  height: 36px;
+  padding: 0 8px 0 4px;
+  max-width: 220px;
+}
+
+.df-store__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.df-store__avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #ff4f81;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.df-store__avatar--sm {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.df-storemenu {
+  position: relative;
+}
+
+.df-storemenu__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.df-storemenu__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 21;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.df-storemenu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--df-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.df-storemenu__item:hover {
+  background: #f1f1f1;
+}
+
+.df-storemenu__item[aria-current='true'] {
+  font-weight: 600;
+}
+
+.df-storemenu__divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: #e3e3e3;
+}
+
+/* --- body ------------------------------------------------------------------ */
+
+.df-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--df-nav-bg);
+  /* The rounded top-left corner where the light panel meets the dark bar. */
+  border-top-left-radius: 12px;
+  overflow: hidden;
+}
+
+.df-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--df-nav-w);
+  width: var(--df-nav-w);
+  padding: 8px 0;
+  background: var(--df-nav-bg);
+}
+
+.df-nav__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.df-nav__footer {
+  flex: 0 0 auto;
+  padding: 8px 8px 0;
+}
+
+.df-nav__section + .df-nav__section {
+  margin-top: 16px;
+}
+
+.df-nav__title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--df-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.df-navrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--df-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.df-navrow + .df-navrow,
+.df-nav__children .df-navrow + .df-navrow {
+  margin-top: 2px;
+}
+
+.df-navrow:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.df-navrow--open {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.df-navrow--selected,
+.df-navrow--selected:hover {
+  background: #fff;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+}
+
+.df-navrow--muted .df-navrow__label {
+  color: var(--df-ink-muted);
+}
+
+.df-navrow__icon {
+  display: flex;
+  flex: 0 0 auto;
+  width: 20px;
+  color: var(--df-ink);
+}
+
+.df-navrow__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A section the reference shows but no module in this install provides. */
+.df-navrow__dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: #b5b5b5;
+}
+
+.df-nav__children {
+  margin-top: 2px;
+}
+
+.df-nav__children .df-navrow--child {
+  padding-left: 8px;
+  color: var(--df-ink-muted);
+  font-weight: 450;
+}
+
+.df-nav__children .df-navrow--child.df-navrow--selected {
+  color: var(--df-ink);
+  font-weight: 600;
+}
+
+.df-navrow__connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  color: #8a8a8a;
+}
+
+.df-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  background: #f7f7f7;
+  border-top-left-radius: 12px;
+}
+
+/* Polaris pages inside the content pane supply their own max width and padding;
+   the frame only owns the scroll container. */
+.df-main > * {
+  min-height: 100%;
+}
+
+@media (max-width: 900px) {
+  .df-topbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .df-topbar__center {
+    display: none;
+  }
+
+  .df-nav {
+    display: none;
+  }
+
+  .df-body,
+  .df-main {
+    border-top-left-radius: 0;
+  }
+}

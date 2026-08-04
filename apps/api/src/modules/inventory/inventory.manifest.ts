@@ -97,26 +97,33 @@ export const inventoryManifest: ModuleManifest = {
   resources: [locationResource, inventoryLevelResource, purchaseOrderResource, transferResource],
 
   routes: [
-    // Deliberate deviation from the captured URL, which nests this under
-    // /products/inventory. That would be shadowed by catalog's
-    // /products/:id: the reference product resolves it static-before-dynamic
-    // inside one router, but across two modules neither author declares the
-    // precedence, and the route-collision rule rightly refuses it. A top-level
-    // path is unambiguous and costs nothing.
-    { path: '/store/:handle/inventory', screen: 'ListScreen', entity: 'InventoryLevel', permission: 'inventory.read' },
-    { path: '/store/:handle/purchase-orders', screen: 'ListScreen', entity: 'PurchaseOrder', permission: 'inventory.read' },
-    { path: '/store/:handle/purchase-orders/new', screen: 'CreateScreen', entity: 'PurchaseOrder', permission: 'inventory.manage' },
-    { path: '/store/:handle/purchase-orders/:id', screen: 'DetailScreen', entity: 'PurchaseOrder', permission: 'inventory.read' },
+    {
+      // The captured URL, kept. It sits inside catalog's /products/:id, so the
+      // precedence is declared rather than left to the router: inventory is a
+      // real section of the admin, not a product whose id happens to read
+      // "inventory".
+      path: '/store/:handle/products/inventory',
+      screen: 'ListScreen',
+      entity: 'InventoryLevel',
+      permission: 'inventory.read',
+      shadows: ['/store/:handle/products/:id'],
+    },
+    { path: '/store/:handle/purchase_orders', screen: 'ListScreen', entity: 'PurchaseOrder', permission: 'inventory.read' },
+    { path: '/store/:handle/purchase_orders/new', screen: 'CreateScreen', entity: 'PurchaseOrder', permission: 'inventory.manage' },
+    { path: '/store/:handle/purchase_orders/:id', screen: 'DetailScreen', entity: 'PurchaseOrder', permission: 'inventory.read' },
     { path: '/store/:handle/transfers', screen: 'ListScreen', entity: 'Transfer', permission: 'inventory.read' },
     { path: '/store/:handle/transfers/new', screen: 'CreateScreen', entity: 'Transfer', permission: 'inventory.manage' },
     { path: '/store/:handle/transfers/:id', screen: 'DetailScreen', entity: 'Transfer', permission: 'inventory.read' },
     { path: '/store/:handle/settings/locations', screen: 'SettingsScreen', entity: 'Location', permission: 'inventory.read', presentation: 'overlay' },
   ],
 
+  // Children of Products, as in the reference admin. Contributed with a
+  // parentId rather than as top-level entries: inventory owns these screens,
+  // but they belong under Products in the merchant's mental model.
   navigation: [
-    { id: 'inventory', label: 'Inventory', path: '/store/:handle/inventory', section: 'primary', position: 22, permission: 'inventory.read' },
-    { id: 'purchase-orders', label: 'Purchase orders', path: '/store/:handle/purchase-orders', section: 'primary', position: 23, permission: 'inventory.read' },
-    { id: 'transfers', label: 'Transfers', path: '/store/:handle/transfers', section: 'primary', position: 24, permission: 'inventory.read' },
+    { id: 'inventory', label: 'Inventory', path: '/store/:handle/products/inventory', parentId: 'products', section: 'primary', position: 22, permission: 'inventory.read' },
+    { id: 'purchase-orders', label: 'Purchase orders', path: '/store/:handle/purchase_orders', parentId: 'products', section: 'primary', position: 23, permission: 'inventory.read' },
+    { id: 'transfers', label: 'Transfers', path: '/store/:handle/transfers', parentId: 'products', section: 'primary', position: 24, permission: 'inventory.read' },
   ],
 
   permissions: [

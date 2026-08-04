@@ -18,11 +18,20 @@ const STORES = [
   { id: 'seed-store-in', handle: 'acme-in', name: 'Acme India' },
 ];
 
+/**
+ * Until the session carries real grants, the admin runs with the full store
+ * operator set. Every permission a nav entry declares must appear here or the
+ * entry is filtered out and the screen looks missing rather than forbidden —
+ * which is exactly how the inventory entries disappeared once they moved under
+ * Products.
+ */
 const PERMISSIONS = [
-  'store.read', 'store.settings.read', 'store.settings.manage', 'catalog.read',
-  'catalog.write', 'orders.read', 'customers.read', 'analytics.read',
-  'growth.read', 'discounts.read', 'content.read', 'markets.read',
-  'finance.read', 'online-store.read',
+  'store.read', 'store.settings.read', 'store.settings.manage',
+  'catalog.read', 'catalog.write',
+  'orders.read', 'orders.manage', 'orders.quote',
+  'customers.read', 'customers.manage',
+  'inventory.read', 'inventory.adjust', 'inventory.manage',
+  'content.read', 'content.manage', 'content.publish',
 ];
 
 export default async function StoreLayout({

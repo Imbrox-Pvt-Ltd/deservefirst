@@ -73,7 +73,11 @@ export const ordersManifest: ModuleManifest = {
 
   navigation: [
     {
-      id: 'requests',
+      // Claims the reference admin's "Orders" slot rather than sitting beside
+      // it. This module IS that section — a buyer request is how an order
+      // begins here — so contributing a separate entry produced two menu items
+      // for one concept, which is worse than either name on its own.
+      id: 'orders',
       label: 'Requests',
       path: '/store/:handle/requests',
       section: 'primary',

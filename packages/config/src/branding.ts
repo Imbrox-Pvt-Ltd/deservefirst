@@ -14,6 +14,12 @@ export interface BrandingConfig {
   /** Lowercase, URL-safe form used in package names, gids and storage prefixes. */
   readonly slug: string;
   readonly supportEmail: string;
+  /**
+   * Release train, shown as a pill beside the wordmark. Merchants and support
+   * both need to know which shape of the admin they are looking at without
+   * asking for a build number.
+   */
+  readonly release: string;
   readonly domains: {
     readonly marketing: string;
     readonly accounts: string;
@@ -39,6 +45,7 @@ export const branding: BrandingConfig = {
   legalName: 'Deservefirst Pvt. Ltd.',
   slug: 'deservefirst',
   supportEmail: 'support@deservefirst.example',
+  release: 'Autumn ’26',
   domains: {
     marketing: 'deservefirst.example',
     accounts: 'accounts.deservefirst.example',

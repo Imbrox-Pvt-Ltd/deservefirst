@@ -83,6 +83,7 @@ export const catalogManifest: ModuleManifest = {
       id: 'collections',
       label: 'Collections',
       path: '/store/:handle/collections',
+      parentId: 'products',
       section: 'primary',
       position: 21,
       permission: 'catalog.read',
