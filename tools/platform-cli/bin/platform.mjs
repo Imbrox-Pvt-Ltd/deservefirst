@@ -8,7 +8,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -186,9 +186,23 @@ function testSuite() {
  * have no tsconfig by design.
  */
 function typecheck() {
-  const projects = ['packages/contracts', 'packages/config', 'packages/ui', 'apps/api', 'apps/web'].filter((project) =>
-    existsSync(join(ROOT, project, 'tsconfig.json')),
-  );
+  /**
+   * Discovered, not listed.
+   *
+   * This was a hardcoded array, which is the same shape as the test globs and
+   * the manifest paths that both silently skipped real work this week: a new
+   * package simply would not have been typechecked, and nothing would say so.
+   * Anything with a tsconfig is a TypeScript project; anything without one is
+   * the .mjs tooling, which has none by design.
+   */
+  const projects = ['packages', 'apps', 'tools']
+    .flatMap((group) => {
+      const dir = join(ROOT, group);
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir).map((name) => `${group}/${name}`);
+    })
+    .filter((project) => existsSync(join(ROOT, project, 'tsconfig.json')))
+    .sort();
   console.log(`\n${cyan('typecheck')}`);
   for (const project of projects) {
     try {

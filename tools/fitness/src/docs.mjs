@@ -95,4 +95,69 @@ export const controllersAreDescribed = {
   },
 };
 
-export const docsRules = [apiReferenceCurrent, controllersAreDescribed];
+/**
+ * Every manifest on disk is actually loaded by the runtime.
+ *
+ * There are three lists of manifests by necessity — the composition root
+ * registers them, describe.ts builds the reference from them, and the CLI reads
+ * them from `dist` for db:sync. The CLI's was a hardcoded list until tonight and
+ * silently skipped the app platform's tables entirely; nothing would have caught
+ * that, and nothing yet catches the other two drifting.
+ *
+ * The failure is quiet in the worst direction: a module whose manifest exists
+ * but is never registered contributes no routes, no permissions and no
+ * navigation, and looks from the outside exactly like a module that has not
+ * been written yet.
+ */
+export const manifestsAreRegistered = {
+  name: 'manifests-are-registered',
+  description: 'Every manifest on disk is registered and described (§14.1)',
+  run(sources, rootDir) {
+    const read = (path) => {
+      const full = join(rootDir, path);
+      return existsSync(full) ? readFileSync(full, 'utf8') : null;
+    };
+
+    const composition = read('apps/api/src/composition-root.ts');
+    const describe = read('apps/api/src/describe.ts');
+    if (!composition || !describe) return [];
+
+    const declared = sources
+      .filter((source) => /\.manifest\.ts$/.test(source.relativePath))
+      .map((source) => {
+        // `catalog.manifest.ts` exports `catalogManifest`; core's file is named
+        // `platform.manifest.ts` and exports `platformManifest`, so the export
+        // name follows the FILE rather than the directory.
+        const base = source.relativePath.split('/').pop().replace('.manifest.ts', '');
+        return { path: source.relativePath, symbol: `${base}Manifest` };
+      });
+
+    const violations = [];
+    for (const manifest of declared) {
+      if (!composition.includes(`registry.register(${manifest.symbol})`)) {
+        violations.push({
+          file: manifest.path,
+          line: 1,
+          rule: 'manifests-are-registered',
+          message:
+            `${manifest.symbol} is never registered in composition-root.ts, so the runtime ` +
+            'loads none of its routes, permissions or navigation.',
+        });
+      }
+      if (!describe.includes(manifest.symbol)) {
+        violations.push({
+          file: manifest.path,
+          line: 1,
+          rule: 'manifests-are-registered',
+          message:
+            `${manifest.symbol} is never built in describe.ts, so nothing it declares ` +
+            'reaches the generated API reference.',
+        });
+      }
+    }
+
+    return violations;
+  },
+};
+
+export const docsRules = [apiReferenceCurrent, controllersAreDescribed, manifestsAreRegistered];

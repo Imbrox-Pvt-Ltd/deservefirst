@@ -353,11 +353,45 @@ async function start(): Promise<void> {
   // the service checks against the acting user on every call.
 
   /** A signed-in person's partner accounts, for the dashboard's picker. */
+  /**
+   * A signed-in PERSON, acting as themselves.
+   *
+   * The actor check is not redundant with the user check, and assuming it was
+   * is a real hole this had: an ONLINE app token carries the user id of whoever
+   * authorised it, so `userId !== null` was true for an app, and an app holding
+   * nothing but `read_products` could list that person's partner accounts and
+   * create new ones as them.
+   *
+   * Scope mapping happened to block the worst of it — no scope grants
+   * `store.apps.manage`, so an app could not consent on its own behalf — but
+   * that is luck rather than design, and it would evaporate the first time
+   * somebody wrote a scope that granted it. These routes are the human surface:
+   * the partner dashboard, the app registry, the consent decision. An app is
+   * never the person, however it got its token.
+   */
   const requireUser = async (
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<RequestContext | null> => {
     const context = await contextFor(request as never);
+
+    if (context.actorType === 'app') {
+      reply.status(403).send(
+        failure(
+          [
+            apiError(
+              'forbidden',
+              'Not available to apps',
+              'This endpoint acts on behalf of a person. An app token cannot use it, ' +
+                'whichever person authorised the app.',
+            ),
+          ],
+          { requestId: context.requestId },
+        ),
+      );
+      return null;
+    }
+
     if (context.userId === null) {
       reply.status(401).send(
         failure([apiError('unauthenticated', 'Not signed in', 'Sign in first.')], {
