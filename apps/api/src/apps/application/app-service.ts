@@ -148,6 +148,7 @@ export class AppService {
       clientSecretHash: digestOf(clientSecret),
       webhookUrl: input.webhookUrl ?? null,
       webhookSecret,
+      suspendedReason: null,
       version: 1,
     };
     assertAppValid(app);
@@ -471,26 +472,45 @@ export class AppService {
    * time, which is what lets an uninstall or a narrowed grant take effect on the
    * next call rather than whenever the token happened to expire.
    */
-  async resolveToken(bearer: string): Promise<{
-    appId: string;
-    storeId: StoreId;
-    userId: string | null;
-    scopes: readonly string[];
-    permissions: readonly string[];
-  } | null> {
+  async resolveToken(bearer: string): Promise<
+    | {
+        ok: true;
+        appId: string;
+        storeId: StoreId;
+        userId: string | null;
+        scopes: readonly string[];
+        permissions: readonly string[];
+      }
+    | { ok: false; reason: string | null }
+  > {
     const token: AppToken | null = await this.ports.apps.findTokenByHash(digestOf(bearer));
-    if (!token) return null;
+    // No reason for a token we have never seen: there is nothing true to say,
+    // and inventing one tells a stranger which tokens exist.
+    if (!token) return { ok: false, reason: null };
 
-    const installation: AppInstallation | null = await this.ports.apps.findInstallation(
-      token.appId,
-      token.storeId,
-    );
+    /**
+     * The app is read on every call, alongside the installation.
+     *
+     * A suspension has to stop the app in every store at once, and the
+     * installation rows know nothing about it — without this, suspending would
+     * only have blocked NEW installs while every existing token kept working,
+     * which is the opposite of what suspending an app is for.
+     */
+    const [installation, app] = await Promise.all([
+      this.ports.apps.findInstallation(token.appId, token.storeId),
+      this.ports.apps.findApp(token.appId),
+    ]);
 
-    const usable = tokenIsUsable(token, installation, this.now());
-    if (!usable.ok || !installation) return null;
+    const usable = tokenIsUsable(token, installation, this.now(), app);
+    // The reason is passed back so the app's author is told what actually
+    // happened. "Expired, revoked, or uninstalled" when the truth is "suspended
+    // for exfiltrating customer data" costs them a day and tells them nothing.
+    if (!usable.ok) return { ok: false, reason: usable.reason };
+    if (!installation) return { ok: false, reason: null };
 
     const scopes = effectiveScopes(token, installation);
     return {
+      ok: true,
       appId: token.appId,
       storeId: token.storeId,
       userId: token.userId,
@@ -604,4 +624,49 @@ export interface AppReviewPorts {
     reason: string | null;
     decidedAt: Date;
   }): Promise<void>;
+}
+
+/**
+ * Stops an app everywhere, or lets it start again.
+   *
+ * Deliberately does NOT revoke tokens. A suspension is usually temporary and
+ * often a mistake being investigated; killing every token would force every
+ * merchant through a reinstall to undo it. `tokenIsUsable` reads the app's
+ * status on every call instead, so the stop is immediate and reversible.
+ */
+export class AppSuspensionService {
+  constructor(private readonly ports: AppServicePorts) {}
+
+  async setSuspended(input: {
+    appId: string;
+    suspend: boolean;
+    reason?: string | null;
+  }): Promise<App> {
+    const app = await this.ports.apps.findApp(input.appId);
+    if (!app) throw new AppRuleError('appId', 'is not a registered app');
+
+    if (input.suspend && !input.reason?.trim()) {
+      // The merchants who installed it will read this. "Suspended" with no
+      // reason is a support ticket per merchant.
+      throw new AppRuleError('reason', 'is required when suspending an app');
+    }
+
+    const next: App = {
+      ...app,
+      status: input.suspend ? 'suspended' : 'draft',
+      suspendedReason: input.suspend ? (input.reason?.trim() ?? null) : null,
+      version: app.version,
+    };
+
+    if (!(await this.ports.apps.updateApp(next))) {
+      throw new AppRuleError('version', 'this app changed since it was read — retry');
+    }
+
+    await this.ports.publish({
+      type: input.suspend ? 'apps.app.suspended' : 'apps.app.unsuspended',
+      payload: { appId: app.id, reason: next.suspendedReason },
+    });
+
+    return { ...next, version: next.version + 1 };
+  }
 }

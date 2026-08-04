@@ -71,3 +71,32 @@ Verified end to end against the running server:
 | Partner publishes | **published** |
 | Queue afterwards | no longer lists it |
 
+### 03:2x — Block C · App suspension across every store
+
+`AppStatus` had `suspended` and nothing set it. There was no way to stop a
+misbehaving app everywhere at once.
+
+Two design choices worth knowing about:
+
+**Suspension does not revoke tokens.** It is usually temporary and often a
+mistake being investigated; killing every token would force every merchant
+through a reinstall to undo it. `tokenIsUsable` reads the app's status on every
+call instead — so the stop is immediate *and* reversible.
+
+**The reason travels.** It is carried on the app rather than left in an audit
+log, because the people who need it are the merchants who installed it. A
+suspended app is still installed and still listed; without the reason it looks
+like it is working while every call fails, and the merchant blames their store.
+
+Verified against the running server:
+
+| Step | Result |
+|---|---|
+| App installed, token working | `http 200` |
+| Operator suspends with no reason | refused — merchants will read this |
+| Operator suspends with a reason | `status: suspended` |
+| The same token, immediately | `http 401` |
+| The app's author is told | the suspension reason, not "expired, revoked, or uninstalled" |
+| A made-up token | still the vague message — nothing true to say, and inventing one maps which tokens exist |
+| Merchant's app list | "Stopped by DeserveFirst" + the reason |
+

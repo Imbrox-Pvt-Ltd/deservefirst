@@ -57,6 +57,9 @@ export const appsManifest: ModuleManifest = {
         { name: 'webhookUrl', type: 'string' },
         // Recoverable, because an HMAC cannot be computed from a digest.
         { name: 'webhookSecret', type: 'string', visibility: 'internal' },
+        // Shown to the merchants who installed it, so "it stopped working" has
+        // an answer without a support ticket each.
+        { name: 'suspendedReason', type: 'text' },
       ],
     },
     {
@@ -136,6 +139,12 @@ export const appsManifest: ModuleManifest = {
 
   permissions: [
     {
+      key: 'platform.apps.suspend',
+      label: 'Suspend an app',
+      description: 'Stop an app across every store it is installed on.',
+      categories: ['platform'],
+    },
+    {
       key: 'platform.apps.review',
       label: 'Review app scope requests',
       description: 'Approve or deny an app asking for a restricted scope.',
@@ -158,6 +167,8 @@ export const appsManifest: ModuleManifest = {
   events: [
     { type: 'apps.app.installed', version: 1, label: 'App installed', description: 'A merchant installed an app.', direction: 'emits' },
     { type: 'apps.app.uninstalled', version: 1, label: 'App uninstalled', description: 'A merchant removed an app; its tokens stop working.', direction: 'emits' },
+    { type: 'apps.app.suspended', version: 1, label: 'App suspended', description: 'An operator stopped an app across every store.', direction: 'emits' },
+    { type: 'apps.app.unsuspended', version: 1, label: 'App unsuspended', description: 'An operator let a suspended app run again.', direction: 'emits' },
     { type: 'apps.scopes.updated', version: 1, label: 'App scopes changed', description: 'A merchant changed what an installed app may reach.', direction: 'emits' },
   ],
 

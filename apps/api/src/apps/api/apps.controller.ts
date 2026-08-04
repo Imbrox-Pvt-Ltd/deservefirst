@@ -24,7 +24,11 @@ export function appsController(deps: AppsControllerDeps): ModuleController {
       permission: 'store.apps.manage',
       async handle({ storeId }) {
         const entries = await deps.apps.installedOn(storeId);
-        return entries.map(({ installation, appName, appHandle }) => ({
+        return entries.map(({ installation, appName, appHandle, appStatus, suspendedReason }) => ({
+          appStatus,
+          // Surfaced so the screen can say the app was stopped by us, rather
+          // than showing it as working while every call it makes fails.
+          suspendedReason,
           id: installation.id,
           appId: installation.appId,
           appName,

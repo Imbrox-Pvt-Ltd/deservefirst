@@ -446,6 +446,9 @@ export interface InstalledAppDto {
   readonly appId: string;
   readonly appName: string;
   readonly appHandle: string;
+  /** The APP's status, not the installation's — a suspension is platform-wide. */
+  readonly appStatus: 'draft' | 'published' | 'suspended';
+  readonly suspendedReason: string | null;
   readonly status: 'installed' | 'uninstalled';
   readonly grantedScopes: readonly string[];
   /** Each granted scope resolved to what it actually opens. */

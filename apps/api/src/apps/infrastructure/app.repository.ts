@@ -44,6 +44,7 @@ interface AppRow extends Record<string, unknown> {
   client_secret_hash: string;
   webhook_url: string | null;
   webhook_secret: string | null;
+  suspended_reason: string | null;
   version: number;
 }
 
@@ -113,6 +114,7 @@ function toApp(row: AppRow): App {
     clientSecretHash: row.client_secret_hash,
     webhookUrl: row.webhook_url,
     webhookSecret: row.webhook_secret,
+    suspendedReason: row.suspended_reason,
     version: Number(row.version),
   };
 }
@@ -220,7 +222,7 @@ export class SqlAppRepository {
     const columns = [
       'id', 'partner_id', 'name', 'handle', 'status', 'distribution', 'app_url',
       'redirect_uris', 'requested_scopes', 'client_id', 'client_secret_hash',
-      'webhook_url', 'webhook_secret', 'version',
+      'webhook_url', 'webhook_secret', 'suspended_reason', 'version',
     ];
     await this.executor.query(
       `INSERT INTO ${this.q('apps')} (${columns.map((c) => this.q(c)).join(', ')})
@@ -228,7 +230,8 @@ export class SqlAppRepository {
       [
         app.id, app.partnerId, app.name, app.handle, app.status, app.distribution, app.appUrl,
         JSON.stringify(app.redirectUris), JSON.stringify(app.requestedScopes),
-        app.clientId, app.clientSecretHash, app.webhookUrl, app.webhookSecret, app.version,
+        app.clientId, app.clientSecretHash, app.webhookUrl, app.webhookSecret,
+        app.suspendedReason, app.version,
       ],
     );
   }
@@ -243,12 +246,13 @@ export class SqlAppRepository {
          ${this.q('redirect_uris')} = ${this.p(5)},
          ${this.q('requested_scopes')} = ${this.p(6)},
          ${this.q('webhook_url')} = ${this.p(7)},
+         ${this.q('suspended_reason')} = ${this.p(8)},
          ${this.q('version')} = ${this.q('version')} + 1
-       WHERE ${this.q('id')} = ${this.p(8)} AND ${this.q('version')} = ${this.p(9)}`,
+       WHERE ${this.q('id')} = ${this.p(9)} AND ${this.q('version')} = ${this.p(10)}`,
       [
         app.name, app.status, app.distribution, app.appUrl,
         JSON.stringify(app.redirectUris), JSON.stringify(app.requestedScopes),
-        app.webhookUrl,
+        app.webhookUrl, app.suspendedReason,
         app.id, app.version,
       ],
     );
@@ -271,19 +275,37 @@ export class SqlAppRepository {
   /** Everything installed on one store, with each app's name for the screen. */
   async installationsForStore(
     storeId: StoreId,
-  ): Promise<readonly { installation: AppInstallation; appName: string; appHandle: string }[]> {
-    const rows = await this.executor.query<InstallationRow & { app_name: string; app_handle: string }>(
-      `SELECT i.*, a.${this.q('name')} AS app_name, a.${this.q('handle')} AS app_handle
+  ): Promise<
+    readonly {
+      installation: AppInstallation;
+      appName: string;
+      appHandle: string;
+      appStatus: string;
+      suspendedReason: string | null;
+    }[]
+  > {
+    const rows = await this.executor.query<
+      InstallationRow & {
+        app_name: string;
+        app_handle: string;
+        app_status: string;
+        suspended_reason: string | null;
+      }
+    >(
+      `SELECT i.*, a.${this.q('name')} AS app_name, a.${this.q('handle')} AS app_handle,
+              a.${this.q('status')} AS app_status, a.${this.q('suspended_reason')} AS suspended_reason
          FROM ${this.q('app_installations')} i
          JOIN ${this.q('apps')} a ON a.${this.q('id')} = i.${this.q('app_id')}
         WHERE i.${this.q('store_id')} = ${this.p(1)} AND i.${this.q('deleted_at')} IS NULL
         ORDER BY i.${this.q('installed_at')} DESC`,
       [storeId],
     );
-    return rows.map((row: InstallationRow & { app_name: string; app_handle: string }) => ({
+    return rows.map((row) => ({
       installation: toInstallation(row),
       appName: row.app_name,
       appHandle: row.app_handle,
+      appStatus: row.app_status,
+      suspendedReason: row.suspended_reason,
     }));
   }
 

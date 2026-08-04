@@ -82,10 +82,29 @@ export function InstalledApps({ handle, installed, canManage }: InstalledAppsPro
                       <Text as="span" fontWeight="medium">
                         {entry.appName}
                       </Text>
+                      {entry.appStatus === 'suspended' ? (
+                        <Badge tone="critical">Stopped by DeserveFirst</Badge>
+                      ) : null}
                       {entry.scopeDetail.some((scope) => scope.restricted) ? (
                         <Badge tone="attention">Sensitive access</Badge>
                       ) : null}
                     </InlineStack>
+
+                    {/*
+                      * Said plainly, and above the scope list.
+                      *
+                      * A suspended app is still installed and still listed. Without
+                      * this it looks like it is working while every call it makes
+                      * fails, and the merchant blames their own store.
+                      */}
+                    {entry.appStatus === 'suspended' ? (
+                      <Banner tone="critical" title="We stopped this app">
+                        <Text as="p">
+                          {entry.suspendedReason ??
+                            'It has been suspended across every store while we look into it.'}
+                        </Text>
+                      </Banner>
+                    ) : null}
 
                     <BlockStack gap="100">
                       {entry.scopeDetail.length === 0 ? (

@@ -59,7 +59,12 @@ import {
 import { PartnerService } from './auth/application/partner-service';
 import { SqlPartnerRepository } from './auth/infrastructure/partner.repository';
 import { partnerController } from './auth/api/partner.controller';
-import { AppReviewService, AppService, type ScopeCatalogEntry } from './apps/application';
+import {
+  AppReviewService,
+  AppService,
+  AppSuspensionService,
+  type ScopeCatalogEntry,
+} from './apps/application';
 import { SqlAppRepository } from './apps/infrastructure';
 import { appsController } from './apps/api';
 import { catalogController } from './modules/catalog/api/catalog.controller';
@@ -139,6 +144,8 @@ export interface Platform {
   readonly apps: AppService;
   /** Scope review, an operator's use case with an operator's permission. */
   readonly appReview: AppReviewService;
+  /** Stopping an app across every store it is installed on. */
+  readonly appSuspension: AppSuspensionService;
   /** Every app scope the installed modules declare (§23.2). */
   scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
@@ -568,6 +575,17 @@ export async function bootstrap(): Promise<Platform> {
       approvedScopesFor: (appId) => appRecords.approvedScopesFor(appId),
       ensureAppSubscription: async () => {
         // Review never installs anything; the port exists on the shared shape.
+      },
+    }),
+    appSuspension: new AppSuspensionService({
+      apps: appRecords,
+      scopeCatalog,
+      publish: async (event) => {
+        await events.emit(event.type, event.payload);
+      },
+      approvedScopesFor: (appId) => appRecords.approvedScopesFor(appId),
+      ensureAppSubscription: async () => {
+        // Suspending installs nothing; the port exists on the shared shape.
       },
     }),
     scopeCatalog,

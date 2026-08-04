@@ -42,6 +42,9 @@ const app = (over = {}) => ({
   requestedScopes: ['read_products', 'write_products'],
   clientId: 'cid',
   clientSecretHash: 'hash',
+  webhookUrl: null,
+  webhookSecret: null,
+  suspendedReason: null,
   version: 1,
   ...over,
 });
@@ -272,4 +275,31 @@ test('an app asking for a restricted scope cannot be published unapproved', () =
   );
   // Approved for THIS app specifically, not for the scope globally.
   assert.doesNotThrow(() => assertPublishable(sensitive, restricted, ['read_customer_contact']));
+});
+
+
+test('suspending an app stops every token it holds, in every store', () => {
+  const now = new Date('2026-02-01');
+  const live = token();
+
+  assert.equal(tokenIsUsable(live, installation(), now, app()).ok, true);
+
+  // The installation rows know nothing about a suspension, so without reading
+  // the app this would only have blocked NEW installs while every existing
+  // token kept working — the opposite of what suspending is for.
+  const stopped = tokenIsUsable(live, installation(), now, {
+    status: 'suspended',
+    suspendedReason: 'Exfiltrating customer data.',
+  });
+  assert.equal(stopped.ok, false);
+  // The reason travels, so the app's author is told what actually happened
+  // rather than a list of four things it might be.
+  assert.match(stopped.reason, /Exfiltrating customer data/);
+});
+
+test('a suspended app cannot be installed either, and says why', () => {
+  assert.throws(
+    () => assertInstallable(app({ status: 'suspended', suspendedReason: 'Under review.' })),
+    /Under review/,
+  );
 });

@@ -83,6 +83,14 @@ export interface App {
    * different job rather than reusing the one that grants tokens.
    */
   readonly webhookSecret: string | null;
+  /**
+   * Why an operator stopped this app. Null unless suspended.
+   *
+   * Carried on the app rather than left in an audit log, because the people who
+   * need it are the merchants who installed it — and "the app stopped working"
+   * with no reason is a support ticket per merchant.
+   */
+  readonly suspendedReason: string | null;
   readonly version: number;
 }
 
@@ -208,7 +216,12 @@ export function redirectIsRegistered(app: App, uri: string): boolean {
 
 export function assertInstallable(app: App): void {
   if (app.status === 'suspended') {
-    throw new OAuthError('app_suspended', 'This app has been suspended and cannot be installed.');
+    throw new OAuthError(
+      'app_suspended',
+      app.suspendedReason
+        ? `This app has been suspended: ${app.suspendedReason}`
+        : 'This app has been suspended and cannot be installed.',
+    );
   }
   if (app.status === 'draft' && app.distribution === 'public') {
     throw new OAuthError('app_not_published', 'This app is not published yet.');
@@ -384,7 +397,21 @@ export function tokenIsUsable(
   token: AppToken,
   installation: AppInstallation | null,
   now: Date,
+  /**
+   * The app itself. Optional so existing callers keep working, checked when
+   * given — a suspension has to stop the app in every store at once, and the
+   * installation rows know nothing about it.
+   */
+  app?: Pick<App, 'status' | 'suspendedReason'> | null,
 ): { ok: true } | { ok: false; reason: string } {
+  if (app && app.status === 'suspended') {
+    return {
+      ok: false,
+      reason: app.suspendedReason
+        ? `This app has been suspended: ${app.suspendedReason}`
+        : 'This app has been suspended.',
+    };
+  }
   if (token.revokedAt !== null) return { ok: false, reason: 'This token was revoked.' };
   if (token.expiresAt !== null && token.expiresAt.getTime() <= now.getTime()) {
     return { ok: false, reason: 'This token has expired.' };

@@ -68,8 +68,19 @@ import {
  */
 class InvalidTokenError extends Error {
   readonly status = 401;
-  constructor() {
-    super('This access token is not valid. It may have expired, been revoked, or the app may have been uninstalled.');
+  /**
+   * Says why when there is something true to say.
+   *
+   * A suspended app's author needs "suspended, and here is the reason", not a
+   * list of four things it might be. When the token is simply unknown there is
+   * nothing true to say, and the vague message is the honest one — inventing a
+   * reason would tell a stranger which tokens exist.
+   */
+  constructor(reason?: string | null) {
+    super(
+      reason ??
+        'This access token is not valid. It may have expired, been revoked, or the app may have been uninstalled.',
+    );
     this.name = 'InvalidTokenError';
   }
 }
@@ -191,10 +202,11 @@ async function start(): Promise<void> {
     if (bearer) {
       const caller = await platform.apps.resolveToken(bearer);
       // Not a fall-through to anonymous. A token that does not resolve is
-      // expired, revoked, or for an app that was uninstalled — and every one of
-      // those is a thing the app's author needs told plainly. Falling through
-      // reported "no store selected", which sends them to debug the wrong end.
-      if (!caller) throw new InvalidTokenError();
+      // expired, revoked, suspended, or for an app that was uninstalled — and
+      // every one of those is a thing the app's author needs told plainly.
+      // Falling through reported "no store selected", which sends them to debug
+      // the wrong end entirely.
+      if (!caller.ok) throw new InvalidTokenError(caller.reason);
 
       return {
         ...base,
@@ -968,6 +980,24 @@ async function start(): Promise<void> {
     return success({ appId, scope: body.scope, approved: body.approve === true }, {
       requestId: context.requestId,
     });
+  });
+
+  app.post(`/${API_VERSION}/platform/apps/:appId/suspension`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.apps.suspend');
+    if (!context) return reply;
+
+    const { appId } = request.params as { appId: string };
+    const body = request.body as Record<string, unknown>;
+    const app = await platform.appSuspension.setSuspended({
+      appId,
+      suspend: body.suspend === true,
+      reason: typeof body.reason === 'string' ? body.reason : null,
+    });
+
+    return success(
+      { id: app.id, status: app.status, suspendedReason: app.suspendedReason },
+      { requestId: context.requestId },
+    );
   });
 
   app.get(`/${API_VERSION}/platform/module-states`, async (request, reply) => {
