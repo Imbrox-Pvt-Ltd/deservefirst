@@ -48,6 +48,14 @@ const CUSTOMERS = [
   ['Katherine', 'Johnson', 'katherine@example.test', 'disabled', 'unknown', 1, 4999],
 ];
 
+/** [status, contactName, email, lines[[productId, title, qty, listPrice]], quotedPrice|null] */
+const REQUESTS = [
+  ['submitted', 'Nordic Outfitters', 'buyer@nordic.test', [['p-liquid', 'The Collection Snowboard: Liquid', 12, 74995]], null],
+  ['quoted', 'Alpine Rentals', 'buyer@alpine.test', [['p-oxygen', 'The Collection Snowboard: Oxygen', 40, 108500]], 97650],
+  ['accepted', 'Summit Sports', 'buyer@summit.test', [['p-multi', 'The Multi-managed Snowboard', 25, 62950]], 56655],
+  ['declined', 'Powder Co', 'buyer@powder.test', [['p-wax', 'Selling Plans Ski Wax', 500, 999]], 950],
+];
+
 export async function seed(root, options = {}) {
   const dist = join(root, 'apps/api/dist');
   const { createMysqlPool, MysqlExecutor } = require(join(dist, 'core/database/mysql-executor.js'));
@@ -164,7 +172,54 @@ export async function seed(root, options = {}) {
       }
     }
 
-    return { organizations: 1, businessEntities: 2, stores: 2, users: 1, products: count, collections, customers };
+    // Requests across the whole status path, so the queue views are not empty.
+    let requests = 0;
+    for (const [storeId, currency] of [[SEED.storeA, 'USD'], [SEED.storeB, 'INR']]) {
+      await executor.query('DELETE FROM request_lines WHERE store_id = ?', [storeId]);
+      await executor.query('DELETE FROM requests WHERE store_id = ?', [storeId]);
+
+      let sequence = 1001;
+      for (const [status, name, email, lines, quoted] of REQUESTS) {
+        const id = `seed-${storeId}-rfq-${sequence}`;
+        const lineTotal = lines.reduce((sum, [, , qty, price]) => sum + qty * (quoted ?? price), 0);
+
+        await executor.query(
+          `INSERT INTO requests (id, store_id, handle, reference, customer_id, contact_email, contact_name,
+             status, currency, line_count, subtotal_amount_minor, subtotal_currency, note, internal_note,
+             quote_expires_at, submitted_at, responded_at, version)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          [
+            id, storeId, id, `RFQ-${sequence}`, null, email, name, status, currency,
+            lines.length, String(lineTotal), currency, null, null,
+            status === 'quoted' ? new Date(Date.now() + 14 * 864e5) : null,
+            status === 'draft' ? null : new Date(),
+            ['quoted', 'accepted', 'declined'].includes(status) ? new Date() : null,
+          ],
+        );
+
+        let position = 0;
+        for (const [productId, title, quantity, price] of lines) {
+          await executor.query(
+            `INSERT INTO request_lines (id, store_id, handle, request_id, product_id, variant_id, title, sku,
+               quantity, list_price_amount_minor, list_price_currency,
+               quoted_price_amount_minor, quoted_price_currency, position, note, version)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+            [
+              `${id}-l${position}`, storeId, `${id}-l${position}`, id, productId, null, title, null,
+              quantity, String(price), currency,
+              quoted === null ? null : String(quoted), quoted === null ? null : currency,
+              position, null,
+            ],
+          );
+          position += 1;
+        }
+
+        sequence += 1;
+        requests += 1;
+      }
+    }
+
+    return { organizations: 1, businessEntities: 2, stores: 2, users: 1, products: count, collections, customers, requests };
   } finally {
     await pool.end();
   }
