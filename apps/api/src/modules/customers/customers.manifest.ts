@@ -75,6 +75,27 @@ export const customersManifest: ModuleManifest = {
 
   dashboards: [
     {
+      id: 'customers.subscribed',
+      label: 'Subscribed to email',
+      slot: 'growth',
+      permission: 'customers.read',
+      size: 'small',
+      metric: 'emailSubscribed',
+      href: '/store/:handle/customers?query=emailConsent%3Asubscribed',
+      position: 40,
+      description: 'Only these may be marketed to.',
+    },
+    {
+      id: 'customers.total-analytics',
+      label: 'Customers',
+      slot: 'analytics',
+      permission: 'customers.read',
+      size: 'small',
+      metric: 'totalCustomers',
+      href: '/store/:handle/customers',
+      position: 40,
+    },
+    {
       id: 'customers.total',
       label: 'Customers',
       slot: 'home',

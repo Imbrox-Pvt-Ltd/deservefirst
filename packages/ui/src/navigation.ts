@@ -102,7 +102,7 @@ export function coreNavigation(handle: string): NavSection[] {
             soon({ id: 'companies', label: 'Companies', path: storePaths.companies(handle), permission: 'customers.read' }),
           ],
         },
-        soon({ id: 'growth', label: 'Growth', path: storePaths.growth(handle), permission: 'store.read', icon: 'growth' }),
+        { id: 'growth', label: 'Growth', path: storePaths.growth(handle), permission: 'store.read', icon: 'growth' },
         soon({
           id: 'discounts',
           label: 'Discounts',
@@ -127,13 +127,13 @@ export function coreNavigation(handle: string): NavSection[] {
           ],
         },
         soon({ id: 'markets', label: 'Markets', path: storePaths.markets(handle), permission: 'store.read', icon: 'markets' }),
-        soon({
+        {
           id: 'analytics',
           label: 'Analytics',
           path: storePaths.analytics(handle),
           permission: 'store.read',
           icon: 'analytics',
-        }),
+        },
       ],
     },
     {

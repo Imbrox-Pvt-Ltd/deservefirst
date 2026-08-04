@@ -128,6 +128,28 @@ export const inventoryManifest: ModuleManifest = {
 
   dashboards: [
     {
+      id: 'inventory.needs-attention',
+      label: 'Out of stock',
+      slot: 'growth',
+      permission: 'inventory.read',
+      size: 'small',
+      metric: 'outOfStock',
+      href: '/store/:handle/products/inventory',
+      position: 30,
+      description: 'Nothing sells while this is above zero.',
+    },
+    {
+      id: 'inventory.stocked-positions',
+      label: 'Stocked positions',
+      slot: 'analytics',
+      permission: 'inventory.read',
+      size: 'small',
+      metric: 'stockedPositions',
+      href: '/store/:handle/products/inventory',
+      position: 30,
+      description: 'Product-and-location combinations being counted.',
+    },
+    {
       id: 'inventory.out-of-stock',
       label: 'Out of stock',
       slot: 'home',

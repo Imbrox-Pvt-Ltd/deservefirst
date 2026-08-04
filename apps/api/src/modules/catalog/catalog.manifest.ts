@@ -101,6 +101,37 @@ export const catalogManifest: ModuleManifest = {
 
   dashboards: [
     {
+      id: 'catalog.unpublished',
+      label: 'Not on any channel',
+      slot: 'growth',
+      permission: 'catalog.read',
+      size: 'small',
+      metric: 'draftProducts',
+      href: '/store/:handle/products?query=status%3Adraft',
+      position: 20,
+      description: 'Finished products nobody can buy yet.',
+    },
+    {
+      id: 'catalog.total-products',
+      label: 'Products',
+      slot: 'analytics',
+      permission: 'catalog.read',
+      size: 'small',
+      metric: 'totalProducts',
+      href: '/store/:handle/products',
+      position: 20,
+    },
+    {
+      id: 'catalog.collections',
+      label: 'Collections',
+      slot: 'analytics',
+      permission: 'catalog.read',
+      size: 'small',
+      metric: 'totalCollections',
+      href: '/store/:handle/collections',
+      position: 21,
+    },
+    {
       id: 'catalog.active-products',
       label: 'Active products',
       slot: 'home',

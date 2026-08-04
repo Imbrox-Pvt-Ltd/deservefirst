@@ -16,6 +16,7 @@ export function inventoryMetrics(executor: QueryExecutor, dialect: SqlDialect): 
       // movement, and counting only exact zeroes would hide the rows most worth
       // looking at.
       outOfStock: countRows(executor, dialect, 'inventory_levels', { predicate: '`on_hand` <= 0' }),
+      stockedPositions: countRows(executor, dialect, 'inventory_levels'),
       openPurchaseOrders: countRows(executor, dialect, 'purchase_orders', {
         predicate: "`status` IN ('ordered', 'partial')",
       }),

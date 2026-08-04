@@ -15,6 +15,9 @@ export function ordersMetrics(executor: QueryExecutor, dialect: SqlDialect): Met
       // Submitted and not yet priced — the queue a merchant is actually paid to
       // work through, which is why it sorts first on the home slot.
       awaitingQuote: countRows(executor, dialect, 'requests', { where: { status: 'submitted' } }),
+      quotedAwaitingAnswer: countRows(executor, dialect, 'requests', { where: { status: 'quoted' } }),
+      acceptedRequests: countRows(executor, dialect, 'requests', { where: { status: 'accepted' } }),
+      declinedRequests: countRows(executor, dialect, 'requests', { where: { status: 'declined' } }),
     },
   };
 }

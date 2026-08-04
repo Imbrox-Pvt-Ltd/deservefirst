@@ -13,6 +13,10 @@ export function customersMetrics(executor: QueryExecutor, dialect: SqlDialect): 
     moduleId: 'customers',
     metrics: {
       totalCustomers: countRows(executor, dialect, 'customers'),
+      // Only "subscribed" permits marketing — "unknown" is not consent.
+      emailSubscribed: countRows(executor, dialect, 'customers', {
+        where: { email_consent: 'subscribed' },
+      }),
     },
   };
 }

@@ -30,13 +30,15 @@ export interface DashboardProps {
   readonly handle: string;
   readonly storeName: string;
   readonly widgets: readonly DashboardWidgetDto[];
+  /** Home greets by name; the other slots are titled for what they show. */
+  readonly heading?: string;
 }
 
-export function Dashboard({ handle, storeName, widgets }: DashboardProps) {
+export function Dashboard({ handle, storeName, widgets, heading }: DashboardProps) {
   const router = useRouter();
 
   return (
-    <Page title={`Welcome to ${storeName}`}>
+    <Page title={heading ?? `Welcome to ${storeName}`} subtitle={heading ? storeName : undefined}>
       <BlockStack gap="400">
         {widgets.length === 0 ? (
           <Card>

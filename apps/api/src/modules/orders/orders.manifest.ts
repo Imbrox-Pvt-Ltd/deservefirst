@@ -88,6 +88,38 @@ export const ordersManifest: ModuleManifest = {
 
   dashboards: [
     {
+      id: 'orders.quoted-awaiting-answer',
+      label: 'Quotes awaiting an answer',
+      slot: 'growth',
+      permission: 'orders.read',
+      size: 'small',
+      metric: 'quotedAwaitingAnswer',
+      href: '/store/:handle/requests?query=status%3Aquoted',
+      position: 10,
+      description: 'Priced and sent. Nothing moves until the buyer replies.',
+    },
+    {
+      id: 'orders.accepted',
+      label: 'Accepted quotes',
+      slot: 'analytics',
+      permission: 'orders.read',
+      size: 'small',
+      metric: 'acceptedRequests',
+      href: '/store/:handle/requests?query=status%3Aaccepted',
+      position: 10,
+    },
+    {
+      id: 'orders.declined',
+      label: 'Declined',
+      slot: 'analytics',
+      permission: 'orders.read',
+      size: 'small',
+      metric: 'declinedRequests',
+      href: '/store/:handle/requests?query=status%3Adeclined',
+      position: 11,
+      description: 'Worth reading before changing prices.',
+    },
+    {
       id: 'orders.awaiting-quote',
       label: 'Awaiting a quote',
       slot: 'home',

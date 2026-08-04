@@ -18,6 +18,12 @@ export function catalogMetrics(executor: QueryExecutor, dialect: SqlDialect): Me
     metrics: {
       activeProducts: countRows(executor, dialect, 'products', { where: { status: 'active' } }),
       draftProducts: countRows(executor, dialect, 'products', { where: { status: 'draft' } }),
+      // Archived products are excluded: they are not part of the catalogue any
+      // more, and counting them makes the number grow as things are retired.
+      totalProducts: countRows(executor, dialect, 'products', {
+        predicate: "`status` <> 'archived'",
+      }),
+      totalCollections: countRows(executor, dialect, 'collections'),
     },
   };
 }
