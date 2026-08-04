@@ -334,6 +334,21 @@ async function start(): Promise<void> {
     version: collection.version,
   });
 
+  app.post(`/${API_VERSION}/catalog/collections`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const collection = await platform.collectionServiceFor(storeId).create({
+        title: String(body.title ?? ''),
+        description: body.description === undefined ? undefined : String(body.description),
+        handle: body.handle === undefined ? undefined : String(body.handle),
+        // A collection with no rules yet is manual; adding the first condition
+        // is what makes it automated.
+        type: body.type === 'automated' ? 'automated' : 'manual',
+      });
+      return reply.status(201).send(success(toCollectionDto(collection), { requestId: context.requestId }));
+    }),
+  );
+
   app.get(`/${API_VERSION}/catalog/collections/:id/detail`, async (request, reply) =>
     withStore(request as never, reply as never, 'catalog.read', async (storeId, context) => {
       const { id } = request.params as { id: string };
@@ -396,6 +411,21 @@ async function start(): Promise<void> {
     },
     version: customer.version,
   });
+
+  app.post(`/${API_VERSION}/customers/customers`, async (request, reply) =>
+    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const customer = await platform.customerServiceFor(storeId).create({
+        email: (body.email ?? null) as string | null,
+        phone: (body.phone ?? null) as string | null,
+        firstName: (body.firstName ?? null) as string | null,
+        lastName: (body.lastName ?? null) as string | null,
+        // Consent is never assumed from a staff-created record, so it is not
+        // accepted here — it is changed deliberately, on its own endpoint.
+      });
+      return reply.status(201).send(success(toCustomerDto(customer), { requestId: context.requestId }));
+    }),
+  );
 
   app.get(`/${API_VERSION}/customers/customers/:id/detail`, async (request, reply) =>
     withStore(request as never, reply as never, 'customers.read', async (storeId, context) => {
@@ -471,6 +501,20 @@ async function start(): Promise<void> {
       note: line.note,
     })),
   });
+
+  app.post(`/${API_VERSION}/orders/requests`, async (request, reply) =>
+    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const created = await platform.requestServiceFor(storeId).create({
+        customerId: (body.customerId ?? null) as string | null,
+        contactEmail: (body.contactEmail ?? null) as string | null,
+        contactName: (body.contactName ?? null) as string | null,
+        currency: String(body.currency ?? 'USD'),
+        note: (body.note ?? null) as string | null,
+      });
+      return reply.status(201).send(success(toRequestDto(created), { requestId: context.requestId }));
+    }),
+  );
 
   app.get(`/${API_VERSION}/orders/requests/:id/detail`, async (request, reply) =>
     withStore(request as never, reply as never, 'orders.read', async (storeId, context) => {

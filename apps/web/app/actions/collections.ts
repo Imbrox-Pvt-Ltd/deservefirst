@@ -30,7 +30,7 @@ export interface ActionResult<T> {
 async function call(
   handle: string,
   path: string,
-  method: 'PATCH' | 'PUT',
+  method: 'PATCH' | 'PUT' | 'POST',
   body: Record<string, unknown>,
 ): Promise<ActionResult<CollectionDto>> {
   const storeId = STORE_IDS[handle];
@@ -79,4 +79,12 @@ export async function saveCollectionRules(
     conditions: input.conditions,
     exclusions: input.exclusions,
   });
+}
+
+/** Creates a collection. It starts manual; the first condition makes it automated. */
+export async function createCollection(
+  handle: string,
+  input: { title: string; description?: string; type: 'manual' | 'automated' },
+) {
+  return call(handle, '', 'POST', input);
 }

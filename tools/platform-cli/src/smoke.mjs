@@ -87,7 +87,39 @@ export function navigationDestinations(rootDir, handle) {
     }
   }
 
+  // Create screens are buttons on a list, not menu entries. Walking only the
+  // menu is how nine of them went missing — every one reachable, every one
+  // showing the merchant a record that does not exist.
+  for (const route of declaredRoutes(rootDir)) {
+    const resolved = route.replace(':handle', handle);
+    // Anything still holding a parameter needs a real record id to visit. The
+    // fitness rule covers those statically; this walks what can be opened cold.
+    if (resolved.includes(':')) continue;
+    paths.add(resolved);
+  }
+
   return [...paths].sort();
+}
+
+/** Screen routes each module declares, with parameters left in place. */
+function declaredRoutes(rootDir) {
+  const routes = [];
+  const modulesDir = join(rootDir, 'apps/api/dist/modules');
+  if (!existsSync(modulesDir)) return routes;
+
+  for (const name of readdirSync(modulesDir)) {
+    const manifestPath = join(modulesDir, name, `${name}.manifest.js`);
+    if (!existsSync(manifestPath)) continue;
+    const loaded = require(manifestPath);
+    const manifest = loaded.default ?? loaded[`${name}Manifest`];
+
+    for (const route of manifest?.routes ?? []) {
+      if (route.presentation === 'overlay' || route.presentation === 'drawer') continue;
+      routes.push(route.path.replace(':handle', '__HANDLE__'));
+    }
+  }
+
+  return routes.map((route) => route.replace('__HANDLE__', ':handle'));
 }
 
 export async function smoke(rootDir, options = {}) {

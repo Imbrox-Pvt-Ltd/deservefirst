@@ -89,7 +89,11 @@ export async function saveProduct(
 
 export async function createProduct(
   handle: string,
-  input: { title: string; price: { amount: string; currency: string } },
+  input: {
+    title: string;
+    description?: string;
+    price: { amount: string; currency: string };
+  },
 ): Promise<ActionResult<ProductDto>> {
   try {
     const response = await apiFetch<ProductDto>(

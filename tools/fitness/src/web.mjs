@@ -174,10 +174,12 @@ function resolve(tree, segments) {
     if (dynamic) {
       const result = walk(node.children.get(dynamic), index + 1);
       if (result.kind !== 'missing') {
-        // The store handle IS a parameter, so `[handle]` matching at the first
-        // position is correct. Anything deeper is a named section of the admin
-        // being read as somebody's record id.
-        return index === 0 ? result : { kind: 'dynamic', via: dynamic };
+        // Matching a dynamic folder is correct for the store handle, and for a
+        // segment the manifest itself declared as a parameter. It is only wrong
+        // for a LITERAL segment — a named part of the admin being read as
+        // somebody's record id.
+        const declaredParam = segments[index] === '__param__';
+        return index === 0 || declaredParam ? result : { kind: 'dynamic', via: dynamic };
       }
     }
 
@@ -191,7 +193,16 @@ function resolve(tree, segments) {
   return outcome;
 }
 
-/** Navigation paths the admin declares, from the shared model and the manifests. */
+/**
+ * Every store path the platform declares a screen for: navigation entries AND
+ * the routes in each manifest.
+ *
+ * Navigation alone was not enough. "Create product" is a button on a list, not
+ * a menu entry, so /products/new was never checked — and it was swallowed by
+ * /products/[id], telling the merchant the product they were about to create
+ * does not exist. Exactly the defect this rule was written for, one declaration
+ * away from where it was looking.
+ */
 function navigationPaths(rootDir) {
   const paths = new Map();
 
@@ -223,8 +234,19 @@ function navigationPaths(rootDir) {
       try {
         const loaded = require(manifestPath);
         const manifest = loaded.default ?? loaded[`${name}Manifest`];
+        const source = `apps/api/src/modules/${name}/${name}.manifest.ts`;
         for (const item of manifest?.navigation ?? []) {
-          add(item.path.replace(':handle', '__handle__'), `apps/api/src/modules/${name}/${name}.manifest.ts`);
+          add(item.path.replace(':handle', '__handle__'), source);
+        }
+
+        for (const route of manifest?.routes ?? []) {
+          // Overlays and drawers render above a parent that is already routed;
+          // they do not each need a file of their own.
+          if (route.presentation === 'overlay' || route.presentation === 'drawer') continue;
+          add(
+            route.path.replace(':handle', '__handle__').replace(/:[A-Za-z]+/g, '__param__'),
+            source,
+          );
         }
       } catch {
         // As above.
@@ -244,9 +266,9 @@ function navigationPaths(rootDir) {
  * Falling through to the store-level catch-all is fine: that is the deliberate
  * "not part of this install" placeholder.
  */
-export const navDestinations = {
-  name: 'nav-destinations',
-  description: 'Every navigation entry resolves to a screen, not to a dynamic route (§24.5)',
+export const screenDestinations = {
+  name: 'screen-destinations',
+  description: 'Every declared screen and nav entry resolves to a page, not a dynamic route (§24.5)',
   run(_sources, rootDir) {
     const violations = [];
     const tree = readRouteTree(rootDir);
@@ -268,7 +290,7 @@ export const navDestinations = {
           violation(
             source,
             1,
-            'nav-destinations',
+            'screen-destinations',
             `"${path.replace('__handle__', ':handle')}" is served by the dynamic route "${outcome.via}" — ` +
               `add a page for it, or it renders as a missing record rather than a section`,
           ),
@@ -278,7 +300,7 @@ export const navDestinations = {
           violation(
             source,
             1,
-            'nav-destinations',
+            'screen-destinations',
             `"${path.replace('__handle__', ':handle')}" has no screen and no placeholder — it would 404`,
           ),
         );
@@ -289,4 +311,4 @@ export const navDestinations = {
   },
 };
 
-export const webRules = [clientBoundary, navDestinations];
+export const webRules = [clientBoundary, screenDestinations];

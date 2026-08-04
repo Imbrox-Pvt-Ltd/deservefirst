@@ -80,3 +80,14 @@ export async function changeConsent(
 ) {
   return call(handle, `/${id}/consent`, 'POST', { channel, to, version });
 }
+
+/**
+ * Creates a customer. Consent is deliberately not a field here — a staff-created
+ * record has not opted in to anything, and the API refuses to take it on create.
+ */
+export async function createCustomer(
+  handle: string,
+  input: { email: string | null; firstName: string | null; lastName: string | null; phone: string | null },
+) {
+  return call(handle, '', 'POST', input);
+}

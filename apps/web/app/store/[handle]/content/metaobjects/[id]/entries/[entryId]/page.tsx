@@ -19,20 +19,10 @@ export default async function EntryDetail({
 }: {
   params: Promise<{ handle: string; id: string; entryId: string }>;
 }) {
-  const { handle, id, entryId } = await params;
+  const { handle, entryId } = await params;
   const scope = { storeId: storeIdFor(handle), permissions: PERMISSIONS };
 
   try {
-    // Creating still needs the definition — it is what the form is generated
-    // from — so the two cases differ only in whether an entry comes with it.
-    if (entryId === 'new') {
-      const definition = await apiFetch<MetaobjectDefinitionDto>(
-        `/content/metaobject-definitions/${id}/detail`,
-        scope,
-      );
-      return <MetaobjectEntryForm handle={handle} definition={definition.data} />;
-    }
-
     const response = await apiFetch<{
       definition: MetaobjectDefinitionDto;
       entry: MetaobjectEntryDto;

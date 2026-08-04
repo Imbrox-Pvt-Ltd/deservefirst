@@ -85,3 +85,16 @@ export async function acceptRequest(handle: string, id: string, version: number)
 export async function declineRequest(handle: string, id: string, reason: string, version: number) {
   return call(handle, `/${id}/decline`, { reason, version });
 }
+
+/** Creates a draft request. Lines and pricing are added on the detail screen. */
+export async function createRequest(
+  handle: string,
+  input: {
+    contactName: string | null;
+    contactEmail: string | null;
+    currency: string;
+    note: string | null;
+  },
+) {
+  return call(handle, '', input);
+}
