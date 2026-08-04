@@ -7,6 +7,8 @@
  * Layer: transport.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 
 import {
@@ -42,6 +44,8 @@ import {
 } from './modules/content/domain';
 import { bootstrap, newRequestId } from './composition-root';
 import { generateOpenApi } from './describe';
+import { openSessionCookie } from './auth/infrastructure';
+import { AuthController, deviceLabelFor } from './auth/api';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
   moneyFromDecimalString,
@@ -58,6 +62,27 @@ const API_VERSION = '2026-01';
 
 /** What the reference tells an integrator to call. */
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL ?? 'https://api.deservefirst.example';
+
+const SESSION_COOKIE = 'df_session';
+
+/**
+ * Signs the session cookie.
+ *
+ * A generated fallback means a restart invalidates every session, which is the
+ * right failure: the alternative is a hardcoded default secret that works, and
+ * therefore ships.
+ */
+const sessionSecret = process.env.SESSION_SECRET ?? randomUUID();
+
+/** Reads one cookie out of the header, without a parser dependency. */
+function cookieFrom(header: string | null): string | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [name, ...rest] = part.trim().split('=');
+    if (name === SESSION_COOKIE) return decodeURIComponent(rest.join('='));
+  }
+  return null;
+}
 
 async function start(): Promise<void> {
   const platform = await bootstrap();
@@ -84,37 +109,68 @@ async function start(): Promise<void> {
   );
 
   /**
-   * Establishes the request context (§5.6). In development the store and actor
-   * come from headers so the admin can be driven before the login UI exists;
-   * once auth is wired these are replaced by the verified token claims and the
-   * headers stop being trusted.
+   * Establishes the request context (§5.6) from the SESSION, and only from the
+   * session.
+   *
+   * This used to read `x-permissions`, `x-store-id` and `x-user-id` from
+   * headers, which meant every caller declared its own authority: anyone with
+   * curl could send `x-permissions: platform.modules.manage` and disable a
+   * module for every store. Every access check in the platform was correct
+   * logic applied to an untrusted input — a lock on a door with no frame.
+   *
+   * The headers are GONE rather than kept behind a flag. A development bypass
+   * for authentication is the one nobody remembers to remove, and the fitness
+   * suite now fails the build if one returns.
+   *
+   * Permissions are looked up per request rather than carried in the cookie.
+   * A cookie holding claims would keep a revoked session working until it
+   * expired, and "sign out everywhere" has to mean it.
    */
-  const contextFor = (request: {
+  const contextFor = async (request: {
     headers: Record<string, unknown>;
     id: string;
-  }): RequestContext => {
+  }): Promise<RequestContext> => {
     const header = (name: string) => {
       const value = request.headers[name];
       return typeof value === 'string' && value.length > 0 ? value : null;
     };
 
-    return {
+    const base = {
       requestId: header('x-request-id') ?? request.id ?? newRequestId(),
       correlationId: header('x-correlation-id') ?? request.id ?? newRequestId(),
-      actorType: 'user',
-      userId: (header('x-user-id') as UserId | null),
-      organizationId: header('x-organization-id') as OrganizationId | null,
+      actorType: 'user' as const,
       businessEntityId: null,
-      storeId: header('x-store-id') as StoreId | null,
       partnerId: null,
-      accessType: 'member',
-      roleKeys: [],
-      permissions: (header('x-permissions') ?? '').split(',').filter(Boolean),
+      accessType: 'member' as const,
       supportSessionId: null,
       entitlementsHash: null,
       locale: header('accept-language') ?? 'en-US',
       timeZone: 'UTC',
       shardKey: null,
+    };
+
+    const anonymous: RequestContext = {
+      ...base,
+      userId: null,
+      organizationId: null,
+      storeId: null,
+      roleKeys: [],
+      permissions: [],
+    };
+
+    const sessionId = openSessionCookie(sessionSecret, cookieFrom(header('cookie')));
+    if (!sessionId) return anonymous;
+
+    const identity = await platform.resolveSession(sessionId);
+    if (!identity) return anonymous;
+
+    return {
+      ...base,
+      userId: identity.userId,
+      organizationId: identity.organizationId as OrganizationId | null,
+      storeId: identity.storeId,
+      roleKeys: [...identity.roleKeys],
+      permissions: [...identity.permissions],
     };
   };
 
@@ -124,12 +180,125 @@ async function start(): Promise<void> {
     reply.header('x-api-version', API_VERSION);
   });
 
+  // --- authentication --------------------------------------------------------
+  // The only endpoints that run without a session, which is why they are here
+  // rather than in a module controller — that contract guarantees an authorised
+  // store scope, and here there is not one yet.
+
+  const auth = new AuthController(platform.auth);
+
+  const setSessionCookie = (reply: FastifyReply, sealed: string, expiresAt: Date) => {
+    reply.header(
+      'set-cookie',
+      [
+        `${SESSION_COOKIE}=${encodeURIComponent(sealed)}`,
+        'Path=/',
+        // httpOnly: script must never be able to read it, so an XSS bug is not
+        // automatically a session theft.
+        'HttpOnly',
+        'SameSite=Lax',
+        ...(process.env.NODE_ENV === 'production' ? ['Secure'] : []),
+        `Expires=${expiresAt.toUTCString()}`,
+      ].join('; '),
+    );
+  };
+
+  app.post(`/${API_VERSION}/auth/login`, async (request, reply) => {
+    const context = await contextFor(request as never);
+    const outcome = await auth.login({
+      body: (request.body ?? {}) as Record<string, unknown>,
+      cookie: null,
+      ip: request.ip ?? null,
+      userAgent: (request.headers['user-agent'] as string | undefined) ?? null,
+    });
+
+    if (outcome.session) {
+      setSessionCookie(
+        reply,
+        platform.sealSession(outcome.session.id),
+        outcome.session.expiresAt,
+      );
+    }
+
+    return success(
+      {
+        step: outcome.step,
+        rid: outcome.rid,
+        returnPath: outcome.returnPath ?? null,
+        // The session id is never returned in the body — it lives in an
+        // httpOnly cookie precisely so no script can read it.
+        signedIn: Boolean(outcome.session),
+        // Sent when a store still has to be chosen, so the client does not have
+        // to make a second call to find out what the options are.
+        stores:
+          outcome.session && !outcome.session.storeId
+            ? await platform.storesFor(outcome.session.userId)
+            : undefined,
+      },
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/auth/logout`, async (request, reply) => {
+    const context = await contextFor(request as never);
+    const sessionId = openSessionCookie(sessionSecret, cookieFrom(
+      (request.headers.cookie as string | undefined) ?? null,
+    ));
+
+    if (sessionId) await auth.signOut(sessionId);
+    setSessionCookie(reply, '', new Date(0));
+    return success({ signedOut: true }, { requestId: context.requestId });
+  });
+
+  /** Who am I, and which stores may I open. */
+  app.get(`/${API_VERSION}/auth/session`, async (request) => {
+    const context = await contextFor(request as never);
+    if (context.userId === null) {
+      return success(null, { requestId: context.requestId });
+    }
+
+    return success(
+      {
+        userId: context.userId,
+        storeId: context.storeId,
+        organizationId: context.organizationId,
+        permissions: context.permissions,
+        roleKeys: context.roleKeys,
+        stores: await platform.storesFor(context.userId),
+      },
+      { requestId: context.requestId },
+    );
+  });
+
+  /**
+   * Switching store rescopes the SESSION rather than issuing a new one — the
+   * person has not changed, only which of their stores they are looking at.
+   */
+  app.post(`/${API_VERSION}/auth/switch-store`, async (request, reply) => {
+    const context = await contextFor(request as never);
+    const sessionId = openSessionCookie(sessionSecret, cookieFrom(
+      (request.headers.cookie as string | undefined) ?? null,
+    ));
+
+    if (!sessionId || context.userId === null) {
+      return reply.status(401).send(
+        failure([apiError('unauthenticated', 'Not signed in', 'Sign in first.')], {
+          requestId: context.requestId,
+        }),
+      );
+    }
+
+    const body = request.body as Record<string, unknown>;
+    await auth.switchStore(sessionId, String(body.storeId ?? '') as StoreId);
+    return success({ storeId: body.storeId }, { requestId: context.requestId });
+  });
+
   // --- platform reflection (§36.1) -----------------------------------------
 
   app.get('/health', async () => ({ status: 'ok', version: API_VERSION }));
 
   app.get(`/${API_VERSION}/platform/modules`, async (request) => {
-    const meta = { requestId: contextFor(request as never).requestId };
+    const meta = { requestId: (await contextFor(request as never)).requestId };
     return success(
       platform.registry.all().map((entry) => ({
         id: entry.manifest.id,
@@ -145,13 +314,13 @@ async function start(): Promise<void> {
 
   /** The queryable route registry (§24.2) — every route, and who owns it. */
   app.get(`/${API_VERSION}/platform/routes`, async (request) =>
-    success(platform.routes, { requestId: contextFor(request as never).requestId }),
+    success(platform.routes, { requestId: (await contextFor(request as never)).requestId }),
   );
 
   app.get(`/${API_VERSION}/platform/navigation`, async (request) =>
     success(
       platform.registry.navigation().map((entry) => ({ moduleId: entry.moduleId, ...entry.item })),
-      { requestId: contextFor(request as never).requestId },
+      { requestId: (await contextFor(request as never)).requestId },
     ),
   );
 
@@ -168,7 +337,7 @@ async function start(): Promise<void> {
   app.get(`/${API_VERSION}/platform/settings`, async (request) =>
     success(
       platform.registry.settings().map((entry) => ({ moduleId: entry.moduleId, ...entry.item })),
-      { requestId: contextFor(request as never).requestId },
+      { requestId: (await contextFor(request as never)).requestId },
     ),
   );
 
@@ -182,7 +351,7 @@ async function start(): Promise<void> {
     reply: { status(code: number): { send(body: unknown): unknown } },
     permission: string,
   ) => {
-    const context = contextFor(request);
+    const context = await contextFor(request);
     if (!context.permissions.includes(permission)) {
       reply.status(403).send(
         failure([apiError('forbidden', 'Access denied', `This action needs "${permission}".`)], {
@@ -237,7 +406,7 @@ async function start(): Promise<void> {
     permission: string,
     handler: (storeId: StoreId, context: RequestContext) => Promise<T>,
   ) => {
-    const context = contextFor(request);
+    const context = await contextFor(request);
     if (context.storeId === null) {
       return reply.status(400).send(
         failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], {
@@ -323,19 +492,30 @@ async function start(): Promise<void> {
     const moduleId = key.split(':')[0]!;
     const base = `/${API_VERSION}/${moduleId}/${binding.resource.urlSegment}`;
 
-    const guardStore = (request: never, reply: { status(code: number): { send(body: unknown): unknown } }) => {
-      const context = contextFor(request);
+    const guardStore = async (request: never, reply: { status(code: number): { send(body: unknown): unknown } }) => {
+      const context = await contextFor(request);
       if (context.storeId === null) {
         reply
           .status(400)
-          .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
+          .send(
+            failure(
+              [
+                apiError(
+                  'validation_failed',
+                  'No store selected',
+                  'This session is not scoped to a store. Choose one first.',
+                ),
+              ],
+              { requestId: context.requestId },
+            ),
+          );
         return null;
       }
       return context;
     };
 
     app.get(base, async (request, reply) => {
-      const context = guardStore(request as never, reply as never);
+      const context = await guardStore(request as never, reply as never);
       if (!context) return reply;
 
       await platform.access.assert({
@@ -355,7 +535,7 @@ async function start(): Promise<void> {
     });
 
     app.get(`${base}/:id`, async (request, reply) => {
-      const context = guardStore(request as never, reply as never);
+      const context = await guardStore(request as never, reply as never);
       if (!context) return reply;
       const { id } = request.params as { id: string };
 
@@ -394,12 +574,18 @@ async function start(): Promise<void> {
       const url = `/${API_VERSION}/${moduleController.moduleId}${route.path}`;
 
       const handler = async (request: FastifyRequest, reply: FastifyReply) => {
-        const context = contextFor(request as never);
+        const context = await contextFor(request as never);
 
         if (context.storeId === null) {
           return reply.status(400).send(
             failure(
-              [apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')],
+              [
+              apiError(
+                'validation_failed',
+                'No store selected',
+                'This session is not scoped to a store. Choose one first.',
+              ),
+            ],
               { requestId: context.requestId },
             ),
           );

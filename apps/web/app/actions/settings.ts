@@ -15,10 +15,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch } from '../../lib/api';
-import { storeIdFor } from '../../lib/stores';
 import type { ResolvedSettingDto } from '../../lib/types';
-
-const PERMISSIONS = ['store.settings.read', 'store.settings.manage'];
 
 export interface SettingResult {
   readonly ok: boolean;
@@ -34,7 +31,6 @@ async function call(
   try {
     const response = await apiFetch<ResolvedSettingDto>(
       `/platform/effective-settings/${encodeURIComponent(key)}`,
-      { storeId: storeIdFor(handle), permissions: PERMISSIONS },
       { method: 'PUT', body: JSON.stringify(body) },
     );
     revalidatePath(`/store/${handle}/settings`, 'layout');

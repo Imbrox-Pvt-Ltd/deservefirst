@@ -12,10 +12,8 @@
 import { InventoryList } from '../../../../../components/InventoryList';
 import { ErrorState } from '../../../../../components/ErrorState';
 import { apiFetch, withSearch } from '../../../../../lib/api';
-import { listQueryFrom, storeIdFor } from '../../../../../lib/stores';
+import { listQueryFrom } from '../../../../../lib/stores';
 import type { InventoryLevelDto, LocationDto } from '../../../../../lib/types';
-
-const PERMISSIONS = ['inventory.read', 'inventory.adjust', 'inventory.manage'];
 
 export default async function InventoryPage({
   params,
@@ -26,8 +24,6 @@ export default async function InventoryPage({
 }) {
   const { handle } = await params;
   const search = await searchParams;
-  const storeId = storeIdFor(handle);
-  const scope = { storeId, permissions: PERMISSIONS };
 
   const query = listQueryFrom(search);
   const locationId = query.get('location_id');
@@ -36,10 +32,9 @@ export default async function InventoryPage({
 
   try {
     const [locations, levels] = await Promise.all([
-      apiFetch<LocationDto[]>('/inventory/locations/active', scope),
+      apiFetch<LocationDto[]>('/inventory/locations/active'),
       apiFetch<Omit<InventoryLevelDto, 'available'>[]>(
         withSearch('/inventory/inventory', query),
-        scope,
       ),
     ]);
 

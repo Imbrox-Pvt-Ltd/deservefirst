@@ -11,19 +11,17 @@
 
 import { Dashboard } from '../../../components/Dashboard';
 import { apiFetch } from '../../../lib/api';
-import { ALL_PERMISSIONS, STORES, storeIdFor } from '../../../lib/stores';
+import { currentSession } from '../../../lib/stores';
 import type { DashboardWidgetDto } from '../../../lib/types';
 
 export default async function StoreHome({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const store = STORES.find((entry) => entry.handle === handle) ?? STORES[0]!;
+  const session = await currentSession();
+  const store = session?.stores.find((entry) => entry.handle === handle);
 
   let widgets: DashboardWidgetDto[] = [];
   try {
-    const response = await apiFetch<DashboardWidgetDto[]>('/platform/dashboard/home', {
-      storeId: storeIdFor(handle),
-      permissions: ALL_PERMISSIONS,
-    });
+    const response = await apiFetch<DashboardWidgetDto[]>('/platform/dashboard/home');
     widgets = response.data;
   } catch {
     // An empty dashboard is still a usable admin; the nav is the point of this
@@ -31,5 +29,5 @@ export default async function StoreHome({ params }: { params: Promise<{ handle: 
     widgets = [];
   }
 
-  return <Dashboard handle={handle} storeName={store.name} widgets={widgets} />;
+  return <Dashboard handle={handle} storeName={store?.name ?? handle} widgets={widgets} />;
 }

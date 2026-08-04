@@ -1,38 +1,20 @@
 /**
  * Web · app/store/[handle]/layout.tsx
- * Everything under an active store renders inside the admin shell. The store
- * handle lives in the path (§8.4); the nav is fetched from the platform registry
- * so it reflects the modules actually loaded, not a hardcoded list.
+ * Everything under an active store renders inside the admin shell.
+ *
+ * This is also the gate: no session, no admin. It redirects to sign in with the
+ * path being opened, so signing in returns you to where you were going rather
+ * than to a home page you did not ask for.
  * Layer: web.
  */
 
+import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { AdminShell } from '../../../components/AdminShell';
 import { apiFetch } from '../../../lib/api';
+import { currentSession } from '../../../lib/stores';
 import type { NavigationDto } from '../../../lib/types';
-
-/** Until the identity API is wired, the picker's stores are the known set. */
-const STORES = [
-  { id: 'seed-store-us', handle: 'acme-us', name: 'Acme US' },
-  { id: 'seed-store-in', handle: 'acme-in', name: 'Acme India' },
-];
-
-/**
- * Until the session carries real grants, the admin runs with the full store
- * operator set. Every permission a nav entry declares must appear here or the
- * entry is filtered out and the screen looks missing rather than forbidden —
- * which is exactly how the inventory entries disappeared once they moved under
- * Products.
- */
-const PERMISSIONS = [
-  'store.read', 'store.settings.read', 'store.settings.manage',
-  'catalog.read', 'catalog.write',
-  'orders.read', 'orders.manage', 'orders.quote',
-  'customers.read', 'customers.manage',
-  'inventory.read', 'inventory.adjust', 'inventory.manage',
-  'content.read', 'content.manage', 'content.publish',
-];
 
 export default async function StoreLayout({
   children,
@@ -42,11 +24,22 @@ export default async function StoreLayout({
   params: Promise<{ handle: string }>;
 }) {
   const { handle } = await params;
-  const store = STORES.find((entry) => entry.handle === handle) ?? STORES[0]!;
+  const session = await currentSession();
+
+  if (!session) {
+    redirect(`/login?returnPath=${encodeURIComponent(`/store/${handle}`)}`);
+  }
+
+  const store = session.stores.find((entry) => entry.handle === handle);
+  if (!store) {
+    // A store this person is not a member of is not "forbidden" here — it is
+    // simply not one of theirs, and the sign-in screen is where they choose.
+    redirect('/');
+  }
 
   let contributed: NavigationDto[] = [];
   try {
-    const response = await apiFetch<NavigationDto[]>('/platform/navigation', { storeId: store.id });
+    const response = await apiFetch<NavigationDto[]>('/platform/navigation');
     contributed = response.data;
   } catch {
     // The shell must render even when the API is down — a merchant seeing an
@@ -57,9 +50,11 @@ export default async function StoreLayout({
     <AdminShell
       handle={handle}
       storeName={store.name}
-      stores={STORES}
+      stores={session.stores}
       contributed={contributed}
-      permissions={PERMISSIONS}
+      // The grants the session actually carries, so a nav entry the person
+      // cannot open is not shown to them at all.
+      permissions={session.permissions}
     >
       {children}
     </AdminShell>

@@ -30,13 +30,9 @@ export default async function SettingsPage({
     // Two reads with different jobs: the registry says what a setting IS —
     // label, kind, options — and the resolver says what its value is here and
     // which level supplied it. Neither can answer the other's question.
-    const scope = {
-      storeId: store.id,
-      permissions: ['store.settings.read', 'store.settings.manage'],
-    };
     const [declared, resolved] = await Promise.all([
-      apiFetch<SettingDto[]>('/platform/settings', scope),
-      apiFetch<ResolvedSettingDto[]>('/platform/effective-settings', scope),
+      apiFetch<SettingDto[]>('/platform/settings'),
+      apiFetch<ResolvedSettingDto[]>('/platform/effective-settings'),
     ]);
     contributed = declared.data;
     effective = resolved.data;

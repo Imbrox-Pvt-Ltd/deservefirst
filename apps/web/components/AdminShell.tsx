@@ -17,6 +17,8 @@ import { useCallback, useMemo, type ReactNode } from 'react';
 
 import { branding } from '@deservefirst/config';
 import { settingsPaths, storePaths } from '@deservefirst/contracts';
+
+import { signOut } from '../app/actions/auth';
 import { AdminFrame, composeNavigation, type ContributedNavItem } from '@deservefirst/ui';
 
 import type { NavigationDto } from '../lib/types';
@@ -115,6 +117,14 @@ export function AdminShell({
       // Switching store keeps the current section where possible, so a merchant
       // comparing two shops stays on the same screen.
       onSwitchStore={(next) => router.push(pathname.replace(`/store/${handle}`, `/store/${next}`))}
+      onSignOut={() => {
+        // Revoked server-side, not merely forgotten locally: a cookie the
+        // client drops is a session that still works for anyone holding it.
+        void signOut().then(() => {
+          router.push('/login');
+          router.refresh();
+        });
+      }}
     >
       {children}
     </AdminFrame>

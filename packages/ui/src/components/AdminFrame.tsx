@@ -41,6 +41,7 @@ export interface AdminFrameProps {
   readonly onNavigate: (path: string) => void;
   readonly onSearch: (term: string) => void;
   readonly onSwitchStore: (handle: string) => void;
+  readonly onSignOut: () => void;
   readonly children: ReactNode;
 }
 
@@ -69,6 +70,7 @@ export function AdminFrame({
   onNavigate,
   onSearch,
   onSwitchStore,
+  onSignOut,
   children,
 }: AdminFrameProps) {
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
@@ -217,6 +219,17 @@ export function AdminFrame({
                     }}
                   >
                     All stores
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="df-storemenu__item"
+                    onClick={() => {
+                      setStoreMenuOpen(false);
+                      onSignOut();
+                    }}
+                  >
+                    Sign out
                   </button>
                 </div>
               </>

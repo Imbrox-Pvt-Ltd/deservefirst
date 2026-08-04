@@ -9,10 +9,7 @@ import { notFound } from 'next/navigation';
 import { ErrorState } from '../../../../../../components/ErrorState';
 import { MetaobjectDefinitionDetail } from '../../../../../../components/MetaobjectDefinitionDetail';
 import { apiFetch, isNotFound } from '../../../../../../lib/api';
-import { storeIdFor } from '../../../../../../lib/stores';
 import type { MetaobjectDefinitionDto, MetaobjectEntryDto } from '../../../../../../lib/types';
-
-const PERMISSIONS = ['content.read', 'content.manage', 'content.definitions.manage'];
 
 export default async function DefinitionDetail({
   params,
@@ -27,10 +24,7 @@ export default async function DefinitionDetail({
     const response = await apiFetch<{
       definition: MetaobjectDefinitionDto;
       entries: MetaobjectEntryDto[];
-    }>(`/content/metaobject-definitions/${id}/entries`, {
-      storeId: storeIdFor(handle),
-      permissions: PERMISSIONS,
-    });
+    }>(`/content/metaobject-definitions/${id}/entries`);
 
     return (
       <MetaobjectDefinitionDetail

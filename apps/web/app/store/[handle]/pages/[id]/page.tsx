@@ -9,7 +9,6 @@ import { notFound } from 'next/navigation';
 import { ErrorState } from '../../../../../components/ErrorState';
 import { PageEditor } from '../../../../../components/PageEditor';
 import { apiFetch, isNotFound } from '../../../../../lib/api';
-import { storeIdFor } from '../../../../../lib/stores';
 import type { PageDto } from '../../../../../lib/types';
 
 export default async function PageDetail({
@@ -20,10 +19,7 @@ export default async function PageDetail({
   const { handle, id } = await params;
 
   try {
-    const response = await apiFetch<PageDto>(`/content/pages/${id}/detail`, {
-      storeId: storeIdFor(handle),
-      permissions: ['content.read', 'content.manage', 'content.publish'],
-    });
+    const response = await apiFetch<PageDto>(`/content/pages/${id}/detail`);
     return <PageEditor handle={handle} page={response.data} />;
   } catch (error) {
     if (isNotFound(error)) notFound();

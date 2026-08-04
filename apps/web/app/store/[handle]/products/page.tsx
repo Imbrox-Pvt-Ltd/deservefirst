@@ -13,11 +13,6 @@ import { ProductsList } from '../../../../components/ProductsList';
 import { apiFetch, withSearch } from '../../../../lib/api';
 import type { ProductDto } from '../../../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 /** Saved views come from the toolkit's saved_views table; these are the defaults. */
 const VIEWS: SavedView[] = [
   { id: 'all', entity: 'Product', name: 'All', query: '', sort: null, columns: [], shared: true, position: 0 },
@@ -35,7 +30,6 @@ export default async function ProductsPage({
 }) {
   const { handle } = await params;
   const search = await searchParams;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   // Rebuild the query string verbatim — the list engine understands it directly,
   // so no screen has to translate URL state into an API call.
@@ -52,7 +46,6 @@ export default async function ProductsPage({
   try {
     const response = await apiFetch<ProductDto[]>(
       withSearch('/catalog/products', query),
-      { storeId },
     );
 
     const connection: Connection<ProductDto> = {

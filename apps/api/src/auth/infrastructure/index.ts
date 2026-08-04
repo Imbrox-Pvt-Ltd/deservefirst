@@ -8,3 +8,5 @@
  */
 
 export * from './identity.repository';
+export * from './session.repository';
+export * from './auth-ports';

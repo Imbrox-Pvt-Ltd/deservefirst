@@ -9,7 +9,7 @@ import type { Connection, SavedView } from '@deservefirst/contracts';
 import { EntityList } from '../../../../components/EntityList';
 import { ErrorState } from '../../../../components/ErrorState';
 import { apiFetch, withSearch } from '../../../../lib/api';
-import { listQueryFrom, storeIdFor } from '../../../../lib/stores';
+import { listQueryFrom } from '../../../../lib/stores';
 
 const COLUMNS = [
   { field: 'reference', label: 'Transfer', defaultVisible: true },
@@ -36,7 +36,6 @@ export default async function TransfersPage({
   try {
     const response = await apiFetch<Record<string, unknown>[]>(
       withSearch('/inventory/transfers', query),
-      { storeId: storeIdFor(handle), permissions: ['inventory.read', 'inventory.manage'] },
     );
 
     const connection = {

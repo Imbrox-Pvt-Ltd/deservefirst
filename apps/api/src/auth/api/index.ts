@@ -1,8 +1,8 @@
 /**
  * Auth · api/index.ts
- * Transport adapters for the auth flows. Thin by construction: parse, authorize,
- * serialize, call a use-case (§13.1).
+ * The transport surface for identity. Unlike a module's controller, these run
+ * before a session exists.
  * Layer: api.
  */
 
-export {};
+export * from './auth.controller';

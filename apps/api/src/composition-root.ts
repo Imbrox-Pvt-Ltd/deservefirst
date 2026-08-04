@@ -17,8 +17,15 @@ import { loadPlatformConfig } from '@deservefirst/config';
 
 import { authManifest } from './auth/auth.manifest';
 import { platformManifest } from './core/platform.manifest';
-import { AccessEvaluator } from './auth/application';
-import { SqlIdentityRepository } from './auth/infrastructure';
+import { AccessEvaluator, AuthService } from './auth/application';
+import {
+  SqlIdentityRepository,
+  SqlLoginFlowRepository,
+  SqlSessionRepository,
+  createAuthPorts,
+  sealSessionId,
+  type SessionIdentity,
+} from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
 import {
   CacheService,
@@ -97,6 +104,17 @@ export interface Platform {
   /** Home and the other slots, composed from what the modules contribute. */
   readonly dashboard: DashboardService;
   readonly identity: SqlIdentityRepository;
+  readonly auth: AuthService;
+  /**
+   * Turns a session id into who the caller is and what they may do.
+   *
+   * Permissions are read per request rather than cached in the cookie, so
+   * revoking a role or a session takes effect on the next call rather than when
+   * a token happens to expire.
+   */
+  resolveSession(sessionId: string): Promise<SessionIdentity | null>;
+  sealSession(sessionId: string): string;
+  storesFor(userId: string): Promise<readonly { id: string; handle: string; name: string }[]>;
   readonly products: ProductRepositoryImpl;
   /** Built per request: the service is scoped to whichever store is active. */
   productServiceFor(storeId: string): ProductService;
@@ -233,6 +251,20 @@ export async function bootstrap(): Promise<Platform> {
   });
 
   const identity = new SqlIdentityRepository(executor, dialect);
+  const sessions = new SqlSessionRepository(executor, dialect);
+  const loginFlows = new SqlLoginFlowRepository(executor, dialect);
+
+  const sessionSecret = process.env.SESSION_SECRET ?? 'development-secret-not-for-production';
+  const auth = new AuthService(
+    identity,
+    sessions,
+    loginFlows,
+    createAuthPorts({
+      secret: sessionSecret,
+      events,
+      entitlementsHashFor: async (storeId) => entitlements.hashFor(storeId),
+    }),
+  );
   const products = new ProductRepositoryImpl(executor, dialect);
 
   const toolkitPorts = createToolkitPorts({
@@ -344,6 +376,44 @@ export async function bootstrap(): Promise<Platform> {
     settings,
     dashboard,
     identity,
+    auth,
+
+    resolveSession: async (sessionId) => {
+      const session = await sessions.findById(sessionId);
+      if (!session) return null;
+      // Expired or revoked is not a reduced session; it is no session.
+      if (session.revokedAt !== null || session.expiresAt.getTime() <= Date.now()) return null;
+
+      const [permissions, roleKeys] = session.storeId
+        ? await Promise.all([
+            identity.permissionsFor(session.userId, session.storeId),
+            identity.roleKeysFor(session.userId, session.storeId),
+          ])
+        : [[], []];
+
+      return {
+        sessionId: session.id,
+        userId: session.userId,
+        storeId: session.storeId,
+        organizationId: session.organizationId,
+        permissions,
+        roleKeys,
+      };
+    },
+
+    sealSession: (sessionId) => sealSessionId(sessionSecret, sessionId),
+
+    storesFor: async (userId) => {
+      const memberships = await identity.membershipsFor(userId as never);
+      return memberships
+        .filter((membership) => membership.status === 'active')
+        .map((membership) => ({
+          id: membership.store.id,
+          handle: membership.store.handle,
+          name: membership.store.name,
+        }));
+    },
+
     products,
     // The store is passed explicitly rather than read from context here, so a
     // worker outside a request can build one too.

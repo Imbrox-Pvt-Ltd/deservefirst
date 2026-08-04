@@ -9,17 +9,13 @@
 import { CreateForm } from '../../../../../components/CreateForm';
 import { ErrorState } from '../../../../../components/ErrorState';
 import { apiFetch } from '../../../../../lib/api';
-import { storeIdFor } from '../../../../../lib/stores';
 import type { LocationDto } from '../../../../../lib/types';
 
 export default async function NewTransferPage({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
 
   try {
-    const locations = await apiFetch<LocationDto[]>('/inventory/locations/active', {
-      storeId: storeIdFor(handle),
-      permissions: ['inventory.read', 'inventory.manage'],
-    });
+    const locations = await apiFetch<LocationDto[]>('/inventory/locations/active');
 
     return (
       <CreateForm

@@ -355,4 +355,67 @@ export const transportIsThin = {
   },
 };
 
-export const webRules = [clientBoundary, screenDestinations, transportIsThin];
+/**
+ * Authority comes from the session, never from a header the caller sets.
+ *
+ * The transport used to read `x-permissions`, `x-store-id` and `x-user-id`,
+ * which meant every caller declared its own authority — anyone with curl could
+ * claim `platform.modules.manage` and disable a module for every store. Every
+ * access check on the platform was correct logic applied to an untrusted input.
+ *
+ * That scaffolding is exactly the kind that gets reintroduced "just for local
+ * testing", so it is a build failure rather than a convention. The store id is
+ * exempted for the CLIENT's own calls (the admin sends none) but forbidden as a
+ * source of context on the server.
+ */
+/** Blanks comments while preserving line numbers, so reports still point true. */
+function withoutComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+    .split('\n')
+    .map((line) => (/^\s*\/\//.test(line) ? '' : line))
+    .join('\n');
+}
+
+export const authorityFromSession = {
+  name: 'authority-from-session',
+  description: 'The server never takes identity or permissions from a request header',
+  run(sources) {
+    const violations = [];
+    const forbidden = /['"`]x-(permissions|user-id|organization-id|roles?)['"`]/gi;
+
+    for (const source of sources) {
+      // The server side only: a browser client naming a header it SENDS is
+      // fine, and the API no longer accepts them anyway.
+      if (!source.relativePath.startsWith('apps/api/src/')) continue;
+      if (source.relativePath.includes('/tests/')) continue;
+
+      // Comments are prose, and this file's own explanation of the bug names
+      // the headers it removed. A rule that cannot tell code from a comment
+      // punishes documenting the reason.
+      const code = withoutComments(source.text);
+
+      let match;
+      while ((match = forbidden.exec(code)) !== null) {
+        violations.push(
+          violation(
+            source.relativePath,
+            code.slice(0, match.index).split('\n').length,
+            'authority-from-session',
+            `reads "${match[0].replace(/['"`]/g, '')}" from the request — ` +
+              `identity and permissions come from the session, not from what the caller claims`,
+          ),
+        );
+      }
+    }
+
+    return violations;
+  },
+};
+
+export const webRules = [
+  clientBoundary,
+  screenDestinations,
+  transportIsThin,
+  authorityFromSession,
+];

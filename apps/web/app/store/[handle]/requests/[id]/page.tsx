@@ -11,24 +11,15 @@ import { RequestDetail } from '../../../../../components/RequestDetail';
 import { apiFetch, isNotFound } from '../../../../../lib/api';
 import type { RequestDto } from '../../../../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 export default async function RequestDetailPage({
   params,
 }: {
   params: Promise<{ handle: string; id: string }>;
 }) {
   const { handle, id } = await params;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   try {
-    const response = await apiFetch<RequestDto>(`/orders/requests/${id}/detail`, {
-      storeId,
-      permissions: ['orders.read', 'orders.manage', 'orders.quote'],
-    });
+    const response = await apiFetch<RequestDto>(`/orders/requests/${id}/detail`);
     return <RequestDetail handle={handle} request={response.data} />;
   } catch (error) {
     const notFound = isNotFound(error);

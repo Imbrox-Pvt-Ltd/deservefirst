@@ -116,7 +116,18 @@ export async function seed(root, options = {}) {
     }
 
     const owner = SYSTEM_ROLES.find((role) => role.key === 'owner');
-    await identity.createRole({ id: SEED.role, organizationId: SEED.org, storeId: null, category: 'organization', name: owner.name, description: '', permissions: [...owner.permissions, 'catalog.read', 'catalog.write', 'store.read'], system: true, grantsApproval: true });
+
+    // Every permission every loaded module declares, plus the role's own.
+    // Listing a few by hand went stale the moment a module was added, and the
+    // symptom is a screen that renders empty for the store owner — which reads
+    // as a broken feature rather than a missing grant.
+    const { manifestsOf } = await import('./manifests.mjs');
+    const declared = manifestsOf(root).flatMap((manifest) =>
+      (manifest.permissions ?? []).map((entry) => entry.key),
+    );
+    const permissions = [...new Set([...owner.permissions, ...declared, 'store.read'])];
+
+    await identity.createRole({ id: SEED.role, organizationId: SEED.org, storeId: null, category: 'organization', name: owner.name, description: '', permissions, system: true, grantsApproval: true });
     await identity.assignRole({ id: 'seed-ra', organizationId: SEED.org, userId: SEED.user, roleId: SEED.role, storeId: null });
 
     let count = 0;

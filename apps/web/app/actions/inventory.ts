@@ -13,10 +13,7 @@
 import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch } from '../../lib/api';
-import { storeIdFor } from '../../lib/stores';
 import type { InventoryLevelDto, PurchaseOrderDto, TransferDto } from '../../lib/types';
-
-const PERMISSIONS = ['inventory.read', 'inventory.adjust', 'inventory.manage'];
 
 export interface ActionResult<T> {
   readonly ok: boolean;
@@ -35,7 +32,6 @@ async function call<T>(
   try {
     const response = await apiFetch<T>(
       path,
-      { storeId: storeIdFor(handle), permissions: PERMISSIONS },
       { method, body: JSON.stringify(body) },
     );
     for (const path of revalidate) revalidatePath(`/store/${handle}${path}`);

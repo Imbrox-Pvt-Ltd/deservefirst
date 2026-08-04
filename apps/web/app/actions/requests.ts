@@ -13,13 +13,6 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch } from '../../lib/api';
 import type { RequestDto } from '../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
-const PERMISSIONS = ['orders.read', 'orders.manage', 'orders.quote'];
-
 export interface ActionResult<T> {
   readonly ok: boolean;
   readonly data?: T;
@@ -27,11 +20,6 @@ export interface ActionResult<T> {
   readonly conflict?: boolean;
 }
 
-function storeFor(handle: string): string {
-  const storeId = STORE_IDS[handle];
-  if (!storeId) throw new Error(`Unknown store "${handle}"`);
-  return storeId;
-}
 
 async function call(
   handle: string,
@@ -42,7 +30,6 @@ async function call(
   try {
     const response = await apiFetch<RequestDto>(
       `/orders/requests${path}`,
-      { storeId: storeFor(handle), permissions: PERMISSIONS },
       { method, body: JSON.stringify(body) },
     );
     revalidatePath(`/store/${handle}/requests`);

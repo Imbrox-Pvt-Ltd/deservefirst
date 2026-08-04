@@ -10,10 +10,7 @@ import { ErrorState } from '../../../../../components/ErrorState';
 import { ReceivingDetail } from '../../../../../components/ReceivingDetail';
 import { transferLines } from '../../../../../lib/receiving';
 import { apiFetch, isNotFound, withSearch } from '../../../../../lib/api';
-import { storeIdFor } from '../../../../../lib/stores';
 import type { LocationDto, TransferDto } from '../../../../../lib/types';
-
-const PERMISSIONS = ['inventory.read', 'inventory.manage'];
 
 export default async function TransferPage({
   params,
@@ -21,19 +18,17 @@ export default async function TransferPage({
   params: Promise<{ handle: string; id: string }>;
 }) {
   const { handle, id } = await params;
-  const scope = { storeId: storeIdFor(handle), permissions: PERMISSIONS };
 
   try {
     const [transfer, locations, products] = await Promise.all([
-      apiFetch<TransferDto>(`/inventory/transfers/${id}/detail`, scope),
-      apiFetch<LocationDto[]>('/inventory/locations/active', scope),
+      apiFetch<TransferDto>(`/inventory/transfers/${id}/detail`),
+      apiFetch<LocationDto[]>('/inventory/locations/active'),
       // Selectable products for the draft line editor. Capped deliberately: a
       // select is the wrong control past a few hundred, and pretending
       // otherwise would ship a screen that degrades silently as a catalogue
       // grows.
       apiFetch<{ id: string; title: string }[]>(
         withSearch('/catalog/products', new URLSearchParams({ limit: '250' })),
-        { ...scope, permissions: [...PERMISSIONS, 'catalog.read'] },
       ),
     ]);
 

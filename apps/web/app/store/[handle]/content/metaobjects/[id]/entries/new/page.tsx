@@ -14,7 +14,6 @@ import { notFound } from 'next/navigation';
 import { ErrorState } from '../../../../../../../../components/ErrorState';
 import { MetaobjectEntryForm } from '../../../../../../../../components/MetaobjectEntryForm';
 import { apiFetch, isNotFound } from '../../../../../../../../lib/api';
-import { storeIdFor } from '../../../../../../../../lib/stores';
 import type { MetaobjectDefinitionDto } from '../../../../../../../../lib/types';
 
 export default async function NewEntryPage({
@@ -27,7 +26,6 @@ export default async function NewEntryPage({
   try {
     const definition = await apiFetch<MetaobjectDefinitionDto>(
       `/content/metaobject-definitions/${id}/detail`,
-      { storeId: storeIdFor(handle), permissions: ['content.read', 'content.manage'] },
     );
     return <MetaobjectEntryForm handle={handle} definition={definition.data} />;
   } catch (error) {

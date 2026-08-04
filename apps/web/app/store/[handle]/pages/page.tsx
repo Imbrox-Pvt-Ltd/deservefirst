@@ -10,7 +10,7 @@ import type { Connection, SavedView } from '@deservefirst/contracts';
 import { EntityList } from '../../../../components/EntityList';
 import { ErrorState } from '../../../../components/ErrorState';
 import { apiFetch, withSearch } from '../../../../lib/api';
-import { listQueryFrom, storeIdFor } from '../../../../lib/stores';
+import { listQueryFrom } from '../../../../lib/stores';
 
 const COLUMNS = [
   { field: 'title', label: 'Title', defaultVisible: true },
@@ -37,7 +37,6 @@ export default async function PagesPage({
   try {
     const response = await apiFetch<Record<string, unknown>[]>(
       withSearch('/content/pages', query),
-      { storeId: storeIdFor(handle), permissions: ['content.read', 'content.manage'] },
     );
 
     const connection = {

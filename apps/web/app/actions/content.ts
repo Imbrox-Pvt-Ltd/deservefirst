@@ -13,17 +13,12 @@
 import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch } from '../../lib/api';
-import { storeIdFor } from '../../lib/stores';
 import type {
   MetaobjectDefinitionDto,
   MetaobjectEntryDto,
   MetaobjectFieldDto,
   PageDto,
 } from '../../lib/types';
-
-const PERMISSIONS = [
-  'content.read', 'content.manage', 'content.publish', 'content.definitions.manage',
-];
 
 export interface ActionResult<T> {
   readonly ok: boolean;
@@ -42,7 +37,6 @@ async function call<T>(
   try {
     const response = await apiFetch<T>(
       path,
-      { storeId: storeIdFor(handle), permissions: PERMISSIONS },
       { method, body: JSON.stringify(body) },
     );
     for (const entry of revalidate) revalidatePath(`/store/${handle}${entry}`);

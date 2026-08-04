@@ -10,24 +10,15 @@ import { ErrorState } from '../../../../../components/ErrorState';
 import { apiFetch, isNotFound } from '../../../../../lib/api';
 import type { CustomerDto } from '../../../../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 export default async function CustomerDetailPage({
   params,
 }: {
   params: Promise<{ handle: string; id: string }>;
 }) {
   const { handle, id } = await params;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   try {
-    const response = await apiFetch<CustomerDto>(`/customers/customers/${id}/detail`, {
-      storeId,
-      permissions: ['customers.read', 'customers.manage'],
-    });
+    const response = await apiFetch<CustomerDto>(`/customers/customers/${id}/detail`);
     return <CustomerDetail handle={handle} customer={response.data} />;
   } catch (error) {
     const notFound = isNotFound(error);

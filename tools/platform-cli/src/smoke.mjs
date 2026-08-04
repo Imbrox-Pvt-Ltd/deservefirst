@@ -122,9 +122,51 @@ function declaredRoutes(rootDir) {
   return routes.map((route) => route.replace('__HANDLE__', ':handle'));
 }
 
+/**
+ * Signs in and returns the session cookie.
+ *
+ * Added after this command reported "all 31 destinations render" while every
+ * one of them was redirecting to the login page — it followed the redirect,
+ * got a 200, found no failure text, and cheerfully checked that the login
+ * screen rendered 31 times. A smoke test that silently stops testing is worse
+ * than none, because it is believed.
+ */
+async function signIn(apiUrl, email, password) {
+  const response = await fetch(`${apiUrl}/2026-01/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const body = await response.json();
+  if (body.errors?.length) throw new Error(`sign-in failed: ${body.errors[0].detail}`);
+
+  const cookie = /df_session=([^;]*)/.exec(response.headers.get('set-cookie') ?? '')?.[1];
+  if (!cookie) throw new Error('sign-in returned no session cookie');
+  return `df_session=${cookie}`;
+}
+
+/** Scopes the session to a store, since most screens need one. */
+async function chooseStore(apiUrl, cookie, storeId) {
+  const response = await fetch(`${apiUrl}/2026-01/auth/switch-store`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({ storeId }),
+  });
+  const body = await response.json();
+  if (body.errors?.length) throw new Error(`could not open the store: ${body.errors[0].detail}`);
+}
+
 export async function smoke(rootDir, options = {}) {
   const baseUrl = (options.baseUrl ?? 'http://127.0.0.1:4100').replace(/\/$/, '');
+  const apiUrl = (options.apiUrl ?? 'http://127.0.0.1:4000').replace(/\/$/, '');
   const handle = options.handle ?? 'acme-us';
+  const cookie = await signIn(
+    apiUrl,
+    options.email ?? 'dev@acme.test',
+    options.password ?? 'a-perfectly-fine-passphrase',
+  );
+  await chooseStore(apiUrl, cookie, options.storeId ?? 'seed-store-us');
 
   const destinations = navigationDestinations(rootDir, handle);
   if (destinations.length === 0) {
@@ -139,9 +181,17 @@ export async function smoke(rootDir, options = {}) {
     let body = '';
 
     try {
-      const response = await fetch(url, { redirect: 'follow' });
+      const response = await fetch(url, { redirect: 'follow', headers: { cookie } });
       status = response.status;
       body = await response.text();
+
+      // Landing on the sign-in screen means the session did not reach the page.
+      // Reported as a failure rather than accepted as a 200, because that is
+      // precisely the false pass this check once produced.
+      if (new URL(response.url).pathname.startsWith('/login')) {
+        results.push({ path, status, ok: false, reason: 'redirected to sign in' });
+        continue;
+      }
     } catch (error) {
       results.push({ path, status: 0, ok: false, reason: `unreachable — ${error.message}` });
       continue;

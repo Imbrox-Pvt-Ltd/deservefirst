@@ -11,21 +11,15 @@ import { ProductDetail } from '../../../../../components/ProductDetail';
 import { apiFetch, isNotFound } from '../../../../../lib/api';
 import type { ProductDto } from '../../../../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 export default async function ProductDetailPage({
   params,
 }: {
   params: Promise<{ handle: string; id: string }>;
 }) {
   const { handle, id } = await params;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   try {
-    const response = await apiFetch<ProductDto>(`/catalog/products/${id}/detail`, { storeId });
+    const response = await apiFetch<ProductDto>(`/catalog/products/${id}/detail`);
     return <ProductDetail handle={handle} product={response.data} />;
   } catch (error) {
     const notFound = isNotFound(error);

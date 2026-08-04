@@ -330,11 +330,16 @@ switch (command) {
     break;
   }
   case 'smoke': {
-    const baseArg = args.find((arg) => arg.startsWith('--base='));
-    const handleArg = args.find((arg) => arg.startsWith('--store='));
+    const flag = (name) => {
+      const found = args.find((arg) => arg.startsWith(`--${name}=`));
+      return found ? found.slice(name.length + 3) : undefined;
+    };
     smoke(ROOT, {
-      ...(baseArg ? { baseUrl: baseArg.slice('--base='.length) } : {}),
-      ...(handleArg ? { handle: handleArg.slice('--store='.length) } : {}),
+      ...(flag('base') ? { baseUrl: flag('base') } : {}),
+      ...(flag('api') ? { apiUrl: flag('api') } : {}),
+      ...(flag('store') ? { handle: flag('store') } : {}),
+      ...(flag('email') ? { email: flag('email') } : {}),
+      ...(flag('password') ? { password: flag('password') } : {}),
     })
       .then((report) => {
         console.log(`\nOpening every navigation destination at ${report.baseUrl}\n`);

@@ -13,13 +13,6 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch } from '../../lib/api';
 import type { CollectionDto, ConditionDto } from '../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
-const PERMISSIONS = ['catalog.read', 'catalog.write'];
-
 export interface ActionResult<T> {
   readonly ok: boolean;
   readonly data?: T;
@@ -33,13 +26,10 @@ async function call(
   method: 'PATCH' | 'PUT' | 'POST',
   body: Record<string, unknown>,
 ): Promise<ActionResult<CollectionDto>> {
-  const storeId = STORE_IDS[handle];
-  if (!storeId) return { ok: false, error: `Unknown store "${handle}"` };
 
   try {
     const response = await apiFetch<CollectionDto>(
       `/catalog/collections${path}`,
-      { storeId, permissions: PERMISSIONS },
       { method, body: JSON.stringify(body) },
     );
     revalidatePath(`/store/${handle}/collections`);

@@ -9,10 +9,7 @@ import { notFound } from 'next/navigation';
 import { ErrorState } from '../../../../../../../../components/ErrorState';
 import { MetaobjectEntryForm } from '../../../../../../../../components/MetaobjectEntryForm';
 import { apiFetch, isNotFound } from '../../../../../../../../lib/api';
-import { storeIdFor } from '../../../../../../../../lib/stores';
 import type { MetaobjectDefinitionDto, MetaobjectEntryDto } from '../../../../../../../../lib/types';
-
-const PERMISSIONS = ['content.read', 'content.manage'];
 
 export default async function EntryDetail({
   params,
@@ -20,13 +17,12 @@ export default async function EntryDetail({
   params: Promise<{ handle: string; id: string; entryId: string }>;
 }) {
   const { handle, entryId } = await params;
-  const scope = { storeId: storeIdFor(handle), permissions: PERMISSIONS };
 
   try {
     const response = await apiFetch<{
       definition: MetaobjectDefinitionDto;
       entry: MetaobjectEntryDto;
-    }>(`/content/metaobjects/${entryId}/detail`, scope);
+    }>(`/content/metaobjects/${entryId}/detail`);
 
     return (
       <MetaobjectEntryForm

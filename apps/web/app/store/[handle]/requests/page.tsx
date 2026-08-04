@@ -12,11 +12,6 @@ import { EntityList } from '../../../../components/EntityList';
 import { ErrorState } from '../../../../components/ErrorState';
 import { apiFetch, withSearch } from '../../../../lib/api';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 const COLUMNS = [
   { field: 'reference', label: 'Request', defaultVisible: true },
   { field: 'contactName', label: 'Customer', defaultVisible: true },
@@ -42,7 +37,6 @@ export default async function RequestsPage({
 }) {
   const { handle } = await params;
   const search = await searchParams;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
 
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(search)) {
@@ -56,7 +50,6 @@ export default async function RequestsPage({
   try {
     const response = await apiFetch<Record<string, unknown>[]>(
       withSearch('/orders/requests', query),
-      { storeId, permissions: ['orders.read', 'orders.manage'] },
     );
 
     const connection = {

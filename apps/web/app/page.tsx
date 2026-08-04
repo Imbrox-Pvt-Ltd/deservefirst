@@ -1,19 +1,33 @@
 /**
  * Web · app/page.tsx
- * Store entry. A server component that resolves which stores the user can reach
- * and delegates rendering to the client — the design system needs React context,
- * which only a client component can provide.
+ * Store entry — the stores this person is actually a member of.
+ *
+ * It used to be a hardcoded pair, which showed every operator the same two
+ * stores regardless of membership. That is harmless while it is obviously a
+ * stub and a disclosure the moment it is not.
  * Layer: web.
  */
 
+import { redirect } from 'next/navigation';
+
 import { StorePicker } from '../components/StorePicker';
+import { currentSession } from '../lib/stores';
 
-/** Seeded until the identity API exposes the user's membership list. */
-const STORES = [
-  { handle: 'acme-us', name: 'Acme US', entity: 'Acme Inc. · United States', currency: 'USD' },
-  { handle: 'acme-in', name: 'Acme India', entity: 'Acme India Pvt. Ltd. · India', currency: 'INR' },
-];
+export default async function StoreEntry() {
+  const session = await currentSession();
+  if (!session) redirect('/login');
 
-export default function StoreEntry() {
-  return <StorePicker stores={STORES} />;
+  // One store means no choice worth making.
+  if (session.stores.length === 1) redirect(`/store/${session.stores[0]!.handle}`);
+
+  return (
+    <StorePicker
+      stores={session.stores.map((store) => ({
+        handle: store.handle,
+        name: store.name,
+        entity: '',
+        currency: '',
+      }))}
+    />
+  );
 }

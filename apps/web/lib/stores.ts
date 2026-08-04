@@ -11,14 +11,36 @@
 
 import type { SavedView } from '@deservefirst/contracts';
 
-/** Seeded stores, until the identity API serves the operator's real list. */
-export const STORES: readonly { id: string; handle: string; name: string }[] = [
-  { id: 'seed-store-us', handle: 'acme-us', name: 'Acme US' },
-  { id: 'seed-store-in', handle: 'acme-in', name: 'Acme India' },
-];
+export interface StoreSummary {
+  readonly id: string;
+  readonly handle: string;
+  readonly name: string;
+}
 
-export function storeIdFor(handle: string): string {
-  return STORES.find((store) => store.handle === handle)?.id ?? STORES[0]!.id;
+/**
+ * Who is signed in, and which stores they may open.
+ *
+ * This replaces a hardcoded two-store map. That map was harmless while it was
+ * obviously a stub and became a lie the moment there was a real tenant: it
+ * would have shown every operator the same two stores regardless of membership.
+ */
+export interface SessionSummary {
+  readonly userId: string;
+  readonly storeId: string | null;
+  readonly permissions: readonly string[];
+  readonly stores: readonly StoreSummary[];
+}
+
+export async function currentSession(): Promise<SessionSummary | null> {
+  const { apiFetch } = await import('./api');
+  try {
+    const response = await apiFetch<SessionSummary | null>('/auth/session');
+    return response.data;
+  } catch {
+    // Not signed in, or the API is down. Callers redirect to sign in either
+    // way — an admin that renders half a screen is worse than one that asks.
+    return null;
+  }
 }
 
 /**
@@ -45,12 +67,4 @@ export function listQueryFrom(
   return query;
 }
 
-/** The full store-operator permission set, until sessions carry real grants. */
-export const ALL_PERMISSIONS = [
-  'store.read', 'store.settings.read', 'store.settings.manage',
-  'catalog.read', 'catalog.write',
-  'orders.read', 'orders.manage', 'orders.quote',
-  'customers.read', 'customers.manage',
-  'inventory.read', 'inventory.adjust', 'inventory.manage',
-  'content.read', 'content.manage', 'content.publish',
-];
+

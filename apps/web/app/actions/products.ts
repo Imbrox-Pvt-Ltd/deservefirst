@@ -13,11 +13,6 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch } from '../../lib/api';
 import type { ProductDto } from '../../lib/types';
 
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
-
 export interface ActionResult<T> {
   readonly ok: boolean;
   readonly data?: T;
@@ -26,11 +21,6 @@ export interface ActionResult<T> {
   readonly conflict?: boolean;
 }
 
-function storeFor(handle: string): string {
-  const storeId = STORE_IDS[handle];
-  if (!storeId) throw new Error(`Unknown store "${handle}"`);
-  return storeId;
-}
 
 /** Maps API failures onto something a screen can act on. */
 function toResult<T>(error: unknown): ActionResult<T> {
@@ -61,7 +51,6 @@ export async function saveProduct(
   try {
     const response = await apiFetch<ProductDto>(
       `/catalog/products/${input.id}`,
-      { storeId: storeFor(handle), permissions: ['catalog.read', 'catalog.write'] },
       {
         method: 'PATCH',
         body: JSON.stringify({
@@ -98,7 +87,6 @@ export async function createProduct(
   try {
     const response = await apiFetch<ProductDto>(
       '/catalog/products',
-      { storeId: storeFor(handle), permissions: ['catalog.read', 'catalog.write'] },
       { method: 'POST', body: JSON.stringify(input) },
     );
     revalidatePath(`/store/${handle}/products`);
@@ -116,10 +104,6 @@ export async function publishProduct(
   try {
     const response = await apiFetch<ProductDto>(
       `/catalog/products/${id}/publish`,
-      {
-        storeId: storeFor(handle),
-        permissions: ['catalog.read', 'catalog.write', 'catalog.publish'],
-      },
       { method: 'POST', body: JSON.stringify({ version, channels: ['online-store'] }) },
     );
     revalidatePath(`/store/${handle}/products/${id}`);
@@ -136,7 +120,6 @@ export async function archiveProduct(
   try {
     await apiFetch<{ id: string }>(
       `/catalog/products/${id}`,
-      { storeId: storeFor(handle), permissions: ['catalog.read', 'catalog.write'] },
       { method: 'DELETE' },
     );
     revalidatePath(`/store/${handle}/products`);
@@ -156,7 +139,6 @@ async function write(
   try {
     const response = await apiFetch<ProductDto>(
       `/catalog/products${path}`,
-      { storeId: storeFor(handle), permissions: ['catalog.read', 'catalog.write'] },
       { method, body: JSON.stringify(body) },
     );
     revalidatePath(`/store/${handle}/products`);
