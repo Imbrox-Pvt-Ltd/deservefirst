@@ -380,3 +380,4 @@ function assertFieldsCompatible(
 function changeOf(field: string, from: unknown, to: unknown) {
   return from === to ? null : { field, from, to };
 }
+export * from './menu-blog-service';

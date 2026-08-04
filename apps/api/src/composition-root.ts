@@ -86,10 +86,14 @@ import {
   SqlSegmentRepository,
 } from './modules/customers/infrastructure';
 import { contentManifest } from './modules/content/content.manifest';
-import { MetaobjectService, PageService } from './modules/content/application';
+import { MetaobjectService, PageService,
+  MenuService,
+  BlogPostService } from './modules/content/application';
 import {
+  SqlBlogPostRepository,
   SqlDefinitionRepository,
   SqlEntryRepository,
+  SqlMenuRepository,
   SqlPageRepository,
 } from './modules/content/infrastructure';
 import { inventoryManifest } from './modules/inventory/inventory.manifest';
@@ -422,6 +426,8 @@ export async function bootstrap(): Promise<Platform> {
   });
 
   const pageRecords = new SqlPageRepository(executor, dialect);
+  const menuRecords = new SqlMenuRepository(executor, dialect);
+  const blogPostRecords = new SqlBlogPostRepository(executor, dialect);
   const definitions = new SqlDefinitionRepository(executor, dialect);
   const entries = new SqlEntryRepository(executor, dialect);
   const pageToolkit = createToolkitPorts({ executor, events, dialect, ownerEntity: 'Page' });
@@ -710,6 +716,8 @@ export async function bootstrap(): Promise<Platform> {
       contentController({
         pages: new PageService(pageRecords, pageToolkit),
         metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
+        menus: new MenuService(menuRecords),
+        blogPosts: new BlogPostService(blogPostRecords),
       }),
       // The merchant's half of the partner gate: store-scoped, so it mounts with
       // the modules. The partner's own half is not store-scoped and does not.

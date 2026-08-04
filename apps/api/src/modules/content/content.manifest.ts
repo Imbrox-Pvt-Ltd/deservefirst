@@ -16,6 +16,9 @@ import {
   metaobjectDefinitionResource,
   metaobjectEntryResource,
   pageResource,
+  menuResource,
+  blogResource,
+  blogPostResource,
 } from './contracts';
 
 export const contentManifest: ModuleManifest = {
@@ -41,6 +44,24 @@ export const contentManifest: ModuleManifest = {
       translatableFields: ['title', 'body', 'handle'],
     },
     {
+      name: 'Menu',
+      tableName: 'menus',
+      // No SEO: a menu is navigation, not a page anybody lands on.
+      toolkit: { metafields: false, seo: false, importExport: false },
+    },
+    {
+      name: 'Blog',
+      tableName: 'blogs',
+      toolkit: { seo: true },
+      translatableFields: ['title', 'handle'],
+    },
+    {
+      name: 'BlogPost',
+      tableName: 'blog_posts',
+      toolkit: { seo: true },
+      translatableFields: ['title', 'body', 'excerpt', 'handle'],
+    },
+    {
       name: 'MetaobjectDefinition',
       tableName: 'metaobject_definitions',
       toolkit: { metafields: false, tags: false, savedViews: false, seo: false, importExport: false },
@@ -53,9 +74,22 @@ export const contentManifest: ModuleManifest = {
     },
   ],
 
-  resources: [pageResource, metaobjectDefinitionResource, metaobjectEntryResource],
+  resources: [
+    pageResource,
+    menuResource,
+    blogResource,
+    blogPostResource,
+    metaobjectDefinitionResource,
+    metaobjectEntryResource,
+  ],
 
   routes: [
+    { path: '/store/:handle/navigation', screen: 'ListScreen', entity: 'Menu', permission: 'content.read' },
+    { path: '/store/:handle/navigation/new', screen: 'CreateScreen', entity: 'Menu', permission: 'content.manage' },
+    { path: '/store/:handle/navigation/:id', screen: 'DetailScreen', entity: 'Menu', permission: 'content.read' },
+    { path: '/store/:handle/blogs', screen: 'ListScreen', entity: 'BlogPost', permission: 'content.read' },
+    { path: '/store/:handle/blogs/new', screen: 'CreateScreen', entity: 'BlogPost', permission: 'content.manage' },
+    { path: '/store/:handle/blogs/:id', screen: 'DetailScreen', entity: 'BlogPost', permission: 'content.read' },
     { path: '/store/:handle/pages', screen: 'ListScreen', entity: 'Page', permission: 'content.read' },
     { path: '/store/:handle/pages/new', screen: 'CreateScreen', entity: 'Page', permission: 'content.manage' },
     { path: '/store/:handle/pages/:id', screen: 'DetailScreen', entity: 'Page', permission: 'content.read' },
@@ -89,6 +123,26 @@ export const contentManifest: ModuleManifest = {
       parentId: 'content',
       section: 'primary',
       position: 41,
+      permission: 'content.read',
+    },
+    // Positions match the captured nav order: Files sits between these two and
+    // is still a placeholder, because it needs the CDN story first (§22).
+    {
+      id: 'menus',
+      label: 'Menus',
+      path: '/store/:handle/navigation',
+      parentId: 'content',
+      section: 'primary',
+      position: 43,
+      permission: 'content.read',
+    },
+    {
+      id: 'blog-posts',
+      label: 'Blog posts',
+      path: '/store/:handle/blogs',
+      parentId: 'content',
+      section: 'primary',
+      position: 44,
       permission: 'content.read',
     },
   ],

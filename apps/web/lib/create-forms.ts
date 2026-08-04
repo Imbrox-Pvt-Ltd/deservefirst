@@ -49,7 +49,8 @@ export interface CreateFormSpec {
 export type CreateKind =
   | 'product' | 'collection' | 'customer' | 'request'
   | 'page' | 'purchase-order' | 'transfer' | 'metaobject-definition'
-  | 'segment' | 'company';
+  | 'segment' | 'company'
+  | 'menu' | 'blog-post';
 
 const store = (handle: string) => `/store/${handle}`;
 
@@ -131,6 +132,42 @@ export const CREATE_FORMS: Readonly<Record<CreateKind, CreateFormSpec>> = {
         helpText: 'Every line on the request is priced in this currency.',
       },
       { name: 'note', label: 'Note', kind: 'textarea' },
+    ],
+  },
+
+  menu: {
+    title: 'Add menu',
+    submitLabel: 'Save menu',
+    listPath: (h) => `${store(h)}/navigation`,
+    detailPath: (h, id) => `${store(h)}/navigation/${id}`,
+    fields: [
+      { name: 'title', label: 'Title', required: true, placeholder: 'Main menu' },
+      {
+        name: 'handle',
+        label: 'Handle',
+        required: true,
+        placeholder: 'main-menu',
+        // The handle is what a theme references, so it is asked for rather than
+        // derived — a menu whose handle silently changed would break a theme.
+        helpText: 'Themes reference a menu by its handle. It cannot be changed later.',
+      },
+    ],
+  },
+
+  'blog-post': {
+    title: 'Add blog post',
+    submitLabel: 'Save post',
+    listPath: (h) => `${store(h)}/blogs`,
+    detailPath: (h, id) => `${store(h)}/blogs/${id}`,
+    fields: [
+      { name: 'title', label: 'Title', required: true, placeholder: 'Our new collection' },
+      { name: 'blogId', label: 'Blog', required: true, helpText: 'Which blog this post belongs to.' },
+      {
+        name: 'body',
+        label: 'Content',
+        kind: 'textarea',
+        helpText: 'Posts start as drafts. Publishing needs content and a date.',
+      },
     ],
   },
 

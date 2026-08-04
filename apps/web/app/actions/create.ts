@@ -12,7 +12,7 @@
 
 import { createCollection } from './collections';
 import { createCustomer } from './customers';
-import { createPage, createDefinition } from './content';
+import { createPage, createDefinition, createMenu, createBlogPost } from './content';
 import { createProduct } from './products';
 import { createCompany } from './companies';
 import { createPurchaseOrder, createTransfer } from './inventory';
@@ -75,6 +75,23 @@ export async function createRecord(
         contactEmail: optional(values, 'contactEmail'),
         currency: text('currency') || 'USD',
         note: optional(values, 'note'),
+      });
+      return { ok: result.ok, id: result.data?.id, error: result.error };
+    }
+
+    case 'menu': {
+      const result = await createMenu(handle, {
+        title: text('title'),
+        handle: text('handle').toLowerCase(),
+      });
+      return { ok: result.ok, id: result.data?.id, error: result.error };
+    }
+
+    case 'blog-post': {
+      const result = await createBlogPost(handle, {
+        blogId: text('blogId'),
+        title: text('title'),
+        body: text('body'),
       });
       return { ok: result.ok, id: result.data?.id, error: result.error };
     }

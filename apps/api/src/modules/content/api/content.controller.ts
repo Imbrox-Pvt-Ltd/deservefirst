@@ -9,7 +9,12 @@
  */
 
 import { controller, type ModuleController, type RouteRequest } from '../../../core/http/controller';
-import type { MetaobjectService, PageService } from '../application';
+import type {
+  BlogPostService,
+  MenuService,
+  MetaobjectService,
+  PageService,
+} from '../application';
 import {
   entryDisplayName,
   type MetaobjectDefinition,
@@ -21,6 +26,8 @@ import { parseListQuery } from '@deservefirst/contracts';
 export interface ContentServices {
   readonly pages: PageService;
   readonly metaobjects: MetaobjectService;
+  readonly menus: MenuService;
+  readonly blogPosts: BlogPostService;
 }
 
 const toPageDto = (page: Page) => ({
@@ -71,6 +78,70 @@ export function contentController(services: ContentServices): ModuleController {
       permission: 'content.read',
       handle: async (request) => toPageDto(await pages.get(request.params.id!)),
     },
+    // --- menus ---------------------------------------------------------------
+    {
+      method: 'POST',
+      path: '/menus',
+      permission: 'content.manage',
+      status: 201,
+      handle: async (request) => {
+        const { body } = request;
+        return services.menus.create({
+          title: String(body.title ?? ''),
+          handle: String(body.handle ?? ''),
+          items: Array.isArray(body.items) ? (body.items as never) : [],
+        });
+      },
+    },
+    {
+      method: 'PATCH',
+      path: '/menus/:id',
+      permission: 'content.manage',
+      handle: async (request) => {
+        const { body } = request;
+        return services.menus.save(request.params.id!, Number(body.version ?? 0), {
+          title: body.title === undefined ? undefined : String(body.title),
+          items: Array.isArray(body.items) ? (body.items as never) : undefined,
+        });
+      },
+    },
+
+    // --- blog posts ----------------------------------------------------------
+    {
+      method: 'POST',
+      path: '/blog_posts',
+      permission: 'content.manage',
+      status: 201,
+      handle: async (request) => {
+        const { body } = request;
+        return services.blogPosts.create({
+          blogId: String(body.blogId ?? ''),
+          title: String(body.title ?? ''),
+          body: body.body === undefined ? undefined : String(body.body),
+          handle: body.handle === undefined ? undefined : String(body.handle),
+        });
+      },
+    },
+    {
+      method: 'PATCH',
+      path: '/blog_posts/:id',
+      permission: 'content.manage',
+      handle: async (request) => {
+        const { body } = request;
+        return services.blogPosts.save(request.params.id!, Number(body.version ?? 0), {
+          title: body.title === undefined ? undefined : String(body.title),
+          body: body.body === undefined ? undefined : String(body.body),
+          status: body.status as 'draft' | 'published' | undefined,
+          publishedAt:
+            body.publishedAt === undefined
+              ? undefined
+              : body.publishedAt === null
+                ? null
+                : new Date(String(body.publishedAt)),
+        });
+      },
+    },
+
     {
       method: 'POST',
       path: '/pages',

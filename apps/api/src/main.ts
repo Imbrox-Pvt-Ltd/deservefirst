@@ -1462,6 +1462,12 @@ async function start(): Promise<void> {
         .send(failure([apiError('validation_failed', 'Invalid content', message, error.field)], { requestId }));
     }
 
+    if (name === 'HandleTakenError') {
+      return reply
+        .status(409)
+        .send(failure([apiError('conflict', 'Already exists', message)], { requestId }));
+    }
+
     if (name === 'ContentNotFoundError') {
       return reply
         .status(404)

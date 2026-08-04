@@ -122,8 +122,10 @@ export function coreNavigation(handle: string): NavSection[] {
           children: [
             { id: 'metaobjects', label: 'Metaobjects', path: storePaths.metaobjects(handle), permission: 'content.read' },
             soon({ id: 'files', label: 'Files', path: storePaths.files(handle), permission: 'content.read' }),
-            soon({ id: 'menus', label: 'Menus', path: storePaths.navigation(handle), permission: 'content.read' }),
-            soon({ id: 'blog-posts', label: 'Blog posts', path: storePaths.blogs(handle), permission: 'content.read' }),
+            // Files is still `soon` above: it needs the CDN story (§22). These
+            // two are real, so marking them unavailable would now be a lie.
+            { id: 'menus', label: 'Menus', path: storePaths.navigation(handle), permission: 'content.read' },
+            { id: 'blog-posts', label: 'Blog posts', path: storePaths.blogs(handle), permission: 'content.read' },
           ],
         },
         soon({ id: 'markets', label: 'Markets', path: storePaths.markets(handle), permission: 'store.read', icon: 'markets' }),

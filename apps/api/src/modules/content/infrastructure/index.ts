@@ -14,8 +14,16 @@
 import { type Connection, type ListQuery, type ResourceDefinition } from '@deservefirst/contracts';
 
 import { SqlAggregateRepository, parseJsonArray, parseJsonColumn } from '../../../core/database';
-import { metaobjectDefinitionResource, metaobjectEntryResource, pageResource } from '../contracts';
+import {
+  blogPostResource,
+  menuResource,
+  metaobjectDefinitionResource,
+  metaobjectEntryResource,
+  pageResource,
+} from '../contracts';
 import type {
+  BlogPost,
+  Menu,
   MetaobjectDefinition,
   MetaobjectEntry,
   MetaobjectFieldDefinition,
@@ -64,6 +72,101 @@ export class SqlPageRepository
       body: entity.body,
       status: entity.status,
       template_suffix: entity.templateSuffix,
+      published_at: entity.publishedAt,
+    };
+  }
+}
+
+// --- menus and blog posts -----------------------------------------------------
+
+interface MenuRow extends Record<string, unknown> {
+  id: string;
+  handle: string;
+  title: string;
+  items: unknown;
+  version: number;
+}
+
+/** JSON columns come back parsed on one driver and as text on another. */
+function parsedJson<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value as T;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export class SqlMenuRepository extends SqlAggregateRepository<Menu, MenuRow> {
+  protected readonly tableName = 'menus';
+  protected readonly resource: ResourceDefinition = menuResource;
+  protected readonly operation = 'content.menus';
+
+  protected toDomain(row: MenuRow): Menu {
+    return {
+      id: row.id,
+      handle: row.handle,
+      title: row.title,
+      // The whole tree in one column: a menu is always read and written whole,
+      // so a table of rows with parent pointers buys nothing and costs the
+      // ordering a tree needs.
+      items: parsedJson<Menu['items']>(row.items, []),
+      version: Number(row.version),
+    };
+  }
+
+  protected toColumns(entity: Menu): Record<string, unknown> {
+    return {
+      handle: entity.handle,
+      title: entity.title,
+      items: JSON.stringify(entity.items),
+    };
+  }
+}
+
+interface BlogPostRow extends Record<string, unknown> {
+  id: string;
+  handle: string;
+  blog_id: string;
+  title: string;
+  body: string | null;
+  excerpt: string | null;
+  author: string | null;
+  status: string;
+  published_at: string | Date | null;
+  version: number;
+}
+
+export class SqlBlogPostRepository extends SqlAggregateRepository<BlogPost, BlogPostRow> {
+  protected readonly tableName = 'blog_posts';
+  protected readonly resource: ResourceDefinition = blogPostResource;
+  protected readonly operation = 'content.blog_posts';
+
+  protected toDomain(row: BlogPostRow): BlogPost {
+    return {
+      id: row.id,
+      handle: row.handle,
+      blogId: row.blog_id,
+      title: row.title,
+      body: row.body ?? '',
+      excerpt: row.excerpt,
+      author: row.author,
+      status: row.status as BlogPost['status'],
+      publishedAt: row.published_at ? new Date(row.published_at as string) : null,
+      version: Number(row.version),
+    };
+  }
+
+  protected toColumns(entity: BlogPost): Record<string, unknown> {
+    return {
+      handle: entity.handle,
+      blog_id: entity.blogId,
+      title: entity.title,
+      body: entity.body,
+      excerpt: entity.excerpt,
+      author: entity.author,
+      status: entity.status,
       published_at: entity.publishedAt,
     };
   }

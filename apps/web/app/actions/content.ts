@@ -143,3 +143,30 @@ export async function saveEntry(
     [`/content/metaobjects/${definitionId}`, `/content/metaobjects/${definitionId}/entries/${id}`],
   );
 }
+
+export async function createMenu(
+  storeHandle: string,
+  input: { title: string; handle: string },
+) {
+  // An empty menu, not a menu with a default item. A merchant adding "Main
+  // menu" has not asked for a Home link, and guessing one they then delete is
+  // worse than an empty list.
+  return call<{ id: string }>(storeHandle, '/content/menus', 'POST', { ...input, items: [] }, [
+    '/navigation',
+  ]);
+}
+
+export async function createBlogPost(
+  storeHandle: string,
+  input: { blogId: string; title: string; body: string },
+) {
+  // A draft with no date. Publishing is a separate decision, and a post that
+  // went live the moment it was created is the wrong default in every case.
+  return call<{ id: string }>(
+    storeHandle,
+    '/content/blog_posts',
+    'POST',
+    { ...input, status: 'draft', publishedAt: null },
+    ['/blogs'],
+  );
+}

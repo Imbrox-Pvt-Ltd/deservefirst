@@ -147,3 +147,41 @@ remove its own install from the store it was issued for.
 | The app removing itself | `uninstalled: True` |
 | Its own token immediately after | `http 401 invalid_token` |
 
+### 05:1x — Block G · Menus and Blog posts
+
+The two `PLAN/03 §5.1` placeholders with **no stated blocker**. Files stays
+deferred (needs the CDN story), gift cards stay deferred (needs a ledger),
+discounts and markets stay deferred (D10). Those are documented decisions and I
+left them alone.
+
+Menus carry the real complexity, and it is all tree-shaped:
+
+- **depth ≤ 3** — the reference limit, and what a drop-down can show
+- **no item twice** — which is what a cycle looks like once flattened and rebuilt
+- **no `javascript:`** — a menu item is stored XSS on the storefront otherwise
+- **broken links reported, not removed** — a merchant who deleted a page wants to
+  know their menu points nowhere; dropping the item silently means they hear it
+  from a customer
+
+Blog posts are deliberately near-identical to Pages, with one difference that
+matters: a scheduled post is `published` with a **future date**, so the
+storefront asks `isVisible` rather than reading the status. A storefront
+filtering on status alone publishes every scheduled post the instant it is saved.
+
+Verified against the live API — nested menu created, depth refused,
+`javascript:` refused, duplicate handle refused, post created as a draft,
+publishing with no date gets "now", publishing an empty post refused.
+
+**Two bugs I wrote and caught:**
+
+1. The depth check fired on an *empty* children array, so a legal three-level
+   menu was rejected. The deepest item still recurses once into its own empty
+   children.
+2. `{...current, ...patch}` — a patch carrying `title: undefined`, which is what
+   a controller produces for an omitted field, overwrote the real title with
+   nothing and failed later on `undefined.trim()`. **This is the same bug as the
+   nav-icon one from earlier in the week**, in a new place. It is the spread that
+   is wrong, not the caller.
+
+**62 destinations render.**
+
