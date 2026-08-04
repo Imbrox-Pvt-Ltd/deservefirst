@@ -486,3 +486,19 @@
     border-top-left-radius: 0;
   }
 }
+
+/* A dashboard card's "View" affordance — a link, not a button, because it
+   navigates rather than acts. */
+.df-widget-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #005bd3;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.df-widget-link:hover {
+  color: #004299;
+}

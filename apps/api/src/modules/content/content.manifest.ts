@@ -30,7 +30,7 @@ export const contentManifest: ModuleManifest = {
     { module: 'auth', type: 'required' },
   ],
 
-  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'events', 'search', 'seo'],
+  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'events', 'search', 'dashboards', 'seo'],
 
   entities: [
     {
@@ -90,6 +90,19 @@ export const contentManifest: ModuleManifest = {
       section: 'primary',
       position: 41,
       permission: 'content.read',
+    },
+  ],
+
+  dashboards: [
+    {
+      id: 'content.published-pages',
+      label: 'Published pages',
+      slot: 'home',
+      permission: 'content.read',
+      size: 'small',
+      metric: 'publishedPages',
+      href: '/store/:handle/pages?query=status%3Apublished',
+      position: 50,
     },
   ],
 

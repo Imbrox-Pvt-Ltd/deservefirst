@@ -33,6 +33,7 @@ export const catalogManifest: ModuleManifest = {
     'events',
     'search',
     'seo',
+    'dashboards',
   ],
 
   // Declaring the entity is what earns the Entity Toolkit: metafields, tags,
@@ -95,6 +96,31 @@ export const catalogManifest: ModuleManifest = {
       section: 'primary',
       position: 20,
       permission: 'catalog.read',
+    },
+  ],
+
+  dashboards: [
+    {
+      id: 'catalog.active-products',
+      label: 'Active products',
+      slot: 'home',
+      permission: 'catalog.read',
+      size: 'small',
+      metric: 'activeProducts',
+      href: '/store/:handle/products?query=status%3Aactive',
+      position: 20,
+      description: 'Published and buyable right now.',
+    },
+    {
+      id: 'catalog.draft-products',
+      label: 'Drafts',
+      slot: 'home',
+      permission: 'catalog.read',
+      size: 'small',
+      metric: 'draftProducts',
+      href: '/store/:handle/products?query=status%3Adraft',
+      position: 21,
+      description: 'Started but not yet live.',
     },
   ],
 

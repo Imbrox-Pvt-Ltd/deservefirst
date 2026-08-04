@@ -1,36 +1,35 @@
 /**
  * Web · app/store/[handle]/page.tsx
- * Store home. Fetches on the server, renders on the client.
+ * Store home — composed from whatever the enabled modules contribute (§31.2).
+ *
+ * It used to count products itself, which meant Home knew about catalog and
+ * would have had to learn about every module after it. It now asks the platform
+ * for the `home` slot and renders what comes back, so a new module's card
+ * arrives with the module.
  * Layer: web.
  */
 
-import { StoreHomeView } from '../../../components/StoreHomeView';
+import { Dashboard } from '../../../components/Dashboard';
 import { apiFetch } from '../../../lib/api';
-import type { ProductDto } from '../../../lib/types';
-
-const STORE_IDS: Record<string, string> = {
-  'acme-us': 'seed-store-us',
-  'acme-in': 'seed-store-in',
-};
+import { ALL_PERMISSIONS, STORES, storeIdFor } from '../../../lib/stores';
+import type { DashboardWidgetDto } from '../../../lib/types';
 
 export default async function StoreHome({ params }: { params: Promise<{ handle: string }> }) {
   const { handle } = await params;
-  const storeId = STORE_IDS[handle] ?? 'seed-store-us';
+  const store = STORES.find((entry) => entry.handle === handle) ?? STORES[0]!;
 
-  let products: ProductDto[] = [];
+  let widgets: DashboardWidgetDto[] = [];
   try {
-    const response = await apiFetch<ProductDto[]>('/catalog/products?limit=250', { storeId });
-    products = response.data;
+    const response = await apiFetch<DashboardWidgetDto[]>('/platform/dashboard/home', {
+      storeId: storeIdFor(handle),
+      permissions: ALL_PERMISSIONS,
+    });
+    widgets = response.data;
   } catch {
-    // A dashboard that cannot count is still a dashboard; it must not 500.
-    products = [];
+    // An empty dashboard is still a usable admin; the nav is the point of this
+    // screen for a merchant who is on their way somewhere else.
+    widgets = [];
   }
 
-  return (
-    <StoreHomeView
-      total={products.length}
-      active={products.filter((product) => product.status === 'active').length}
-      draft={products.filter((product) => product.status === 'draft').length}
-    />
-  );
+  return <Dashboard handle={handle} storeName={store.name} widgets={widgets} />;
 }

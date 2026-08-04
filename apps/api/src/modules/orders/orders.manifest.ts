@@ -31,7 +31,7 @@ export const ordersManifest: ModuleManifest = {
     { module: 'customers', type: 'required', capability: 'entities' },
   ],
 
-  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'settings', 'events', 'search'],
+  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'settings', 'events', 'search', 'dashboards'],
 
   entities: [
     {
@@ -83,6 +83,20 @@ export const ordersManifest: ModuleManifest = {
       section: 'primary',
       position: 10,
       permission: 'orders.read',
+    },
+  ],
+
+  dashboards: [
+    {
+      id: 'orders.awaiting-quote',
+      label: 'Awaiting a quote',
+      slot: 'home',
+      permission: 'orders.read',
+      size: 'small',
+      metric: 'awaitingQuote',
+      href: '/store/:handle/requests?query=status%3Asubmitted',
+      position: 10,
+      description: 'Submitted by a buyer and not yet priced.',
     },
   ],
 

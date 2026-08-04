@@ -300,6 +300,18 @@ async function start(): Promise<void> {
     }),
   );
 
+  app.get(`/${API_VERSION}/platform/dashboard/:slot`, async (request, reply) =>
+    withStore(request as never, reply as never, 'store.read', async (storeId, context) => {
+      const { slot } = request.params as { slot: string };
+      const widgets = await platform.dashboard.compose(
+        slot,
+        storeId,
+        new Set(context.permissions),
+      );
+      return success(widgets, { requestId: context.requestId });
+    }),
+  );
+
   // --- generic read surface -------------------------------------------------
   // Every REST-exposed resource gets list and get from its declaration alone.
   // Writes stay module-owned: a generic writer would be a way around the domain.

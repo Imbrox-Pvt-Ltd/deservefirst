@@ -22,6 +22,7 @@ import { SqlIdentityRepository } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
 import {
   CacheService,
+  DashboardService,
   composeApiRoutes,
   createMysqlPool,
   EntitlementsService,
@@ -42,6 +43,11 @@ import {
   type SqlDialect,
 } from './core';
 import { catalogController } from './modules/catalog/api/catalog.controller';
+import { catalogMetrics } from './modules/catalog/api/catalog.metrics';
+import { contentMetrics } from './modules/content/api/content.metrics';
+import { customersMetrics } from './modules/customers/api/customers.metrics';
+import { inventoryMetrics } from './modules/inventory/api/inventory.metrics';
+import { ordersMetrics } from './modules/orders/api/orders.metrics';
 import { contentController } from './modules/content/api/content.controller';
 import { customersController } from './modules/customers/api/customers.controller';
 import { inventoryController } from './modules/inventory/api/inventory.controller';
@@ -88,6 +94,8 @@ export interface Platform {
   /** The platform admin's controls, and where each setting's value comes from. */
   readonly moduleState: ModuleStateService;
   readonly settings: SettingsService;
+  /** Home and the other slots, composed from what the modules contribute. */
+  readonly dashboard: DashboardService;
   readonly identity: SqlIdentityRepository;
   readonly products: ProductRepositoryImpl;
   /** Built per request: the service is scoped to whichever store is active. */
@@ -302,6 +310,23 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Transfer',
   });
 
+  /**
+   * Widgets come from the manifests; the numbers come from the modules. Core
+   * composes the two and never queries a module's tables to build a card.
+   */
+  const dashboard = new DashboardService({
+    registry,
+    providers: [
+      catalogMetrics(executor, dialect),
+      ordersMetrics(executor, dialect),
+      customersMetrics(executor, dialect),
+      inventoryMetrics(executor, dialect),
+      contentMetrics(executor, dialect),
+    ],
+    // A disabled module's card disappears with it — the same toggle, one place.
+    isModuleAvailable: (storeId, moduleId) => moduleState.isEnabledForStore(storeId, moduleId),
+  });
+
   // 5. Compose the API surface. Throws on collision rather than picking a winner.
   composeApiRoutes(registry);
   const routes = buildRouteRegistry(registry);
@@ -317,6 +342,7 @@ export async function bootstrap(): Promise<Platform> {
     access,
     moduleState,
     settings,
+    dashboard,
     identity,
     products,
     // The store is passed explicitly rather than read from context here, so a

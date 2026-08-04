@@ -291,3 +291,16 @@ export interface ResolvedSettingDto {
   /** What it would fall back to if this store's value were cleared. */
   readonly inherited: unknown;
 }
+
+export interface DashboardWidgetDto {
+  readonly id: string;
+  readonly moduleId: string;
+  readonly label: string;
+  readonly description: string | null;
+  readonly size: 'small' | 'medium' | 'large' | 'full';
+  readonly format: 'number' | 'money' | 'percent' | 'duration';
+  readonly href: string | null;
+  readonly value: number | null;
+  /** Set when the value could not be produced — the card says so rather than lying. */
+  readonly unavailable: string | null;
+}

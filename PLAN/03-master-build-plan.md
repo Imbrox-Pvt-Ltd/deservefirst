@@ -160,6 +160,47 @@ orders, because settings and catalog are what every later module extends.
 state in the URL and the §24.5 fitness functions green (no orphan routes, no collisions, list state read
 from the URL, no sensitive params).
 
+### 5.1 Phase 3 — where it actually stands
+
+Built and driven end to end in a browser: the shell and hierarchical nav, catalog (products, options and
+variants, collections), customers, orders/RFQ, content (pages, metaobjects), inventory (levels, purchase
+orders, transfers), create screens for all eight creatable records, and the settings overlay wired to the
+resolution chain.
+
+Still placeholders, each rendering an honest "not part of this install" rather than a 404:
+
+| Section | What it needs |
+|---|---|
+| Home · Growth · Analytics | the dashboard widget mechanism (§31.2 `dashboards`, `metrics`) |
+| Segments · Companies | customers module extension — B2B is its own shape, not a customer flag |
+| Files · Menus · Blog posts | content module extension; Files needs the CDN story first (§22) |
+| Gift cards | a value-bearing entity; wants the ledger commerce does not have yet |
+| Discounts · Markets | Phase-1 commerce is request-only (D10), so both are deliberately deferred |
+
+**Next up:** the dashboard mechanism, because it closes three sections with one composition and Home is
+the first screen every merchant sees.
+
+### 5.2 Deferred: the platform-admin UI
+
+The platform admin's controls exist as **API and CLI** (`platform module:enable|disable|states`,
+`/platform/module-states`, `/platform/settings/:key`). The UI is deliberately not built.
+
+**Trigger to build it: the first store we do not own.** Until then it is one operator with a terminal, and
+a second admin application before the first has external users is two applications to maintain. From the
+first external tenant it stops being optional, because "disable module X for every store" acquires a blast
+radius somebody needs to *see* before pressing it.
+
+When built, three screens — not a product:
+
+1. **Modules** — what is on, who turned it off, and why. The reason is already stored and required.
+2. **Tenants** — the store list, with impersonation that is itself audited (§16, §20).
+3. **Activity** — the superset the spec's §26.1 already describes: all tenants' activity plus system and
+   security logs.
+
+Everything on them is a view over the reflection API (`/platform/modules`, `/routes`, `/navigation`,
+`/module-states`, `/effective-settings`), never a second source of truth. That is precisely why deferring
+it is cheap: nothing has to be invented later, only rendered.
+
 ---
 
 ## 6. Phase 4 — Distribution: partner, dev dashboard, app platform (8–12 weeks)

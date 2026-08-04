@@ -37,7 +37,7 @@ export const inventoryManifest: ModuleManifest = {
     { module: 'catalog', type: 'optional', capability: 'entities' },
   ],
 
-  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'settings', 'events', 'search'],
+  capabilities: ['entities', 'resources', 'routes', 'navigation', 'permissions', 'settings', 'events', 'search', 'dashboards'],
 
   entities: [
     { name: 'Location', tableName: 'locations', toolkit: { ...OPERATIONAL_TOOLKIT, metafields: true } },
@@ -124,6 +124,34 @@ export const inventoryManifest: ModuleManifest = {
     { id: 'inventory', label: 'Inventory', path: '/store/:handle/products/inventory', parentId: 'products', section: 'primary', position: 22, permission: 'inventory.read' },
     { id: 'purchase-orders', label: 'Purchase orders', path: '/store/:handle/purchase_orders', parentId: 'products', section: 'primary', position: 23, permission: 'inventory.read' },
     { id: 'transfers', label: 'Transfers', path: '/store/:handle/transfers', parentId: 'products', section: 'primary', position: 24, permission: 'inventory.read' },
+  ],
+
+  dashboards: [
+    {
+      id: 'inventory.out-of-stock',
+      label: 'Out of stock',
+      slot: 'home',
+      permission: 'inventory.read',
+      size: 'small',
+      metric: 'outOfStock',
+      href: '/store/:handle/products/inventory',
+      position: 40,
+      // Counts positions at or below zero: a negative on-hand is evidence of an
+      // unrecorded movement, and hiding it here would hide the thing worth
+      // acting on.
+      description: 'Nothing available to sell at some location.',
+    },
+    {
+      id: 'inventory.incoming',
+      label: 'On order',
+      slot: 'home',
+      permission: 'inventory.read',
+      size: 'small',
+      metric: 'openPurchaseOrders',
+      href: '/store/:handle/purchase_orders?query=status%3Aordered',
+      position: 41,
+      description: 'Purchase orders placed and not yet fully received.',
+    },
   ],
 
   permissions: [

@@ -172,9 +172,25 @@ export interface NotificationDeclaration {
 export interface DashboardWidgetDeclaration {
   readonly id: string;
   readonly label: string;
+  /** Which dashboard it appears on — `home`, `analytics`, `growth`. */
   readonly slot: string;
   readonly permission: string;
   readonly size: 'small' | 'medium' | 'large' | 'full';
+  /**
+   * The metric this widget shows, resolved by the module that declared it.
+   *
+   * A widget without one is a label and a box. Naming the metric here rather
+   * than embedding a query keeps the declaration free of SQL and keeps the
+   * module in charge of what its own numbers mean.
+   */
+  readonly metric?: string;
+  readonly format?: 'number' | 'money' | 'percent' | 'duration';
+  /** Where clicking through goes, usually the list this counts. */
+  readonly href?: string;
+  /** Lower sorts first within a slot. */
+  readonly position?: number;
+  /** Shown under the value — what it is counting, in the merchant's words. */
+  readonly description?: string;
 }
 
 export interface UsageFeatureDeclaration {

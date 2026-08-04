@@ -12,6 +12,7 @@ export * from './event-bus/event-bus';
 export * from './cache/cache.service';
 export * from './entitlements/entitlements.service';
 export * from './rate-limit/rate-limiter';
+export * from './dashboard';
 export * from './docs';
 export * from './http';
 export * from './adapters';

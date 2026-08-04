@@ -34,6 +34,7 @@ export const customersManifest: ModuleManifest = {
     'settings',
     'events',
     'search',
+    'dashboards',
   ],
 
   entities: [
@@ -69,6 +70,19 @@ export const customersManifest: ModuleManifest = {
       section: 'primary',
       position: 30,
       permission: 'customers.read',
+    },
+  ],
+
+  dashboards: [
+    {
+      id: 'customers.total',
+      label: 'Customers',
+      slot: 'home',
+      permission: 'customers.read',
+      size: 'small',
+      metric: 'totalCustomers',
+      href: '/store/:handle/customers',
+      position: 30,
     },
   ],
 
