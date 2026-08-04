@@ -29,7 +29,13 @@ import {
   TextField,
 } from '@deservefirst/ui';
 
-import { purchaseOrderAction, transferAction } from '../app/actions/inventory';
+import {
+  purchaseOrderAction,
+  savePurchaseOrder,
+  saveTransfer,
+  transferAction,
+} from '../app/actions/inventory';
+import { DraftLines, type DraftLine } from './DraftLines';
 import type { ReceivingLine } from '../lib/receiving';
 import type { LocationDto, PurchaseOrderDto, TransferDto } from '../lib/types';
 
@@ -44,6 +50,36 @@ const TONE: Partial<Record<Status, 'success' | 'info' | 'attention' | 'critical'
   cancelled: undefined as never,
 };
 
+/**
+ * Saves a draft's lines through whichever aggregate owns them.
+ *
+ * The two differ only in what the quantity is called — `ordered` on a purchase
+ * order, `quantity` on a transfer — which is exactly the sort of difference that
+ * belongs in one mapping rather than in a second screen.
+ */
+async function saveDraftLines(
+  props: ReceivingDetailProps,
+  lines: readonly DraftLine[],
+): Promise<{ ok: boolean; error?: string }> {
+  if (props.kind === 'purchase-order') {
+    return savePurchaseOrder(props.handle, props.id, props.version, {
+      lines: lines.map((line) => ({
+        productId: line.productId,
+        title: line.title,
+        ordered: line.quantity,
+      })),
+    });
+  }
+
+  return saveTransfer(props.handle, props.id, props.version, {
+    lines: lines.map((line) => ({
+      productId: line.productId,
+      title: line.title,
+      quantity: line.quantity,
+    })),
+  });
+}
+
 export interface ReceivingDetailProps {
   readonly kind: 'purchase-order' | 'transfer';
   readonly handle: string;
@@ -55,6 +91,8 @@ export interface ReceivingDetailProps {
   readonly locations: readonly LocationDto[];
   readonly summary: readonly { label: string; value: string }[];
   readonly backPath: string;
+  /** Selectable products, for editing what is on a draft. */
+  readonly products: readonly { id: string; title: string }[];
 }
 
 export function ReceivingDetail(props: ReceivingDetailProps) {
@@ -164,6 +202,20 @@ export function ReceivingDetail(props: ReceivingDetailProps) {
           </Box>
         </Card>
 
+        {props.status === 'draft' ? (
+          <DraftLines
+            heading={props.kind === 'purchase-order' ? 'Ordering' : 'Sending'}
+            quantityLabel={props.kind === 'purchase-order' ? 'Ordered' : 'Sending'}
+            products={props.products}
+            lines={props.lines.map((line) => ({
+              productId: line.productId,
+              title: line.title,
+              quantity: line.expected,
+            }))}
+            onSave={(lines) => saveDraftLines(props, lines)}
+            onSaved={() => router.refresh()}
+          />
+        ) : (
         <Card padding="0">
           <Box padding="400" borderBlockEndWidth="025" borderColor="border">
             <Text as="h2" variant="headingSm">
@@ -215,6 +267,7 @@ export function ReceivingDetail(props: ReceivingDetailProps) {
             </Box>
           ) : null}
         </Card>
+        )}
 
         {props.status === 'received' ? (
           <Banner tone="success" title="Complete">

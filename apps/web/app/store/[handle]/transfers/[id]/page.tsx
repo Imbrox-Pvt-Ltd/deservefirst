@@ -9,7 +9,7 @@ import { notFound } from 'next/navigation';
 import { ErrorState } from '../../../../../components/ErrorState';
 import { ReceivingDetail } from '../../../../../components/ReceivingDetail';
 import { transferLines } from '../../../../../lib/receiving';
-import { apiFetch, isNotFound } from '../../../../../lib/api';
+import { apiFetch, isNotFound, withSearch } from '../../../../../lib/api';
 import { storeIdFor } from '../../../../../lib/stores';
 import type { LocationDto, TransferDto } from '../../../../../lib/types';
 
@@ -24,9 +24,17 @@ export default async function TransferPage({
   const scope = { storeId: storeIdFor(handle), permissions: PERMISSIONS };
 
   try {
-    const [transfer, locations] = await Promise.all([
+    const [transfer, locations, products] = await Promise.all([
       apiFetch<TransferDto>(`/inventory/transfers/${id}/detail`, scope),
       apiFetch<LocationDto[]>('/inventory/locations/active', scope),
+      // Selectable products for the draft line editor. Capped deliberately: a
+      // select is the wrong control past a few hundred, and pretending
+      // otherwise would ship a screen that degrades silently as a catalogue
+      // grows.
+      apiFetch<{ id: string; title: string }[]>(
+        withSearch('/catalog/products', new URLSearchParams({ limit: '250' })),
+        { ...scope, permissions: [...PERMISSIONS, 'catalog.read'] },
+      ),
     ]);
 
     const nameOf = (locationId: string) =>
@@ -42,6 +50,7 @@ export default async function TransferPage({
         version={transfer.data.version}
         lines={transferLines(transfer.data)}
         locations={locations.data}
+        products={products.data}
         backPath={`/store/${handle}/transfers`}
         summary={[
           { label: 'From', value: nameOf(transfer.data.originLocationId) },

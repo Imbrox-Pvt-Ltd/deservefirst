@@ -98,12 +98,36 @@ export async function savePurchaseOrder(
   handle: string,
   id: string,
   version: number,
-  patch: { supplierName?: string; expectedAt?: string | null },
+  patch: {
+    supplierName?: string;
+    expectedAt?: string | null;
+    lines?: readonly { productId: string; title: string; ordered: number }[];
+  },
 ) {
   return call<PurchaseOrderDto>(handle, `/inventory/purchase-orders/${id}`, 'PATCH', {
     version,
     ...patch,
   }, ['/purchase_orders', `/purchase_orders/${id}`]);
+}
+
+/**
+ * Edits a draft transfer. Lines are replaced wholesale, and the API refuses the
+ * whole call once a transfer has shipped — by then the stock has moved, and the
+ * paperwork must not be able to disagree with where it went.
+ */
+export async function saveTransfer(
+  handle: string,
+  id: string,
+  version: number,
+  patch: {
+    destinationLocationId?: string;
+    lines?: readonly { productId: string; title: string; quantity: number }[];
+  },
+) {
+  return call<TransferDto>(handle, `/inventory/transfers/${id}`, 'PATCH', {
+    version,
+    ...patch,
+  }, ['/transfers', `/transfers/${id}`]);
 }
 
 export async function purchaseOrderAction(

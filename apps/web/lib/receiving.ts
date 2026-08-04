@@ -16,6 +16,8 @@ import type { PurchaseOrderDto, TransferDto } from './types';
 /** A line as the receiving screen sees it, whatever it came from. */
 export interface ReceivingLine {
   readonly id: string;
+  /** Which product the line is for — the draft editor needs it to re-select. */
+  readonly productId: string;
   readonly title: string;
   /** Ordered, or being sent. */
   readonly expected: number;
@@ -25,6 +27,7 @@ export interface ReceivingLine {
 export function purchaseOrderLines(order: PurchaseOrderDto): ReceivingLine[] {
   return order.lines.map((line) => ({
     id: line.id,
+    productId: line.productId,
     title: line.title,
     expected: line.ordered,
     received: line.received,
@@ -34,6 +37,7 @@ export function purchaseOrderLines(order: PurchaseOrderDto): ReceivingLine[] {
 export function transferLines(transfer: TransferDto): ReceivingLine[] {
   return transfer.lines.map((line) => ({
     id: line.id,
+    productId: line.productId,
     title: line.title,
     expected: line.quantity,
     received: line.receivedQuantity,
