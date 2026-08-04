@@ -79,6 +79,31 @@ const businessEntityResource: ResourceDefinition = {
   permissions: { read: 'organization.read', write: 'organization.entities.manage' },
 };
 
+/**
+ * The partner's own record.
+ *
+ * `private` visibility: this is not part of the public Admin API. A partner is
+ * managed from the partner dashboard, and exposing it to store-scoped API
+ * callers would let an app enumerate the agencies working on other merchants.
+ */
+const partnerResource: ResourceDefinition = {
+  name: 'Partner',
+  entity: 'Partner',
+  pluralName: 'Partners',
+  urlSegment: 'partners',
+  fields: [
+    { name: 'id', type: 'id' },
+    { name: 'name', type: 'string', required: true, filterable: true, sortable: true, searchable: true },
+    { name: 'status', type: 'enum', values: ['active', 'suspended', 'closed'], filterable: true, sortable: true },
+    { name: 'payoutCurrency', type: 'string', filterable: true },
+    { name: 'websiteUrl', type: 'string' },
+    { name: 'createdAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'private' },
+  screens: ['list', 'detail'],
+  permissions: { read: 'partner.read', write: 'partner.manage' },
+};
+
 /** Identity tables carry no merchant content, so most toolkit features are off. */
 const IDENTITY_TOOLKIT = {
   metafields: false,
@@ -190,9 +215,55 @@ export const authManifest: ModuleManifest = {
         { name: 'storeId', type: 'reference', references: 'Store', filterable: true },
       ],
     },
+
+    // Partner scope: a top-level actor, deliberately not hung off Organization.
+    // A partner owns no stores; its reach into each one is a separate grant that
+    // the store's owner makes and can take back.
+    {
+      name: 'Partner',
+      tableName: 'partners',
+      scope: 'platform',
+      toolkit: { ...IDENTITY_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'ownerUserId', type: 'reference', references: 'User', indexed: true, filterable: true },
+        { name: 'name', type: 'string', required: true, filterable: true, sortable: true, searchable: true },
+        { name: 'status', type: 'enum', values: ['active', 'suspended', 'closed'], filterable: true, sortable: true },
+        { name: 'payoutCurrency', type: 'string', filterable: true },
+        { name: 'websiteUrl', type: 'string' },
+      ],
+    },
+    {
+      name: 'PartnerStaff',
+      tableName: 'partner_staff',
+      scope: 'platform',
+      toolkit: IDENTITY_TOOLKIT,
+      fields: [
+        { name: 'partnerId', type: 'reference', references: 'Partner', indexed: true, filterable: true },
+        { name: 'userId', type: 'reference', references: 'User', indexed: true, filterable: true },
+        { name: 'role', type: 'enum', values: ['owner', 'admin', 'member'], filterable: true },
+        { name: 'status', type: 'enum', values: ['active', 'invited', 'removed'], filterable: true },
+      ],
+    },
+    {
+      name: 'PartnerStoreLink',
+      tableName: 'partner_store_links',
+      scope: 'platform',
+      toolkit: { ...IDENTITY_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'partnerId', type: 'reference', references: 'Partner', indexed: true, filterable: true },
+        { name: 'storeId', type: 'reference', references: 'Store', indexed: true, filterable: true },
+        { name: 'status', type: 'enum', values: ['pending', 'active', 'revoked'], filterable: true },
+        { name: 'accessLevel', type: 'enum', values: ['full', 'limited'], filterable: true },
+        { name: 'permissions', type: 'json' },
+        { name: 'createdByPartner', type: 'boolean', filterable: true },
+        { name: 'requestedAt', type: 'datetime', sortable: true },
+        { name: 'decidedAt', type: 'datetime', sortable: true },
+        { name: 'revokedReason', type: 'text' },
+      ],
+    },
   ],
 
-  resources: [userResource, storeResource, businessEntityResource],
+  resources: [userResource, storeResource, businessEntityResource, partnerResource],
 
   permissions: [
     { key: 'organization.read', label: 'View organization', description: 'See organization details.', categories: ['organization'] },
@@ -201,6 +272,18 @@ export const authManifest: ModuleManifest = {
     { key: 'organization.entities.manage', label: 'Manage business entities', description: 'Add and archive legal entities.', categories: ['organization'] },
     { key: 'stores.read', label: 'View stores', description: 'See stores in the organization.', categories: ['organization'] },
     { key: 'stores.create', label: 'Create stores', description: 'Create development and live stores.', categories: ['organization'] },
+
+    // Held by partner staff, inside the partner — never by store staff.
+    { key: 'partner.read', label: 'View partner', description: 'See the partner account and its client stores.', categories: ['partner'] },
+    { key: 'partner.manage', label: 'Manage partner', description: 'Change partner details and payout settings.', categories: ['partner'] },
+    { key: 'partner.staff.manage', label: 'Manage partner team', description: 'Invite and remove partner staff.', categories: ['partner'] },
+    { key: 'partner.stores.request', label: 'Request store access', description: 'Ask a merchant for access to their store.', categories: ['partner'] },
+    { key: 'partner.stores.create', label: 'Create client stores', description: 'Create development stores and transfer them to clients.', categories: ['partner'] },
+
+    // Held by the STORE's own staff. This is the merchant's side of the gate:
+    // approving a partner is something only the store can do, which is why the
+    // permission lives here and not among the partner's.
+    { key: 'store.partners.manage', label: 'Manage partner access', description: 'Approve, limit and revoke partner access to this store.', categories: ['store'] },
   ],
 
   events: [
@@ -208,6 +291,11 @@ export const authManifest: ModuleManifest = {
     { type: 'auth.tenant.created', version: 1, label: 'Store created', description: 'A store was created; Core seeds defaults and modules react.', direction: 'emits' },
     { type: 'auth.membership.granted', version: 1, label: 'Membership granted', description: 'A user was given access to a store.', direction: 'emits' },
     { type: 'auth.membership.revoked', version: 1, label: 'Membership revoked', description: 'A user lost access to a store.', direction: 'emits' },
+    { type: 'auth.partner.created', version: 1, label: 'Partner created', description: 'A partner account was created.', direction: 'emits' },
+    { type: 'auth.partner-access.requested', version: 1, label: 'Partner requested store access', description: 'A partner asked a merchant for access to their store.', direction: 'emits' },
+    { type: 'auth.partner-access.granted', version: 1, label: 'Partner access granted', description: 'A store owner let a partner in.', direction: 'emits' },
+    { type: 'auth.partner-access.revoked', version: 1, label: 'Partner access revoked', description: 'A store owner removed a partner.', direction: 'emits' },
+    { type: 'auth.store.transferred', version: 1, label: 'Store transferred', description: 'A partner handed a store to its client.', direction: 'emits' },
   ],
 
   lifecycle: { startup: 'eager' },

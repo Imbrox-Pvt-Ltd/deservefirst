@@ -52,6 +52,7 @@ import {
   parseListQuery,
   toDecimalString,
   type OrganizationId,
+  type PartnerId,
   type RequestContext,
   type StoreId,
   type UserId,
@@ -291,6 +292,193 @@ async function start(): Promise<void> {
     const body = request.body as Record<string, unknown>;
     await auth.switchStore(sessionId, String(body.storeId ?? '') as StoreId);
     return success({ storeId: body.storeId }, { requestId: context.requestId });
+  });
+
+  // --- the partner surface --------------------------------------------------
+  //
+  // These belong to no store, so they cannot go through the store-scoped
+  // controller loop: a partner listing its clients is precisely a question that
+  // spans stores, and answering it inside one store's context would be
+  // answering the wrong question. Authorisation here is the partner seat, which
+  // the service checks against the acting user on every call.
+
+  /** A signed-in person's partner accounts, for the dashboard's picker. */
+  const requireUser = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<RequestContext | null> => {
+    const context = await contextFor(request as never);
+    if (context.userId === null) {
+      reply.status(401).send(
+        failure([apiError('unauthenticated', 'Not signed in', 'Sign in first.')], {
+          requestId: context.requestId,
+        }),
+      );
+      return null;
+    }
+    return context;
+  };
+
+  app.get(`/${API_VERSION}/partners`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const entries = await platform.partners.partnersFor(context.userId as UserId);
+    return success(
+      entries.map(({ partner, member }) => ({
+        id: partner.id,
+        name: partner.name,
+        status: partner.status,
+        role: member.role,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const body = request.body as Record<string, unknown>;
+    const partner = await platform.partners.create({
+      ownerUserId: context.userId as UserId,
+      name: String(body.name ?? ''),
+      payoutCurrency: typeof body.payoutCurrency === 'string' ? body.payoutCurrency : null,
+      websiteUrl: typeof body.websiteUrl === 'string' ? body.websiteUrl : null,
+    });
+
+    return reply.status(201).send(
+      success(
+        { id: partner.id, name: partner.name, status: partner.status, version: partner.version },
+        { requestId: context.requestId },
+      ),
+    );
+  });
+
+  app.get(`/${API_VERSION}/partners/:partnerId`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const partner = await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+    return success(
+      {
+        id: partner.id,
+        name: partner.name,
+        status: partner.status,
+        payoutCurrency: partner.payoutCurrency,
+        websiteUrl: partner.websiteUrl,
+        version: partner.version,
+      },
+      { requestId: context.requestId },
+    );
+  });
+
+  app.patch(`/${API_VERSION}/partners/:partnerId`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const body = request.body as Record<string, unknown>;
+    const partner = await platform.partners.update(
+      partnerId as PartnerId,
+      context.userId as UserId,
+      {
+        name: typeof body.name === 'string' ? body.name : undefined,
+        payoutCurrency:
+          body.payoutCurrency === undefined ? undefined : (body.payoutCurrency as string | null),
+        websiteUrl: body.websiteUrl === undefined ? undefined : (body.websiteUrl as string | null),
+        version: Number(body.version ?? 0),
+      },
+    );
+    return success({ id: partner.id, version: partner.version }, { requestId: context.requestId });
+  });
+
+  app.get(`/${API_VERSION}/partners/:partnerId/staff`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const staff = await platform.partners.staff(partnerId as PartnerId, context.userId as UserId);
+    return success(staff, { requestId: context.requestId });
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/staff`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const body = request.body as Record<string, unknown>;
+    const member = await platform.partners.inviteStaff(
+      partnerId as PartnerId,
+      context.userId as UserId,
+      { userId: String(body.userId ?? '') as UserId, role: body.role as 'admin' | 'member' },
+    );
+    return reply.status(201).send(success(member, { requestId: context.requestId }));
+  });
+
+  app.delete(`/${API_VERSION}/partners/:partnerId/staff/:staffId`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, staffId } = request.params as { partnerId: string; staffId: string };
+    await platform.partners.removeStaff(partnerId as PartnerId, context.userId as UserId, staffId);
+    return success({ id: staffId, removed: true }, { requestId: context.requestId });
+  });
+
+  app.get(`/${API_VERSION}/partners/:partnerId/stores`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const links = await platform.partners.stores(partnerId as PartnerId, context.userId as UserId);
+    return success(
+      links.map((link) => ({
+        id: link.id,
+        storeId: link.storeId,
+        status: link.status,
+        accessLevel: link.accessLevel,
+        permissions: link.permissions,
+        createdByPartner: link.createdByPartner,
+        requestedAt: link.requestedAt.toISOString(),
+        decidedAt: link.decidedAt?.toISOString() ?? null,
+        revokedReason: link.revokedReason,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/stores`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    const body = request.body as Record<string, unknown>;
+    const link = await platform.partners.requestStoreAccess(
+      partnerId as PartnerId,
+      context.userId as UserId,
+      {
+        storeId: String(body.storeId ?? '') as StoreId,
+        accessLevel: (body.accessLevel as 'full' | 'limited') ?? 'limited',
+        permissions: Array.isArray(body.permissions) ? (body.permissions as string[]) : [],
+      },
+    );
+    return reply.status(201).send(
+      success({ id: link.id, status: link.status }, { requestId: context.requestId }),
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/stores/:storeId/transfer`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, storeId } = request.params as { partnerId: string; storeId: string };
+    const link = await platform.partners.transferStore(
+      partnerId as PartnerId,
+      context.userId as UserId,
+      storeId as StoreId,
+    );
+    return success({ id: link.id, status: link.status }, { requestId: context.requestId });
   });
 
   // --- platform reflection (§36.1) -----------------------------------------

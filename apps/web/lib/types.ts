@@ -386,3 +386,17 @@ export interface WebhookEventDto {
   readonly description: string | null;
   readonly moduleId: string;
 }
+
+export interface PartnerAccessDto {
+  readonly id: string;
+  readonly partnerId: string;
+  readonly partnerName: string;
+  readonly status: 'pending' | 'active' | 'revoked';
+  readonly accessLevel: 'full' | 'limited';
+  readonly permissions: readonly string[];
+  /** True for a store the partner built — access without a decision. */
+  readonly createdByPartner: boolean;
+  readonly requestedAt: string;
+  readonly decidedAt: string | null;
+  readonly revokedReason: string | null;
+}

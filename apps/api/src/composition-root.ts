@@ -55,6 +55,9 @@ import {
   guardExecutor,
   type SqlDialect,
 } from './core';
+import { PartnerService } from './auth/application/partner-service';
+import { SqlPartnerRepository } from './auth/infrastructure/partner.repository';
+import { partnerController } from './auth/api/partner.controller';
 import { catalogController } from './modules/catalog/api/catalog.controller';
 import { catalogMetrics } from './modules/catalog/api/catalog.metrics';
 import { contentMetrics } from './modules/content/api/content.metrics';
@@ -126,6 +129,8 @@ export interface Platform {
   readonly webhookSubscriptions: SqlWebhookSubscriptionRepository;
   readonly webhookDeliveries: SqlWebhookDeliveryRepository;
   readonly identity: SqlIdentityRepository;
+  /** Partners, their staff, and their grants into client stores. */
+  readonly partners: PartnerService;
   readonly auth: AuthService;
   /**
    * Turns a session id into who the caller is and what they may do.
@@ -273,6 +278,23 @@ export async function bootstrap(): Promise<Platform> {
   });
 
   const identity = new SqlIdentityRepository(executor, dialect);
+  const partnerRecords = new SqlPartnerRepository(executor, dialect);
+  const partnerService = new PartnerService({
+    partners: partnerRecords,
+    publish: async (event) => {
+      await events.emit(event.type, event.payload);
+    },
+    /**
+     * Read from the registry every time rather than captured once: `full`
+     * access has to mean everything the store has NOW, and a snapshot taken at
+     * boot would quietly withhold any permission a module declares later.
+     */
+    allStorePermissions: () =>
+      registry
+        .permissions()
+        .map((entry) => entry.item.key)
+        .filter((key) => !key.startsWith('partner.') && !key.startsWith('platform.')),
+  });
   const sessions = new SqlSessionRepository(executor, dialect);
   const loginFlows = new SqlLoginFlowRepository(executor, dialect);
 
@@ -472,6 +494,7 @@ export async function bootstrap(): Promise<Platform> {
     webhookSubscriptions,
     webhookDeliveries,
     identity,
+    partners: partnerService,
     auth,
 
     resolveSession: async (sessionId) => {
@@ -579,6 +602,19 @@ export async function bootstrap(): Promise<Platform> {
       contentController({
         pages: new PageService(pageRecords, pageToolkit),
         metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
+      }),
+      // The merchant's half of the partner gate: store-scoped, so it mounts with
+      // the modules. The partner's own half is not store-scoped and does not.
+      partnerController({
+        partners: partnerService,
+        grantablePermissions: () =>
+          registry
+            .permissions()
+            .filter(
+              (entry) =>
+                !entry.item.key.startsWith('partner.') && !entry.item.key.startsWith('platform.'),
+            )
+            .map((entry) => ({ key: entry.item.key, label: entry.item.label })),
       }),
       // Core's own routes go through the same door as a module's, so they are
       // authorised the same way and — the reason this matters — appear in the

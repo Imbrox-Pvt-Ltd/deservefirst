@@ -106,6 +106,13 @@ export function navigationDestinations(rootDir, handle) {
     paths.add(`/store/${handle}/settings/${section.id}`);
   }
 
+  // Two settings screens are reached from the organization switcher rather than
+  // the settings rail, so walking SETTINGS_NAV alone misses them — including the
+  // one that decides which agencies hold keys to the store.
+  for (const id of ['organization-details', 'organization-account']) {
+    paths.add(`/store/${handle}/settings/${id}`);
+  }
+
   return [...paths].sort();
 }
 

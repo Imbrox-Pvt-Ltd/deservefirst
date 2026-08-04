@@ -11,3 +11,4 @@ export * from './credentials';
 export * from './mfa';
 export * from './session';
 export * from './permissions';
+export * from './partner';

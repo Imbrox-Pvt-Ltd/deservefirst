@@ -15,6 +15,7 @@ import type {
   ResolvedSettingDto,
   SettingDto,
   WebhookDeliveryDto,
+  PartnerAccessDto,
   WebhookEventDto,
   WebhookSubscriptionDto,
 } from '../../../../../lib/types';
@@ -76,6 +77,26 @@ export default async function SettingsPage({
     }
   }
 
+  // Same reasoning as the webhook reads: fetched only for the section that
+  // shows them, so eighteen other sections do not pay for it.
+  let partnerAccess: PartnerAccessDto[] = [];
+  let grantable: { key: string; label: string }[] = [];
+  if (active === 'organization-account') {
+    // Read separately rather than together: one Promise.all around both means
+    // a failure fetching the checkbox list also erases the list of partners
+    // holding keys to the store, which is the more important of the two.
+    try {
+      partnerAccess = (await apiFetch<PartnerAccessDto[]>('/auth/partner-access')).data;
+    } catch {
+      partnerAccess = [];
+    }
+    try {
+      grantable = (await apiFetch<{ key: string; label: string }[]>('/auth/grantable-permissions')).data;
+    } catch {
+      grantable = [];
+    }
+  }
+
   return (
     <StoreSettings
       handle={handle}
@@ -89,6 +110,9 @@ export default async function SettingsPage({
       deliveries={deliveries}
       eventTypes={eventTypes}
       canManage={session.permissions.includes('store.webhooks.manage')}
+      partnerAccess={partnerAccess}
+      grantable={grantable}
+      canManagePartners={session.permissions.includes('store.partners.manage')}
     />
   );
 }

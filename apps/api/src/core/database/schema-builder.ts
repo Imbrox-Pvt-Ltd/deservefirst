@@ -131,7 +131,25 @@ export function buildEntityDdl(
   const toolkit = resolveToolkit(entity);
   const quote = (name: string) => dialect.quoteIdentifier(name);
 
-  const declared = resource.fields.flatMap((field): ColumnSpec[] => {
+  /**
+   * The resource's fields AND the entity's, not one or the other.
+   *
+   * The resource describes the admin surface; the entity describes the table.
+   * They overlap heavily but not completely — a foreign key that no screen shows
+   * belongs to the table and has no business being a resource field. Taking only
+   * the resource's fields silently dropped those columns, and the failure landed
+   * hundreds of lines away as "unknown column" on the first write, with nothing
+   * pointing back at the declaration that was supposed to create it.
+   *
+   * The resource wins on a name collision, since it carries the richer type.
+   */
+  const fromResource = new Set(resource.fields.map((field) => field.name));
+  const declaredFields = [
+    ...resource.fields,
+    ...(entity.fields ?? []).filter((field) => !fromResource.has(field.name)),
+  ];
+
+  const declared = declaredFields.flatMap((field): ColumnSpec[] => {
     // id and handle already come from the base set.
     if (field.name === 'id' || field.name === 'handle') return [];
     if (field.type === 'money') return moneyColumns(dialect, field.name);
