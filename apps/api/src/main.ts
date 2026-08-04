@@ -963,6 +963,49 @@ async function start(): Promise<void> {
    * Behind `platformGuard`, so a merchant and an app are both refused whatever
    * they hold. Reviewing an app is a decision about every store at once.
    */
+  /**
+   * An app removing itself.
+   *
+   * Not on the module controller surface, because that authorises by store
+   * PERMISSION and no app scope grants one that would fit. Inventing a scope so
+   * an app could delete its own row would be vocabulary for its own sake.
+   *
+   * The authority here is the token itself: it names one app and one store, so
+   * an app can only ever remove its own install from the store it was issued
+   * for. A person reaching this is refused and pointed at the merchant's
+   * endpoint, which names the app rather than inferring it.
+   *
+   * It exists because a customer cancelling a subscription should not have to
+   * ask their merchant to tidy up afterwards.
+   */
+  app.delete(`/${API_VERSION}/apps/installations/self`, async (request, reply) => {
+    const context = await contextFor(request as never);
+
+    if (context.actorType !== 'app' || !context.appId || context.storeId === null) {
+      return reply.status(403).send(
+        failure(
+          [
+            apiError(
+              'forbidden',
+              'For apps only',
+              'This endpoint removes the calling app. A person should use the store\'s own apps settings.',
+            ),
+          ],
+          { requestId: context.requestId },
+        ),
+      );
+    }
+
+    await withRequestContext(context, () =>
+      platform.apps.uninstall(context.appId as string, context.storeId as StoreId),
+    );
+
+    return success(
+      { appId: context.appId, uninstalled: true },
+      { requestId: context.requestId },
+    );
+  });
+
   app.get(`/${API_VERSION}/platform/app-reviews`, async (request, reply) => {
     const context = await platformGuard(request as never, reply as never, 'platform.apps.review');
     if (!context) return reply;

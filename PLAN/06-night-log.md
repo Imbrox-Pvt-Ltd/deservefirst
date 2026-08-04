@@ -129,3 +129,21 @@ Verified:
 Per app **and** per store, because an app installed on a thousand stores sharing
 one allowance means the busiest merchant starves the rest.
 
+### 04:1x — Block F · An app can uninstall itself
+
+A customer cancelling a subscription should not have to ask their merchant to
+tidy up afterwards.
+
+Not on the module controller surface, because that authorises by store
+permission and **no app scope grants one that would fit**. Inventing a scope so
+an app could delete its own row would be vocabulary for its own sake. The
+authority is the token: it names one app and one store, so an app can only ever
+remove its own install from the store it was issued for.
+
+| Step | Result |
+|---|---|
+| App installed, token working | `http 200` |
+| A **person** calling the self endpoint | refused, pointed at the merchant's own settings |
+| The app removing itself | `uninstalled: True` |
+| Its own token immediately after | `http 401 invalid_token` |
+
