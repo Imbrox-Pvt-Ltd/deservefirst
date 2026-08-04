@@ -311,4 +311,48 @@ export const screenDestinations = {
   },
 };
 
-export const webRules = [clientBoundary, screenDestinations];
+/**
+ * A module's endpoints live in that module, not in the transport.
+ *
+ * `main.ts` grew to 1,331 lines and 57 hand-written endpoints, each repeating
+ * the same authorisation preamble — and one of those repetitions was wrong for
+ * every route on the platform. Modules now return route definitions and the
+ * transport registers them in one loop; this keeps it that way, because the
+ * file only rots one endpoint at a time and each one looks reasonable.
+ */
+export const transportIsThin = {
+  name: 'transport-is-thin',
+  description: 'Module endpoints live in the module, not in the transport (§13.1)',
+  run(sources, rootDir) {
+    const violations = [];
+    const main = sources.find((source) => source.relativePath === 'apps/api/src/main.ts');
+    if (!main) return violations;
+
+    const moduleIds = readdirSync(join(rootDir, 'apps/api/src/modules'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    const pattern = /app\.(get|post|patch|put|delete)\(\s*`([^`]+)`/g;
+    let match;
+
+    while ((match = pattern.exec(main.text)) !== null) {
+      const [, method, url] = match;
+      const owner = moduleIds.find((id) => url.includes(`/${id}/`));
+      if (!owner) continue;
+
+      violations.push(
+        violation(
+          main.relativePath,
+          main.text.slice(0, match.index).split('\n').length,
+          'transport-is-thin',
+          `registers ${method.toUpperCase()} "${url}" for module "${owner}" — ` +
+            `declare it in apps/api/src/modules/${owner}/api/ and let the controller loop mount it`,
+        ),
+      );
+    }
+
+    return violations;
+  },
+};
+
+export const webRules = [clientBoundary, screenDestinations, transportIsThin];

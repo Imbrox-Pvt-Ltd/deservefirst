@@ -9,3 +9,4 @@
 export * from './response-envelope';
 export * from './route-composer';
 export * from './generic-list';
+export * from './controller';

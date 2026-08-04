@@ -7,7 +7,7 @@
  * Layer: transport.
  */
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 
 import {
   apiError,
@@ -210,6 +210,32 @@ async function start(): Promise<void> {
     return success(await platform.settings.get(key, null), { requestId: context.requestId });
   });
 
+  /**
+   * The guard for CORE's own store-scoped routes.
+   *
+   * Module endpoints do not use this — they declare a permission and the
+   * registration loop applies it, with the module id taken from the controller.
+   * These few are Core's, so the module is Core's, stated rather than derived.
+   */
+  const withStore = async <T>(
+    request: { headers: Record<string, unknown>; id: string },
+    reply: { status(code: number): { send(body: unknown): unknown } },
+    permission: string,
+    handler: (storeId: StoreId, context: RequestContext) => Promise<T>,
+  ) => {
+    const context = contextFor(request);
+    if (context.storeId === null) {
+      return reply.status(400).send(
+        failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], {
+          requestId: context.requestId,
+        }),
+      );
+    }
+
+    await platform.access.assert({ context, permission, moduleId: 'platform' });
+    return withRequestContext(context, () => handler(context.storeId as StoreId, context));
+  };
+
   // --- store-level module state and settings ---------------------------------
 
   app.get(`/${API_VERSION}/platform/store-modules`, async (request, reply) =>
@@ -325,829 +351,78 @@ async function start(): Promise<void> {
     });
   }
 
-  // --- catalog writes -------------------------------------------------------
-  // Reads come from the generic surface above. Writes stay here because they go
-  // through the module's service, where invariants and events live.
+  // --- module endpoints -----------------------------------------------------
+  // Every hand-written endpoint used to live in this file, each repeating the
+  // same five-line preamble: resolve context, require a store, assert the
+  // permission, enter the tenant scope, wrap the result. Five lines that are
+  // easy to write and easy to write wrong — and one of them WAS wrong, deriving
+  // the entitlement check's module from the permission prefix, so every route
+  // on the platform asked whether `catalog` was enabled.
+  //
+  // Modules now return route DEFINITIONS and this loop is the only place that
+  // knows about HTTP. The module id comes from the controller that owns the
+  // route, so it cannot be guessed at.
 
-  /**
-   * Every write goes through the same shape: establish context, check the
-   * permission, call the use-case. The access check is explicit rather than a
-   * decorator so it is visible at the call site — authorisation that is easy to
-   * miss when reading is authorisation that gets missed when editing.
-   */
-  const withStore = async <T>(
-    request: { headers: Record<string, unknown>; id: string },
-    reply: { status(code: number): { send(body: unknown): unknown } },
-    permission: string,
-    handler: (storeId: StoreId, context: RequestContext) => Promise<T>,
-  ) => {
-    const context = contextFor(request);
-    if (context.storeId === null) {
-      return reply
-        .status(400)
-        .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
+  for (const moduleController of platform.controllers) {
+    for (const route of moduleController.routes) {
+      const url = `/${API_VERSION}/${moduleController.moduleId}${route.path}`;
+
+      const handler = async (request: FastifyRequest, reply: FastifyReply) => {
+        const context = contextFor(request as never);
+
+        if (context.storeId === null) {
+          return reply.status(400).send(
+            failure(
+              [apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')],
+              { requestId: context.requestId },
+            ),
+          );
+        }
+
+        // Authorisation before anything else runs, and the module is the one
+        // that owns the route — so the platform kill switch, the store toggle
+        // and the plan are all checked against the right module.
+        await platform.access.assert({
+          context,
+          permission: route.permission,
+          moduleId: moduleController.moduleId,
+        });
+
+        return withRequestContext(context, async () => {
+          const payload = await route.handle({
+            params: (request.params ?? {}) as Record<string, string>,
+            body: (request.body ?? {}) as Record<string, unknown>,
+            query: new URL(request.url, 'http://internal').searchParams,
+            context,
+            storeId: context.storeId as StoreId,
+          });
+
+          const body = success(payload, { requestId: context.requestId });
+          return route.status && route.status !== 200
+            ? reply.status(route.status).send(body)
+            : body;
+        });
+      };
+
+      switch (route.method) {
+        case 'GET':
+          app.get(url, handler);
+          break;
+        case 'POST':
+          app.post(url, handler);
+          break;
+        case 'PATCH':
+          app.patch(url, handler);
+          break;
+        case 'PUT':
+          app.put(url, handler);
+          break;
+        case 'DELETE':
+          app.delete(url, handler);
+          break;
+      }
     }
-
-    // The module is derived from the permission's own namespace rather than
-    // passed in. It used to be hardcoded to 'catalog' for every route, so the
-    // entitlement half of this check asked whether CATALOG was enabled before
-    // letting someone edit a customer — the right answer by luck, and the wrong
-    // one the moment a store runs without catalog.
-    await platform.access.assert({ context, permission, moduleId: moduleForPermission(permission) });
-    return withRequestContext(context, () => handler(context.storeId as StoreId, context));
-  };
-
-  app.post(`/${API_VERSION}/catalog/products`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const product = await platform.productServiceFor(storeId).create({
-        title: String(body.title ?? ''),
-        description: body.description === undefined ? undefined : String(body.description),
-        handle: body.handle === undefined ? undefined : String(body.handle),
-        vendor: (body.vendor ?? null) as string | null,
-        productType: (body.productType ?? null) as string | null,
-        price: parseMoney(body.price),
-        status: body.status as 'draft' | 'active' | 'archived' | undefined,
-      });
-      return reply.status(201).send(success(toProductDto(product), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/catalog/products/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const { id } = request.params as { id: string };
-
-      const product = await platform.productServiceFor(storeId).update({
-        id,
-        // The client must send the version it read. Omitting it is not "no
-        // opinion", it is a lost update waiting to happen.
-        expectedVersion: Number(body.version ?? -1),
-        ...(body.title === undefined ? {} : { title: String(body.title) }),
-        ...(body.description === undefined ? {} : { description: String(body.description) }),
-        ...(body.handle === undefined ? {} : { handle: String(body.handle) }),
-        ...(body.status === undefined ? {} : { status: body.status as 'draft' | 'active' | 'archived' }),
-        ...(body.vendor === undefined ? {} : { vendor: body.vendor as string | null }),
-        ...(body.productType === undefined ? {} : { productType: body.productType as string | null }),
-        ...(body.price === undefined ? {} : { price: parseMoney(body.price) }),
-      });
-      return success(toProductDto(product), { requestId: context.requestId });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/catalog/products/:id/publish`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.publish', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const { id } = request.params as { id: string };
-      const channels = Array.isArray(body.channels) ? (body.channels as unknown[]).map(String) : ['online-store'];
-
-      const product = await platform
-        .productServiceFor(storeId)
-        .publish(id, channels, Number(body.version ?? -1));
-      return success(toProductDto(product), { requestId: context.requestId });
-    }),
-  );
-
-  app.delete(`/${API_VERSION}/catalog/products/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      // Soft delete: hidden and restorable, never destroyed (§12.1).
-      await platform.productServiceFor(storeId).delete(id);
-      return success({ id, deleted: true }, { requestId: context.requestId });
-    }),
-  );
-
-  // --- collections ----------------------------------------------------------
-  // Rules are set as a whole set rather than one condition at a time: a
-  // per-condition endpoint would let a screen leave the collection in a state
-  // the engine cannot evaluate between two calls.
-
-  const toCollectionDto = (collection: Collection) => ({
-    id: collection.id,
-    handle: collection.handle,
-    title: collection.title,
-    description: collection.description,
-    type: collection.type,
-    match: collection.match,
-    conditions: collection.conditions,
-    exclusions: collection.exclusions,
-    productIds: collection.productIds,
-    sortOrder: collection.sortOrder,
-    version: collection.version,
-  });
-
-  app.post(`/${API_VERSION}/catalog/collections`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const collection = await platform.collectionServiceFor(storeId).create({
-        title: String(body.title ?? ''),
-        description: body.description === undefined ? undefined : String(body.description),
-        handle: body.handle === undefined ? undefined : String(body.handle),
-        // A collection with no rules yet is manual; adding the first condition
-        // is what makes it automated.
-        type: body.type === 'automated' ? 'automated' : 'manual',
-      });
-      return reply.status(201).send(success(toCollectionDto(collection), { requestId: context.requestId }));
-    }),
-  );
-
-  app.get(`/${API_VERSION}/catalog/collections/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.read', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const found = await platform.collectionServiceFor(storeId).get(id);
-      return success(toCollectionDto(found), { requestId: context.requestId });
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/catalog/collections/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform.collectionServiceFor(storeId).updateDetails({
-        id,
-        expectedVersion: Number(body.version ?? -1),
-        ...(body.title === undefined ? {} : { title: String(body.title) }),
-        ...(body.description === undefined ? {} : { description: String(body.description) }),
-        ...(body.sortOrder === undefined ? {} : { sortOrder: body.sortOrder as Collection['sortOrder'] }),
-      });
-      return success(toCollectionDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  app.put(`/${API_VERSION}/catalog/collections/:id/rules`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform.collectionServiceFor(storeId).setRules({
-        id,
-        expectedVersion: Number(body.version ?? -1),
-        match: (body.match as 'all' | 'any') ?? 'all',
-        conditions: (body.conditions ?? []) as Condition[],
-        exclusions: (body.exclusions ?? []) as Condition[],
-      });
-      return success(toCollectionDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  // --- customers ------------------------------------------------------------
-  // Consent has its own endpoint, mirroring the service. Folding it into the
-  // generic update would let a bulk edit change consent by accident and would
-  // lose the before/after pair a compliance question needs.
-
-  const toCustomerDto = (customer: Customer) => ({
-    id: customer.id,
-    displayName: displayName(customer),
-    firstName: customer.firstName,
-    lastName: customer.lastName,
-    email: customer.email,
-    phone: customer.phone,
-    state: customer.state,
-    emailConsent: customer.emailConsent,
-    smsConsent: customer.smsConsent,
-    locale: customer.locale,
-    taxExempt: customer.taxExempt,
-    ordersCount: customer.ordersCount,
-    totalSpent: {
-      amount: toDecimalString(customer.totalSpent),
-      currency: customer.totalSpent.currency,
-    },
-    version: customer.version,
-  });
-
-  app.post(`/${API_VERSION}/customers/customers`, async (request, reply) =>
-    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const customer = await platform.customerServiceFor(storeId).create({
-        email: (body.email ?? null) as string | null,
-        phone: (body.phone ?? null) as string | null,
-        firstName: (body.firstName ?? null) as string | null,
-        lastName: (body.lastName ?? null) as string | null,
-        // Consent is never assumed from a staff-created record, so it is not
-        // accepted here — it is changed deliberately, on its own endpoint.
-      });
-      return reply.status(201).send(success(toCustomerDto(customer), { requestId: context.requestId }));
-    }),
-  );
-
-  app.get(`/${API_VERSION}/customers/customers/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'customers.read', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const found = await platform.customerServiceFor(storeId).get(id);
-      return success(toCustomerDto(found), { requestId: context.requestId });
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/customers/customers/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform.customerServiceFor(storeId).update({
-        id,
-        expectedVersion: Number(body.version ?? -1),
-        ...(body.firstName === undefined ? {} : { firstName: body.firstName as string | null }),
-        ...(body.lastName === undefined ? {} : { lastName: body.lastName as string | null }),
-        ...(body.phone === undefined ? {} : { phone: body.phone as string | null }),
-        ...(body.note === undefined ? {} : { note: body.note as string | null }),
-        ...(body.taxExempt === undefined ? {} : { taxExempt: Boolean(body.taxExempt) }),
-      });
-      return success(toCustomerDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/customers/customers/:id/consent`, async (request, reply) =>
-    withStore(request as never, reply as never, 'customers.manage', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform.customerServiceFor(storeId).changeConsent({
-        id,
-        channel: (body.channel as 'email' | 'sms') ?? 'email',
-        to: (body.to as MarketingConsent) ?? 'unknown',
-        expectedVersion: Number(body.version ?? -1),
-      });
-      return success(toCustomerDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  // --- requests -------------------------------------------------------------
-  // The quoting workflow. Each step is its own endpoint rather than a generic
-  // "set status", because the transitions carry rules — a quote cannot be sent
-  // half-priced, and an expired one cannot be accepted.
-
-  /** The wire shape, including lines, which the generic reader does not load. */
-  const toRequestDto = (request: QuoteRequest) => ({
-    id: request.id,
-    reference: request.reference,
-    customerId: request.customerId,
-    contactEmail: request.contactEmail,
-    contactName: request.contactName,
-    status: request.status,
-    currency: request.currency,
-    note: request.note,
-    quoteExpiresAt: request.quoteExpiresAt,
-    submittedAt: request.submittedAt,
-    version: request.version,
-    subtotal: {
-      amount: toDecimalString(subtotal(request)),
-      currency: request.currency,
-    },
-    lines: request.lines.map((line) => ({
-      id: line.id,
-      productId: line.productId,
-      title: line.title,
-      sku: line.sku,
-      quantity: line.quantity,
-      listPrice: { amount: toDecimalString(line.listPrice), currency: line.listPrice.currency },
-      quotedPrice: line.quotedPrice
-        ? { amount: toDecimalString(line.quotedPrice), currency: line.quotedPrice.currency }
-        : null,
-      note: line.note,
-    })),
-  });
-
-  app.post(`/${API_VERSION}/orders/requests`, async (request, reply) =>
-    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const created = await platform.requestServiceFor(storeId).create({
-        customerId: (body.customerId ?? null) as string | null,
-        contactEmail: (body.contactEmail ?? null) as string | null,
-        contactName: (body.contactName ?? null) as string | null,
-        currency: String(body.currency ?? 'USD'),
-        note: (body.note ?? null) as string | null,
-      });
-      return reply.status(201).send(success(toRequestDto(created), { requestId: context.requestId }));
-    }),
-  );
-
-  app.get(`/${API_VERSION}/orders/requests/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'orders.read', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const found = await platform.requestServiceFor(storeId).get(id);
-      return success(toRequestDto(found), { requestId: context.requestId });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/orders/requests/:id/lines`, async (request, reply) =>
-    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const { id } = request.params as { id: string };
-
-      const updated = await platform.requestServiceFor(storeId).addLine(
-        id,
-        {
-          productId: String(body.productId ?? ''),
-          title: String(body.title ?? ''),
-          sku: body.sku === undefined ? null : String(body.sku),
-          quantity: Number(body.quantity ?? 1),
-          listPrice: parseMoney(body.listPrice),
-        },
-        Number(body.version ?? -1),
-      );
-      return success(toRequestDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  app.delete(`/${API_VERSION}/orders/requests/:id/lines/:lineId`, async (request, reply) =>
-    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
-      const { id, lineId } = request.params as { id: string; lineId: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform
-        .requestServiceFor(storeId)
-        .removeLine(id, lineId, Number(body.version ?? -1));
-      return success(toRequestDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/orders/requests/:id/lines/:lineId/quote`, async (request, reply) =>
-    withStore(request as never, reply as never, 'orders.quote', async (storeId, context) => {
-      const { id, lineId } = request.params as { id: string; lineId: string };
-      const body = request.body as Record<string, unknown>;
-      const updated = await platform
-        .requestServiceFor(storeId)
-        .quoteLine(id, lineId, parseMoney(body.price), Number(body.version ?? -1));
-      return success(toRequestDto(updated), { requestId: context.requestId });
-    }),
-  );
-
-  for (const [action, permission] of [
-    ['submit', 'orders.manage'],
-    ['quote', 'orders.quote'],
-    ['accept', 'orders.manage'],
-    ['decline', 'orders.manage'],
-    ['cancel', 'orders.manage'],
-  ] as const) {
-    app.post(`/${API_VERSION}/orders/requests/:id/${action}`, async (request, reply) =>
-      withStore(request as never, reply as never, permission, async (storeId, context) => {
-        const { id } = request.params as { id: string };
-        const body = request.body as Record<string, unknown>;
-        const version = Number(body.version ?? -1);
-        const service = platform.requestServiceFor(storeId);
-
-        const updated =
-          action === 'submit'
-            ? await service.submit(id, version)
-            : action === 'quote'
-              ? await service.sendQuote(id, version)
-              : action === 'accept'
-                ? await service.accept(id, version)
-                : action === 'decline'
-                  ? await service.decline(id, String(body.reason ?? 'no reason given'), version)
-                  : await service.cancel(id, version);
-
-        return success(toRequestDto(updated), { requestId: context.requestId });
-      }),
-    );
   }
-
-  // --- inventory ------------------------------------------------------------
-  // Levels are read through the generic surface like any other resource; these
-  // are the operations that MOVE stock, which is where the invariants live.
-
-  const toLocationDto = (location: StoredLocation) => ({
-    id: location.id,
-    name: location.name,
-    address: location.address,
-    countryCode: location.countryCode,
-    fulfilsOrders: location.fulfilsOrders,
-    archivedAt: location.archivedAt?.toISOString() ?? null,
-    version: location.version,
-  });
-
-  const toLevelDto = (level: StoredLevel) => ({
-    id: level.id,
-    locationId: level.locationId,
-    productId: level.productId,
-    variantId: level.variantId,
-    title: level.title,
-    sku: level.sku,
-    onHand: level.onHand,
-    committed: level.committed,
-    incoming: level.incoming,
-    // Derived, never stored — a stored copy is one more thing that can disagree
-    // with the numbers it is derived from.
-    available: platform.inventory.availableFor(level),
-    version: level.version,
-  });
-
-  const toAdjustmentDto = (adjustment: InventoryAdjustment) => ({
-    id: adjustment.id,
-    locationId: adjustment.locationId,
-    productId: adjustment.productId,
-    variantId: adjustment.variantId,
-    delta: adjustment.delta,
-    reason: adjustment.reason,
-    reference: adjustment.reference,
-    occurredAt: adjustment.occurredAt.toISOString(),
-  });
-
-  const toPurchaseOrderDto = (order: PurchaseOrder) => ({
-    id: order.id,
-    reference: order.reference,
-    supplierName: order.supplierName,
-    destinationLocationId: order.destinationLocationId,
-    status: order.status,
-    expectedAt: order.expectedAt?.toISOString() ?? null,
-    lines: order.lines,
-    version: order.version,
-  });
-
-  const toTransferDto = (transfer: Transfer) => ({
-    id: transfer.id,
-    reference: transfer.reference,
-    originLocationId: transfer.originLocationId,
-    destinationLocationId: transfer.destinationLocationId,
-    status: transfer.status,
-    lines: transfer.lines,
-    inTransit: inTransit(transfer),
-    version: transfer.version,
-  });
-
-  app.get(`/${API_VERSION}/inventory/locations/active`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) =>
-      success(
-        (await platform.inventory.locationsForPicker()).map(toLocationDto),
-        { requestId: context.requestId },
-      ),
-    ),
-  );
-
-  app.post(`/${API_VERSION}/inventory/inventory/adjust`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.adjust', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-
-      // Two ways to say the same thing: a signed movement, or a counted total.
-      // The service turns the count into a movement so the log only ever holds
-      // deltas with reasons.
-      const level =
-        body.onHand === undefined
-          ? await platform.inventory.adjust({
-              locationId: String(body.locationId ?? ''),
-              productId: String(body.productId ?? ''),
-              variantId: (body.variantId ?? null) as string | null,
-              delta: Number(body.delta ?? 0),
-              reason: (body.reason ?? 'correction') as never,
-              reference: (body.reference ?? null) as string | null,
-              title: body.title === undefined ? undefined : String(body.title),
-              sku: (body.sku ?? null) as string | null,
-            })
-          : await platform.inventory.recount({
-              locationId: String(body.locationId ?? ''),
-              productId: String(body.productId ?? ''),
-              variantId: (body.variantId ?? null) as string | null,
-              onHand: Number(body.onHand),
-              title: body.title === undefined ? undefined : String(body.title),
-              sku: (body.sku ?? null) as string | null,
-            });
-
-      return success(toLevelDto(level), { requestId: context.requestId });
-    }),
-  );
-
-  app.get(`/${API_VERSION}/inventory/inventory/:id/history`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const level = await platform.inventory.get(id);
-      const history = await platform.inventory.history(level.locationId, level.productId);
-      return success(
-        { level: toLevelDto(level), history: history.map(toAdjustmentDto) },
-        { requestId: context.requestId },
-      );
-    }),
-  );
-
-  app.get(`/${API_VERSION}/inventory/purchase-orders/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      return success(toPurchaseOrderDto(await platform.purchaseOrders.get(id)), {
-        requestId: context.requestId,
-      });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/inventory/purchase-orders`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const order = await platform.purchaseOrders.create({
-        supplierName: String(body.supplierName ?? ''),
-        destinationLocationId: String(body.destinationLocationId ?? ''),
-        expectedAt: (body.expectedAt ?? null) as string | null,
-        lines: (body.lines ?? []) as never,
-      });
-      return reply.status(201).send(success(toPurchaseOrderDto(order), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/inventory/purchase-orders/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const order = await platform.purchaseOrders.update(id, Number(body.version ?? -1), {
-        supplierName: body.supplierName === undefined ? undefined : String(body.supplierName),
-        expectedAt: body.expectedAt as string | null | undefined,
-        lines: body.lines as never,
-      });
-      return success(toPurchaseOrderDto(order), { requestId: context.requestId });
-    }),
-  );
-
-  for (const action of ['place', 'receive', 'cancel'] as const) {
-    app.post(`/${API_VERSION}/inventory/purchase-orders/:id/${action}`, async (request, reply) =>
-      withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-        const { id } = request.params as { id: string };
-        const body = request.body as Record<string, unknown>;
-        const version = Number(body.version ?? -1);
-
-        const order =
-          action === 'place'
-            ? await platform.purchaseOrders.place(id, version)
-            : action === 'receive'
-              ? await platform.purchaseOrders.receive(id, version, (body.lines ?? []) as never)
-              : await platform.purchaseOrders.cancel(id, version);
-
-        return success(toPurchaseOrderDto(order), { requestId: context.requestId });
-      }),
-    );
-  }
-
-  app.get(`/${API_VERSION}/inventory/transfers/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      return success(toTransferDto(await platform.transfers.get(id)), {
-        requestId: context.requestId,
-      });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/inventory/transfers`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const transfer = await platform.transfers.create({
-        originLocationId: String(body.originLocationId ?? ''),
-        destinationLocationId: String(body.destinationLocationId ?? ''),
-        lines: (body.lines ?? []) as never,
-      });
-      return reply.status(201).send(success(toTransferDto(transfer), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/inventory/transfers/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const transfer = await platform.transfers.update(id, Number(body.version ?? -1), {
-        destinationLocationId:
-          body.destinationLocationId === undefined ? undefined : String(body.destinationLocationId),
-        lines: body.lines as never,
-      });
-      return success(toTransferDto(transfer), { requestId: context.requestId });
-    }),
-  );
-
-  for (const action of ['ship', 'receive', 'cancel'] as const) {
-    app.post(`/${API_VERSION}/inventory/transfers/:id/${action}`, async (request, reply) =>
-      withStore(request as never, reply as never, 'inventory.manage', async (_storeId, context) => {
-        const { id } = request.params as { id: string };
-        const body = request.body as Record<string, unknown>;
-        const version = Number(body.version ?? -1);
-
-        const transfer =
-          action === 'ship'
-            ? await platform.transfers.ship(id, version)
-            : action === 'receive'
-              ? await platform.transfers.receive(id, version, (body.lines ?? []) as never)
-              : await platform.transfers.cancel(id, version);
-
-        return success(toTransferDto(transfer), { requestId: context.requestId });
-      }),
-    );
-  }
-
-  // --- product options and variants ------------------------------------------
-
-  /**
-   * The full Product aggregate, variants included.
-   *
-   * The generic reader cannot serve this: it projects the resource's DECLARED
-   * fields, and variants live in their own table. A screen that asked the
-   * generic surface for a product got `variants: undefined` and crashed the
-   * moment it tried to render them.
-   */
-  app.get(`/${API_VERSION}/catalog/products/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.read', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const product = await platform.productServiceFor(storeId).get(id);
-      return success(toProductDto(product), { requestId: context.requestId });
-    }),
-  );
-
-  app.put(`/${API_VERSION}/catalog/products/:id/options`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const product = await platform.productServiceFor(storeId).setOptions(
-        id,
-        Number(body.version ?? -1),
-        (body.options ?? []) as never,
-      );
-      return success(toProductDto(product), { requestId: context.requestId });
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/catalog/products/:id/variants`, async (request, reply) =>
-    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const patches = ((body.variants ?? []) as Record<string, unknown>[]).map((entry) => ({
-        id: String(entry.id ?? ''),
-        sku: entry.sku === undefined ? undefined : ((entry.sku ?? null) as string | null),
-        price: entry.price === undefined ? undefined : parseMoney(entry.price),
-        inventoryQuantity:
-          entry.inventoryQuantity === undefined ? undefined : Number(entry.inventoryQuantity),
-      }));
-
-      const product = await platform.productServiceFor(storeId).updateVariants(
-        id,
-        Number(body.version ?? -1),
-        patches,
-      );
-      return success(toProductDto(product), { requestId: context.requestId });
-    }),
-  );
-
-  // --- content --------------------------------------------------------------
-
-  const toPageDto = (page: Page) => ({
-    id: page.id,
-    handle: page.handle,
-    title: page.title,
-    body: page.body,
-    status: page.status,
-    templateSuffix: page.templateSuffix,
-    publishedAt: page.publishedAt?.toISOString() ?? null,
-    version: page.version,
-  });
-
-  const toDefinitionDto = (definition: MetaobjectDefinition) => ({
-    id: definition.id,
-    type: definition.type,
-    name: definition.name,
-    description: definition.description,
-    fields: definition.fields,
-    displayNameKey: definition.displayNameKey,
-    version: definition.version,
-  });
-
-  const toEntryDto = (definition: MetaobjectDefinition, entry: MetaobjectEntry) => ({
-    id: entry.id,
-    definitionId: entry.definitionId,
-    handle: entry.handle,
-    values: entry.values,
-    status: entry.status,
-    // Resolved here rather than in the browser: the rule for which field names
-    // an entry belongs with the definition, not with each screen that shows one.
-    displayName: entryDisplayName(definition, entry),
-    version: entry.version,
-  });
-
-  app.get(`/${API_VERSION}/content/pages/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      return success(toPageDto(await platform.pages.get(id)), { requestId: context.requestId });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/content/pages`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const page = await platform.pages.create({
-        title: String(body.title ?? ''),
-        body: body.body === undefined ? undefined : String(body.body),
-        handle: body.handle === undefined ? undefined : String(body.handle),
-      });
-      return reply.status(201).send(success(toPageDto(page), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/content/pages/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const page = await platform.pages.update(id, Number(body.version ?? -1), {
-        title: body.title === undefined ? undefined : String(body.title),
-        body: body.body === undefined ? undefined : String(body.body),
-        handle: body.handle === undefined ? undefined : String(body.handle),
-        templateSuffix: body.templateSuffix as string | null | undefined,
-      });
-      return success(toPageDto(page), { requestId: context.requestId });
-    }),
-  );
-
-  // Publishing is its own endpoint, not a status field on the generic patch: it
-  // is the one change with a side effect beyond the record (§13.1).
-  app.post(`/${API_VERSION}/content/pages/:id/status`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.publish', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const page = await platform.pages.setStatus(
-        id,
-        Number(body.version ?? -1),
-        body.status === 'published' ? 'published' : 'draft',
-      );
-      return success(toPageDto(page), { requestId: context.requestId });
-    }),
-  );
-
-  app.get(`/${API_VERSION}/content/metaobject-definitions/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      return success(toDefinitionDto(await platform.metaobjects.getDefinition(id)), {
-        requestId: context.requestId,
-      });
-    }),
-  );
-
-  app.post(`/${API_VERSION}/content/metaobject-definitions`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.definitions.manage', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const definition = await platform.metaobjects.createDefinition({
-        type: String(body.type ?? ''),
-        name: String(body.name ?? ''),
-        description: (body.description ?? null) as string | null,
-        fields: (body.fields ?? []) as never,
-        displayNameKey: (body.displayNameKey ?? null) as string | null,
-      });
-      return reply.status(201).send(success(toDefinitionDto(definition), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/content/metaobject-definitions/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.definitions.manage', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const definition = await platform.metaobjects.updateDefinition(id, Number(body.version ?? -1), {
-        name: body.name === undefined ? undefined : String(body.name),
-        description: body.description as string | null | undefined,
-        fields: body.fields as never,
-        displayNameKey: body.displayNameKey as string | null | undefined,
-      });
-      return success(toDefinitionDto(definition), { requestId: context.requestId });
-    }),
-  );
-
-  app.get(`/${API_VERSION}/content/metaobject-definitions/:id/entries`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const { definition, entries } = await platform.metaobjects.listEntries(
-        id,
-        parseListQuery(new URLSearchParams((request as never as { url: string }).url.split('?')[1] ?? '')),
-      );
-      return success(
-        {
-          definition: toDefinitionDto(definition),
-          entries: entries.nodes.map((entry) => toEntryDto(definition, entry)),
-        },
-        { requestId: context.requestId, pagination: entries.pageInfo },
-      );
-    }),
-  );
-
-  app.get(`/${API_VERSION}/content/metaobjects/:id/detail`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const { definition, entry } = await platform.metaobjects.getEntry(id);
-      return success(
-        { definition: toDefinitionDto(definition), entry: toEntryDto(definition, entry) },
-        { requestId: context.requestId },
-      );
-    }),
-  );
-
-  app.post(`/${API_VERSION}/content/metaobjects`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
-      const body = request.body as Record<string, unknown>;
-      const entry = await platform.metaobjects.createEntry({
-        definitionId: String(body.definitionId ?? ''),
-        handle: body.handle === undefined ? undefined : String(body.handle),
-        values: (body.values ?? {}) as Record<string, unknown>,
-      });
-      const definition = await platform.metaobjects.getDefinition(entry.definitionId);
-      return reply
-        .status(201)
-        .send(success(toEntryDto(definition, entry), { requestId: context.requestId }));
-    }),
-  );
-
-  app.patch(`/${API_VERSION}/content/metaobjects/:id`, async (request, reply) =>
-    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as Record<string, unknown>;
-      const entry = await platform.metaobjects.updateEntry(id, Number(body.version ?? -1), {
-        values: body.values as Record<string, unknown> | undefined,
-        status: body.status === 'published' ? 'published' : body.status === 'draft' ? 'draft' : undefined,
-      });
-      const definition = await platform.metaobjects.getDefinition(entry.definitionId);
-      return success(toEntryDto(definition, entry), { requestId: context.requestId });
-    }),
-  );
 
   // --- error shape ----------------------------------------------------------
 
@@ -1284,44 +559,6 @@ async function start(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
-}
-
-/**
- * The module a permission belongs to, from its namespace: `inventory.adjust` →
- * `inventory`. Permission keys are already namespaced by module (§31.4), so the
- * mapping is the convention rather than a second table to keep in step.
- *
- * The two that do not follow their own name are listed explicitly. Silently
- * falling back to the first segment for them would ask the entitlement check
- * about a module that does not exist, and a module that does not exist is not
- * enabled — every catalog write would have been refused.
- */
-const MODULE_BY_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
-  catalog: 'catalog',
-  orders: 'orders',
-  customers: 'customers',
-  inventory: 'inventory',
-  content: 'content',
-  // Store-level administration belongs to Core, not to catalog. Mapping it there
-  // was a stand-in from before Core had a manifest of its own, and it meant
-  // editing a store setting asked whether CATALOG was enabled.
-  store: 'platform',
-  platform: 'platform',
-  auth: 'auth',
-};
-
-function moduleForPermission(permission: string): string {
-  const prefix = permission.split('.')[0] ?? '';
-  return MODULE_BY_PERMISSION_PREFIX[prefix] ?? prefix;
-}
-
-/** Accepts `{ amount: "19.99", currency: "USD" }` and refuses anything else. */
-function parseMoney(value: unknown) {
-  const candidate = value as { amount?: unknown; currency?: unknown } | undefined;
-  if (!candidate || typeof candidate.amount !== 'string' || typeof candidate.currency !== 'string') {
-    throw new ProductInvariantError('price', 'must be { amount: "19.99", currency: "USD" }');
-  }
-  return moneyFromDecimalString(candidate.amount, candidate.currency);
 }
 
 start().catch((error) => {

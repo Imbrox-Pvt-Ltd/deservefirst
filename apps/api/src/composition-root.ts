@@ -28,6 +28,7 @@ import {
   EventBus,
   MemoryCacheStore,
   MemoryTokenBucketStore,
+  type ModuleController,
   ModuleRegistry,
   ModuleStateService,
   MysqlExecutor,
@@ -40,6 +41,11 @@ import {
   guardExecutor,
   type SqlDialect,
 } from './core';
+import { catalogController } from './modules/catalog/api/catalog.controller';
+import { contentController } from './modules/content/api/content.controller';
+import { customersController } from './modules/customers/api/customers.controller';
+import { inventoryController } from './modules/inventory/api/inventory.controller';
+import { ordersController } from './modules/orders/api/orders.controller';
 import { catalogManifest } from './modules/catalog/catalog.manifest';
 import { customersManifest } from './modules/customers/customers.manifest';
 import { CustomerService } from './modules/customers/application';
@@ -99,6 +105,8 @@ export interface Platform {
   readonly metaobjects: MetaobjectService;
   readonly purchaseOrders: PurchaseOrderService;
   readonly transfers: TransferService;
+  /** Each module's HTTP surface, registered by the transport in one loop. */
+  readonly controllers: readonly ModuleController[];
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
 }
@@ -336,6 +344,45 @@ export async function bootstrap(): Promise<Platform> {
     metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
     purchaseOrders: new PurchaseOrderService(purchaseOrders, locations, inventory, purchaseOrderToolkit),
     transfers: new TransferService(transfers, locations, inventory, transferToolkit),
+    // Built here because a controller needs its module's services, and this is
+    // the only place that has them. The transport receives the finished list.
+    controllers: [
+      catalogController({
+        productServiceFor: (storeId) => new ProductService(products, toolkitPorts, storeId as never),
+        collectionServiceFor: (storeId) =>
+          new CollectionService(collections, collectionToolkit, storeId as never),
+      }),
+      customersController({
+        customerServiceFor: (storeId) =>
+          new CustomerService(customerRecords, customerToolkit, storeId as never),
+      }),
+      ordersController({
+        requestServiceFor: (storeId) =>
+          new RequestService(
+            requests,
+            {
+              ...requestToolkit,
+              setting: async (key, fallback) =>
+                ((await settings.get(key, storeId as never)).value as never) ?? fallback,
+            },
+            storeId as never,
+          ),
+      }),
+      inventoryController({
+        inventory,
+        purchaseOrders: new PurchaseOrderService(
+          purchaseOrders,
+          locations,
+          inventory,
+          purchaseOrderToolkit,
+        ),
+        transfers: new TransferService(transfers, locations, inventory, transferToolkit),
+      }),
+      contentController({
+        pages: new PageService(pageRecords, pageToolkit),
+        metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
+      }),
+    ],
     routes,
     shutdown: async () => {
       await pool.end();
