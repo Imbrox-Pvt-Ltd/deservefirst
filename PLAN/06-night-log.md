@@ -100,3 +100,32 @@ Verified against the running server:
 | A made-up token | still the vague message — nothing true to say, and inventing one maps which tokens exist |
 | Merchant's app list | "Stopped by DeserveFirst" + the reason |
 
+### 03:5x — Block D · Per-app rate limits
+
+The token endpoint was limited; the API an app then called was not, so one app
+could exhaust a store's capacity.
+
+**The interesting part is that my first attempt did nothing and looked fine.** I
+put the limit on the module-controller loop, ran 80 concurrent calls, and got 80
+× 200. There are *two* ways into the data — module controllers and the generic
+read surface — and every list endpoint a merchant's data actually lives behind is
+on the other one. A limit covering half the API is not a limit. It is one helper
+called from both paths now, rather than two copies that drift.
+
+Also found: the request context had no app identity. `actorType: 'app'` said an
+app was calling but not which one, so the only handle was the user id an *online*
+token carries — null for offline tokens, meaning every offline app on a store
+would have shared one bucket and one line in the logs. `appId` is on the context
+now.
+
+Verified:
+
+| | result |
+|---|---|
+| 80 concurrent calls from one app | **40 × 200, 40 × 429** — exactly the capacity |
+| the merchant during that burst | `http 200` |
+| the 429 | `retry-after: 1`, `code: rate_limited` |
+
+Per app **and** per store, because an app installed on a thousand stores sharing
+one allowance means the busiest merchant starves the rest.
+

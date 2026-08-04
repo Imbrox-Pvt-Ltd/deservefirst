@@ -176,7 +176,7 @@ export async function seed(root, options = {}) {
     let count = 0;
     for (const [storeId, currency] of [[SEED.storeA, 'USD'], [SEED.storeB, 'INR']]) {
       await withRequestContext(
-        { requestId: 'seed', correlationId: 'seed', actorType: 'system', userId: null, organizationId: SEED.org, businessEntityId: null, storeId, partnerId: null, accessType: 'platform', roleKeys: [], permissions: [], supportSessionId: null, entitlementsHash: null, locale: 'en-US', timeZone: 'UTC', shardKey: null },
+        { requestId: 'seed', correlationId: 'seed', actorType: 'system', userId: null, organizationId: SEED.org, businessEntityId: null, storeId, partnerId: null, appId: null, accessType: 'platform', roleKeys: [], permissions: [], supportSessionId: null, entitlementsHash: null, locale: 'en-US', timeZone: 'UTC', shardKey: null },
         async () => {
           const products = new ProductRepositoryImpl(executor, mysqlDialect);
           for (const [title, handle, price, vendor, type, status, inventory] of PRODUCTS) {

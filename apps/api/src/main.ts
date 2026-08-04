@@ -169,6 +169,7 @@ async function start(): Promise<void> {
       actorType: 'user' as const,
       businessEntityId: null,
       partnerId: null,
+      appId: null,
       accessType: 'member' as const,
       supportSessionId: null,
       entitlementsHash: null,
@@ -211,6 +212,7 @@ async function start(): Promise<void> {
       return {
         ...base,
         actorType: 'app',
+        appId: caller.appId,
         // The store comes from the TOKEN, never from a header. A token issued
         // for one store cannot be pointed at another by changing a request.
         storeId: caller.storeId,
@@ -886,6 +888,29 @@ async function start(): Promise<void> {
    * a backstop that only re-checks what the source already guarantees is not
    * one.
    */
+  /**
+   * An app's request budget, per app AND per store.
+   *
+   * Per store as well as per app because an app installed on a thousand stores
+   * would otherwise share one allowance and the busiest merchant would starve
+   * the rest. A person's requests are not limited here: a merchant clicking
+   * around their own admin is self-limiting, and a runaway integration is what
+   * this exists for.
+   *
+   * A function rather than two copies because there are two ways into the data
+   * — module controllers and the generic read surface — and I put this on the
+   * controller loop alone first. Eighty concurrent calls sailed through, because
+   * every list endpoint a merchant's data actually lives behind is on the other
+   * one. A limit that covers half the API is not a limit.
+   */
+  const enforceAppBudget = async (context: RequestContext, moduleId: string) => {
+    if (context.actorType !== 'app') return;
+    await platform.rateLimiter.enforce(
+      `app:${context.appId}:${moduleId}:${context.storeId}`,
+      { refillPerSecond: 4, capacity: 40 },
+    );
+  };
+
   const platformGuard = async (
     request: { headers: Record<string, unknown>; id: string },
     reply: { status(code: number): { send(body: unknown): unknown } },
@@ -1158,6 +1183,7 @@ async function start(): Promise<void> {
       const context = await guardStore(request as never, reply as never);
       if (!context) return reply;
 
+      await enforceAppBudget(context, binding.moduleId);
       await platform.access.assert({
         context,
         permission: binding.resource.permissions.read,
@@ -1179,6 +1205,7 @@ async function start(): Promise<void> {
       if (!context) return reply;
       const { id } = request.params as { id: string };
 
+      await enforceAppBudget(context, binding.moduleId);
       await platform.access.assert({
         context,
         permission: binding.resource.permissions.read,
@@ -1230,6 +1257,8 @@ async function start(): Promise<void> {
             ),
           );
         }
+
+        await enforceAppBudget(context, moduleController.moduleId);
 
         // Authorisation before anything else runs, and the module is the one
         // that owns the route — so the platform kill switch, the store toggle

@@ -535,6 +535,7 @@ export async function bootstrap(): Promise<Platform> {
         businessEntityId: null,
         storeId: null,
         partnerId: null,
+        appId: null,
         accessType: 'platform',
         roleKeys: [],
         permissions: [],

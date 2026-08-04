@@ -34,6 +34,15 @@ export interface RequestContext {
   readonly businessEntityId: BusinessEntityId | null;
   readonly storeId: StoreId | null;
   readonly partnerId: PartnerId | null;
+  /**
+   * Which app is calling, when one is.
+   *
+   * `actorType: 'app'` says an app is calling; this says WHICH. Without it the
+   * only app identity on the context was the user id an online token carries —
+   * which is null for offline tokens, so every offline app on a store shared one
+   * rate-limit bucket and one line in the logs.
+   */
+  readonly appId: string | null;
 
   readonly accessType: AccessType;
   readonly roleKeys: readonly string[];
