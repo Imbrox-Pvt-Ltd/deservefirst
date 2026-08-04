@@ -20,6 +20,7 @@ import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { writeApiDocument } from '../src/api-docs.mjs';
 import { createMigration, generateMigration, markApplied, migrate, migrateStatus } from '../src/migrate.mjs';
 import { seed } from '../src/seed.mjs';
+import { formatTimestampReport, reportTimestamps } from '../src/timestamps.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -70,6 +71,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('test')}                  Run the test suite
   ${cyan('ci')}                    build + typecheck + check + test, exactly as CI runs it
   ${cyan('db:sync')}               Apply the schema derived from every manifest ${red('(dev only)')}
+  ${cyan('db:timestamps')}         Report rows written before the UTC fix ${dim('(read-only)')}
   ${cyan('migrate')}               Apply pending migrations        [--dry-run]
   ${cyan('migrate:status')}        What has run, and what has not
   ${cyan('migrate:new')} <name>    Write an empty migration to fill in
@@ -278,6 +280,28 @@ switch (command) {
       })
       .catch((error) => {
         console.error(red(`\ndb:sync failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  /**
+   * Reports rows written before the connection was pinned to UTC.
+   *
+   * Read-only, with no flag to make it otherwise. Repairing them means guessing
+   * an offset that nothing recorded, and a tool that can guess wrong on a whole
+   * table should not exist next to one that reports honestly.
+   */
+  case 'db:timestamps': {
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    reportTimestamps(ROOT, urlArg ? { url: urlArg.slice('--url='.length) } : {})
+      .then((report) => {
+        console.log(cyan('\nTimestamp check'));
+        console.log('');
+        console.log(formatTimestampReport(report));
+        console.log('');
+      })
+      .catch((error) => {
+        console.error(red(`\ndb:timestamps failed: ${error.message}`));
         process.exit(1);
       });
     break;
