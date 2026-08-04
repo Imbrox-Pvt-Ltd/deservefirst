@@ -8,7 +8,7 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
-import { customerResource, segmentResource } from './contracts';
+import { companyResource, customerResource, segmentResource } from './contracts';
 
 export const customersManifest: ModuleManifest = {
   id: 'customers',
@@ -39,6 +39,12 @@ export const customersManifest: ModuleManifest = {
 
   entities: [
     {
+      name: 'Company',
+      tableName: 'companies',
+      // No SEO: a buying organisation is never a public page.
+      toolkit: { seo: false },
+    },
+    {
       name: 'Customer',
       tableName: 'customers',
       // No SEO: a shopper is never a public page.
@@ -52,14 +58,18 @@ export const customersManifest: ModuleManifest = {
     },
   ],
 
-  resources: [customerResource, segmentResource],
+  resources: [customerResource, segmentResource, companyResource],
 
   routes: [
     { path: '/store/:handle/customers', screen: 'ListScreen', entity: 'Customer', permission: 'customers.read' },
     { path: '/store/:handle/customers/new', screen: 'CreateScreen', entity: 'Customer', permission: 'customers.manage' },
     { path: '/store/:handle/customers/:id', screen: 'DetailScreen', entity: 'Customer', permission: 'customers.read' },
     { path: '/store/:handle/customers/segments', screen: 'ListScreen', entity: 'Segment', permission: 'customers.read' },
+    { path: '/store/:handle/customers/segments/new', screen: 'CreateScreen', entity: 'Segment', permission: 'customers.manage' },
     { path: '/store/:handle/customers/segments/:id', screen: 'DetailScreen', entity: 'Segment', permission: 'customers.read' },
+    { path: '/store/:handle/companies', screen: 'ListScreen', entity: 'Company', permission: 'customers.read' },
+    { path: '/store/:handle/companies/new', screen: 'CreateScreen', entity: 'Company', permission: 'customers.manage' },
+    { path: '/store/:handle/companies/:id', screen: 'DetailScreen', entity: 'Company', permission: 'customers.read' },
   ],
 
   navigation: [

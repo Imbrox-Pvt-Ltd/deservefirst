@@ -133,19 +133,81 @@ export interface SegmentCondition {
   readonly value: string;
 }
 
+/**
+ * A segment is a stored QUERY, not a stored list of people.
+ *
+ * That is the design decision worth defending. A materialised membership list is
+ * wrong the moment a customer subscribes, changes country or places an order —
+ * and it is wrong SILENTLY, which is worse, because the list still looks like an
+ * answer. Storing the question means the answer is computed when somebody asks,
+ * so a segment can never disagree with the customers it describes.
+ *
+ * The cost is accepted rather than hidden: counting a segment costs a query, and
+ * a large store will want those counts cached (§30.4). Caching a derived number
+ * is a solvable problem; reconciling a stale list is not.
+ */
 export interface Segment {
   readonly id: string;
   readonly name: string;
   readonly match: 'all' | 'any';
   readonly conditions: readonly SegmentCondition[];
+  readonly version: number;
+}
+
+const OPERATOR_TOKENS: Record<SegmentOperator, string> = {
+  equals: ':',
+  notEquals: ':!',
+  greaterThan: ':>',
+  lessThan: ':<',
+};
+
+/**
+ * One condition as a filter token, so a segment runs through the SAME list
+ * engine as a hand-typed filter.
+ *
+ * A segment evaluated by its own private path would eventually disagree with
+ * what the customer list shows for the identical filter, and a merchant would
+ * have no way to tell which of the two was lying.
+ */
+export function conditionToToken(condition: SegmentCondition): string {
+  const operator = OPERATOR_TOKENS[condition.operator];
+  const value = /\s/.test(condition.value) ? `"${condition.value}"` : condition.value;
+  return `${condition.field}${operator}${value}`;
+}
+
+/**
+ * The queries whose union is the segment.
+ *
+ * `all` is one query, because the engine ANDs its tokens. `any` is one query per
+ * condition, unioned by the caller — the engine has no OR, and faking one by
+ * concatenating tokens would quietly return the intersection instead. N indexed
+ * queries for N conditions is a real cost and the right answer; returning the
+ * wrong people quickly is not.
+ */
+export function segmentQueries(segment: Pick<Segment, 'match' | 'conditions'>): readonly string[] {
+  if (segment.match === 'all') return [segment.conditions.map(conditionToToken).join(' ')];
+  return segment.conditions.map(conditionToToken);
 }
 
 const NUMERIC_SEGMENT_FIELDS = new Set<SegmentField>(['ordersCount', 'totalSpent']);
+
+/** Fields a segment may filter on, for the condition builder. */
+export const SEGMENT_FIELD_LABELS: Record<SegmentField, string> = {
+  ordersCount: 'Number of orders',
+  totalSpent: 'Total spent',
+  emailConsent: 'Email subscription',
+  state: 'Account state',
+  countryCode: 'Country',
+  tag: 'Tag',
+};
 
 export function assertSegmentValid(segment: Segment): void {
   if (segment.name.trim().length === 0) {
     throw new CustomerInvariantError('segment', 'needs a name');
   }
+  // A segment with no conditions is every customer, which is the customer list.
+  // Saving that as a "segment" guarantees somebody is later surprised by one
+  // that silently means everyone.
   if (segment.conditions.length === 0) {
     throw new CustomerInvariantError('segment', 'needs at least one condition');
   }

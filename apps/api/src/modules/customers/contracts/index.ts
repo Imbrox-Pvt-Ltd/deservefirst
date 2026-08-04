@@ -75,6 +75,39 @@ export const customerResource: ResourceDefinition = {
   },
 };
 
+export const companyResource: ResourceDefinition = {
+  name: 'Company',
+  entity: 'Company',
+  pluralName: 'Companies',
+  urlSegment: 'companies',
+  aggregateRoot: 'Company',
+  fields: [
+    { name: 'id', type: 'id' },
+    { name: 'name', type: 'string', required: true, filterable: true, sortable: true, searchable: true },
+    // The buyer's own reference for themselves — their vendor number for us.
+    { name: 'externalId', type: 'string', filterable: true, searchable: true },
+    { name: 'status', type: 'enum', values: ['active', 'on-hold', 'closed'], filterable: true, sortable: true },
+    { name: 'note', type: 'text' },
+    // Locations and contacts travel as JSON on the aggregate: they are read and
+    // written as a whole, and the invariants span them, so splitting them into
+    // tables would mean enforcing "exactly one default" across a join.
+    { name: 'locations', type: 'json', visibility: 'internal' },
+    { name: 'contacts', type: 'json', visibility: 'internal' },
+    { name: 'locationCount', type: 'integer', sortable: true },
+    { name: 'contactCount', type: 'integer', sortable: true },
+    { name: 'createdAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'public' },
+  screens: ['list', 'detail', 'create'],
+  columns: [
+    { field: 'name', label: 'Company', defaultVisible: true, position: 0 },
+    { field: 'status', label: 'Status', defaultVisible: true, position: 1 },
+    { field: 'locationCount', label: 'Locations', defaultVisible: true, position: 2 },
+    { field: 'contactCount', label: 'Contacts', defaultVisible: true, position: 3 },
+  ],
+  permissions: { read: 'customers.read', write: 'customers.manage' },
+};
+
 export const segmentResource: ResourceDefinition = {
   name: 'Segment',
   entity: 'Segment',

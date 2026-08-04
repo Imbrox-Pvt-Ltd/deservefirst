@@ -5,3 +5,5 @@
  */
 
 export * from './customer.repository';
+export * from './company.repository';
+export * from './segment.repository';

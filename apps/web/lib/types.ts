@@ -304,3 +304,52 @@ export interface DashboardWidgetDto {
   /** Set when the value could not be produced — the card says so rather than lying. */
   readonly unavailable: string | null;
 }
+
+export interface SegmentConditionDto {
+  readonly field: string;
+  readonly operator: 'equals' | 'notEquals' | 'greaterThan' | 'lessThan';
+  readonly value: string;
+}
+
+export interface SegmentDto {
+  readonly id: string;
+  readonly name: string;
+  readonly match: 'all' | 'any';
+  readonly conditions: readonly SegmentConditionDto[];
+  readonly version: number;
+  /** Computed on read — a segment stores the question, never the answer. */
+  readonly count?: number;
+  readonly capped?: boolean;
+}
+
+export interface CompanyLocationDto {
+  readonly id: string;
+  readonly name: string;
+  readonly addressLine1: string | null;
+  readonly city: string | null;
+  readonly countryCode: string;
+  readonly paymentTerms: 'due-on-receipt' | 'net-15' | 'net-30' | 'net-60' | 'prepaid';
+  /** Exact minor units as a string; money never crosses as a float. */
+  readonly creditLimitMinor: string | null;
+  readonly isDefault: boolean;
+}
+
+export interface CompanyContactDto {
+  readonly id: string;
+  /** A link to the person's own customer record, never a copy of it. */
+  readonly customerId: string;
+  readonly role: 'ordering' | 'viewing' | 'admin';
+  readonly locationIds: readonly string[];
+  readonly isPrimary: boolean;
+}
+
+export interface CompanyDto {
+  readonly id: string;
+  readonly name: string;
+  readonly externalId: string | null;
+  readonly status: 'active' | 'on-hold' | 'closed';
+  readonly note: string | null;
+  readonly locations: readonly CompanyLocationDto[];
+  readonly contacts: readonly CompanyContactDto[];
+  readonly version: number;
+}

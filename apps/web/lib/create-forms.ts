@@ -48,7 +48,8 @@ export interface CreateFormSpec {
 
 export type CreateKind =
   | 'product' | 'collection' | 'customer' | 'request'
-  | 'page' | 'purchase-order' | 'transfer' | 'metaobject-definition';
+  | 'page' | 'purchase-order' | 'transfer' | 'metaobject-definition'
+  | 'segment' | 'company';
 
 const store = (handle: string) => `/store/${handle}`;
 
@@ -183,6 +184,58 @@ export const CREATE_FORMS: Readonly<Record<CreateKind, CreateFormSpec>> = {
         optionsFrom: 'locations',
         distinctFrom: 'originLocationId',
         helpText: 'A transfer needs two different locations.',
+      },
+    ],
+  },
+
+  segment: {
+    title: 'Create segment',
+    submitLabel: 'Save segment',
+    listPath: (h) => `${store(h)}/customers/segments`,
+    detailPath: (h, id) => `${store(h)}/customers/segments/${id}`,
+    fields: [
+      { name: 'name', label: 'Name', required: true, placeholder: 'Subscribed customers' },
+      {
+        name: 'firstCondition',
+        label: 'Customers where',
+        kind: 'select',
+        required: true,
+        options: [
+          { label: 'Subscribed to email', value: 'emailConsent:subscribed' },
+          { label: 'Not subscribed to email', value: 'emailConsent:not-subscribed' },
+          { label: 'Account enabled', value: 'state:enabled' },
+          { label: 'Account disabled', value: 'state:disabled' },
+        ],
+        helpText: 'A segment needs at least one condition. Refine it after saving.',
+      },
+    ],
+  },
+
+  company: {
+    title: 'Add company',
+    submitLabel: 'Save company',
+    listPath: (h) => `${store(h)}/companies`,
+    detailPath: (h, id) => `${store(h)}/companies/${id}`,
+    fields: [
+      { name: 'name', label: 'Company name', required: true, placeholder: 'Northwind Trading' },
+      {
+        name: 'externalId',
+        label: 'Their reference',
+        helpText: 'What this buyer calls themselves — often your vendor number with them.',
+      },
+      {
+        name: 'locationName',
+        label: 'First location',
+        required: true,
+        placeholder: 'Head office',
+        helpText: 'A company needs somewhere to ship and terms to bill on. Add more after saving.',
+      },
+      {
+        name: 'countryCode',
+        label: 'Country',
+        required: true,
+        placeholder: 'GB',
+        helpText: 'Two-letter ISO code.',
       },
     ],
   },

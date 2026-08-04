@@ -1,22 +1,70 @@
-'use client';
-
 /**
  * Web · app/store/[handle]/customers/segments/page.tsx
- * Segments — declared in the navigation, not provided by any module here.
- *
- * This exists as its own file rather than falling through to the store-level
- * catch-all, because the catch-all only sees paths nothing else claims and
- * `/customers/[id]` claims this one. Without it, opening Segments rendered
- * "This customer does not exist in this store" — a section of the admin
- * reported as a missing record, which is both wrong and alarming.
- *
- * Any other unbuilt section nested under a dynamic segment needs the same
- * treatment; a top-level one does not.
+ * Segments — saved questions about customers, not saved lists of them.
  * Layer: web.
  */
 
-import { UnavailableSection } from '@deservefirst/ui';
+import type { Connection, SavedView } from '@deservefirst/contracts';
 
-export default function SegmentsPage() {
-  return <UnavailableSection title="Segments" />;
+import { EntityList } from '../../../../../components/EntityList';
+import { ErrorState } from '../../../../../components/ErrorState';
+import { apiFetch, withSearch } from '../../../../../lib/api';
+import { listQueryFrom } from '../../../../../lib/stores';
+
+const COLUMNS = [
+  { field: 'name', label: 'Segment', defaultVisible: true },
+  { field: 'match', label: 'Matches', defaultVisible: true },
+];
+
+const VIEWS: SavedView[] = [
+  { id: 'all', entity: 'Segment', name: 'All', query: '', sort: null, columns: [], shared: true, position: 0 },
+];
+
+export default async function SegmentsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ handle: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { handle } = await params;
+  const query = listQueryFrom(await searchParams, VIEWS);
+
+  try {
+    const response = await apiFetch<Record<string, unknown>[]>(
+      withSearch('/customers/segments', query),
+    );
+
+    const connection = {
+      nodes: response.data as ({ id: string } & Record<string, unknown>)[],
+      pageInfo: response.meta.pagination ?? {
+        hasNextPage: false,
+        hasPreviousPage: false,
+        startCursor: null,
+        endCursor: null,
+      },
+    } satisfies Connection<{ id: string } & Record<string, unknown>>;
+
+    return (
+      <EntityList
+        title="Segments"
+        handle={handle}
+        urlSegment="customers/segments"
+        resourceName={{ singular: 'segment', plural: 'segments' }}
+        columns={COLUMNS}
+        connection={connection}
+        views={VIEWS}
+        createLabel="Create segment"
+      />
+    );
+  } catch (error) {
+    return (
+      <ErrorState
+        pageTitle="Segments"
+        title="Could not load segments"
+        message={error instanceof Error ? error.message : 'Unknown error'}
+        hint="Is the API running? pnpm --filter @deservefirst/api start"
+      />
+    );
+  }
 }

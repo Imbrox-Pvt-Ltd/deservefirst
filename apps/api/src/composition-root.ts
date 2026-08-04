@@ -61,8 +61,12 @@ import { inventoryController } from './modules/inventory/api/inventory.controlle
 import { ordersController } from './modules/orders/api/orders.controller';
 import { catalogManifest } from './modules/catalog/catalog.manifest';
 import { customersManifest } from './modules/customers/customers.manifest';
-import { CustomerService } from './modules/customers/application';
-import { CustomerRepositoryImpl } from './modules/customers/infrastructure';
+import { CompanyService, CustomerService, SegmentService } from './modules/customers/application';
+import {
+  CustomerRepositoryImpl,
+  SqlCompanyRepository,
+  SqlSegmentRepository,
+} from './modules/customers/infrastructure';
 import { contentManifest } from './modules/content/content.manifest';
 import { MetaobjectService, PageService } from './modules/content/application';
 import {
@@ -283,6 +287,15 @@ export async function bootstrap(): Promise<Platform> {
   });
 
   const customerRecords = new CustomerRepositoryImpl(executor, dialect);
+  const segmentRecords = new SqlSegmentRepository(executor, dialect);
+  const companyRecords = new SqlCompanyRepository(executor, dialect);
+  const companyToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Company',
+    ownerTable: 'companies',
+  });
   const customerToolkit = createToolkitPorts({
     executor,
     events,
@@ -451,6 +464,12 @@ export async function bootstrap(): Promise<Platform> {
       customersController({
         customerServiceFor: (storeId) =>
           new CustomerService(customerRecords, customerToolkit, storeId as never),
+        // The customer REPOSITORY, not the service: a segment answers through
+        // the same listing path the customer screen uses, so the two can never
+        // disagree about the same filter.
+        segmentServiceFor: () =>
+          new SegmentService(segmentRecords, customerRecords, customerToolkit),
+        companyServiceFor: () => new CompanyService(companyRecords, companyToolkit),
       }),
       ordersController({
         requestServiceFor: (storeId) =>

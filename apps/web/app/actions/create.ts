@@ -14,7 +14,9 @@ import { createCollection } from './collections';
 import { createCustomer } from './customers';
 import { createPage, createDefinition } from './content';
 import { createProduct } from './products';
+import { createCompany } from './companies';
 import { createPurchaseOrder, createTransfer } from './inventory';
+import { createSegment } from './segments';
 import { createRequest } from './requests';
 import { toFieldKey, type CreateKind } from '../../lib/create-forms';
 
@@ -97,6 +99,29 @@ export async function createRecord(
         originLocationId: text('originLocationId'),
         destinationLocationId: text('destinationLocationId'),
         lines: [],
+      });
+      return { ok: result.ok, id: result.data?.id, error: result.error };
+    }
+
+    case 'segment': {
+      // The picker carries "field:value"; splitting it here keeps the form a
+      // single choice rather than three coupled selects on a create screen.
+      const [field, value] = (text('firstCondition') || 'emailConsent:subscribed').split(':');
+      const result = await createSegment(handle, {
+        name: text('name'),
+        conditions: [{ field: field!, operator: 'equals', value: value ?? '' }],
+      });
+      return { ok: result.ok, id: result.data?.id, error: result.error };
+    }
+
+    case 'company': {
+      const result = await createCompany(handle, {
+        name: text('name'),
+        externalId: optional(values, 'externalId'),
+        location: {
+          name: text('locationName') || 'Head office',
+          countryCode: (text('countryCode') || 'US').toUpperCase(),
+        },
       });
       return { ok: result.ok, id: result.data?.id, error: result.error };
     }

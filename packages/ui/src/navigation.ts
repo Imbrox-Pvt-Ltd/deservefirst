@@ -93,13 +93,13 @@ export function coreNavigation(handle: string): NavSection[] {
           permission: 'customers.read',
           icon: 'customers',
           children: [
-            soon({
+            {
               id: 'segments',
               label: 'Segments',
               path: storePaths.customerSegments(handle),
               permission: 'customers.read',
-            }),
-            soon({ id: 'companies', label: 'Companies', path: storePaths.companies(handle), permission: 'customers.read' }),
+            },
+            { id: 'companies', label: 'Companies', path: storePaths.companies(handle), permission: 'customers.read' },
           ],
         },
         { id: 'growth', label: 'Growth', path: storePaths.growth(handle), permission: 'store.read', icon: 'growth' },
