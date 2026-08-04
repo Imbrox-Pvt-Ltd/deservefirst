@@ -1,0 +1,3 @@
+/* Design-system stylesheet, re-exported so screens import it from
+   @deservefirst/ui rather than the vendor package (§8.1). */
+@import '@shopify/polaris/build/esm/styles.css';

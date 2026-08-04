@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { formatReport, runFitness } from '../../fitness/src/index.mjs';
 import { listModules } from '../../fitness/src/structure.mjs';
 import { dbSync } from '../src/db-sync.mjs';
+import { seed } from '../src/seed.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -44,6 +45,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('test')}                  Run the test suite
   ${cyan('ci')}                    build + typecheck + check + test, exactly as CI runs it
   ${cyan('db:sync')}               Apply the schema derived from every manifest (dev only)
+  ${cyan('seed')}                  Seed deterministic development data
   ${cyan('routes')}                Print the composed route registry
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
@@ -145,7 +147,7 @@ function testSuite() {
  * have no tsconfig by design.
  */
 function typecheck() {
-  const projects = ['packages/contracts', 'packages/config', 'apps/api'].filter((project) =>
+  const projects = ['packages/contracts', 'packages/config', 'packages/ui', 'apps/api', 'apps/web'].filter((project) =>
     existsSync(join(ROOT, project, 'tsconfig.json')),
   );
   console.log(`\n${cyan('typecheck')}`);
@@ -219,6 +221,17 @@ switch (command) {
       });
     break;
   }
+  case 'seed':
+    seed(ROOT)
+      .then((result) => {
+        console.log(green('\nSeeded:'));
+        for (const [key, value] of Object.entries(result)) console.log(dim(`  ${value} ${key}`));
+      })
+      .catch((error) => {
+        console.error(red(`\nseed failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
   case undefined:
   case '--help':
   case '-h':

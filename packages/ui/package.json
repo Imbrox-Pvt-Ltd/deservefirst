@@ -21,5 +21,13 @@
     "@types/react": "^19.0.0",
     "react": "^19.0.0",
     "typescript": "^5.7.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./styles.css": "./styles.css",
+    "./locales/en.json": "./locales/en.json"
   }
 }

@@ -6,6 +6,7 @@
  * Layer: ui.
  */
 
+export * from './primitives';
 export * from './navigation';
 export * from './theme/tokens';
 export * from './templates/use-list-state';

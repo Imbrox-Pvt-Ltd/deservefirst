@@ -361,3 +361,48 @@ describe('MySQL integration', { concurrency: 1 }, () => {
     assert.ok(stores.has(STORE_A) && stores.has(STORE_B), 'expected the unguarded query to cross tenants');
   });
 });
+
+// --- guard against realistic, quoted SQL ------------------------------------
+
+test('the guard recognises quoted identifiers in both dialects', async (t) => {
+  if (!available) return t.skip('no database');
+
+  const guard = new QueryGuard({ storeScopedTables: ['products'], enforce: true });
+
+  // The compiler emits quoted identifiers; an earlier version of the predicate
+  // check matched neither dialect and refused correct queries.
+  assert.doesNotThrow(() => guard.assertScoped('SELECT `id` FROM `products` WHERE `store_id` = ?'));
+  assert.doesNotThrow(() => guard.assertScoped('SELECT "id" FROM "products" WHERE "store_id" = $1'));
+  assert.doesNotThrow(() => guard.assertScoped('SELECT id FROM products WHERE store_id IN (?, ?)'));
+  assert.doesNotThrow(() =>
+    guard.assertScoped('INSERT INTO `products` (`id`, `store_id`, `title`) VALUES (?, ?, ?)'),
+  );
+
+  // And still refuses what it should.
+  assert.throws(() => guard.assertScoped('SELECT `id` FROM `products`'), UnscopedQueryError);
+  assert.throws(
+    () => guard.assertScoped('SELECT `id` FROM `products` WHERE `title` = ?'),
+    UnscopedQueryError,
+  );
+  // store_id mentioned only in the projection is not a predicate.
+  assert.throws(
+    () => guard.assertScoped('SELECT `store_id` FROM `products` WHERE `title` = ?'),
+    UnscopedQueryError,
+  );
+});
+
+test('the guard passes the exact SQL the list compiler emits', async (t) => {
+  if (!available) return t.skip('no database');
+
+  const { compileListQuery } = await import('../dist/core/list-engine/index.js');
+  const compiled = compileListQuery({
+    resource: productResource,
+    tableName: 'products',
+    storeId: 'store-1',
+    query: parseListQuery(new URLSearchParams('query=vendor%3Aacme&order=title+asc')),
+    dialect: mysqlDialect,
+  });
+
+  const guard = new QueryGuard({ storeScopedTables: ['products'], enforce: true });
+  assert.doesNotThrow(() => guard.assertScoped(compiled.sql));
+});

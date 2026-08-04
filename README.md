@@ -8,6 +8,20 @@ agent can build module N without re-deciding foundations.
 
 ```bash
 pnpm install
+cp .env.example .env             # MySQL/MariaDB for now — see docs/adr/0002
+
+pnpm platform db:sync            # create the schema from every module manifest
+pnpm platform seed               # one org, two legal entities, two stores, products
+
+pnpm --filter @deservefirst/api run build && pnpm --filter @deservefirst/api start
+pnpm --filter @deservefirst/web dev          # http://localhost:3000
+```
+
+Then open <http://localhost:3000>, pick a store, and go to Products. Switching
+between Acme US and Acme India shows the same product handles with different
+currencies and no shared rows — the tenant boundary, visible.
+
+```bash
 pnpm check                       # the fitness suite — what blocks a merge
 pnpm ci                          # build · typecheck · fitness · test, exactly as CI runs
 pnpm platform module:new <name>  # scaffold a module to the Standard
@@ -22,7 +36,7 @@ apps/api                 the modular monolith (NestJS)
                          event bus, cache, rate limit, adapters, observability
   src/auth/              identity
   src/modules/<name>/    product modules — all identical shape
-apps/web                 admin (Next.js + Polaris)
+apps/web                 admin (Next.js App Router)
 packages/contracts       cross-module types, the module manifest, the URL map
 packages/config          branding tokens and platform config
 packages/ui              design system: Polaris + the four screen templates
@@ -53,6 +67,8 @@ sensitive parameter in a URL schema. A rule a test enforces beats a rule in a do
 | what already exists elsewhere | `PLAN/02-imbrox-reuse-assessment.md` |
 | what order to build in | `PLAN/03-master-build-plan.md` |
 | why the stack is what it is | `docs/adr/0001-foundation-decisions.md` |
+| why MySQL, and what it costs | `docs/adr/0002-mysql-interim-database.md` |
+| why not NestJS | `docs/adr/0003-fastify-transport-without-nest.md` |
 
 ## Naming
 

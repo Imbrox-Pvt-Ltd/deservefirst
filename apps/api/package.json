@@ -5,14 +5,16 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node --watch dist/main.js",
-    "clean": "rm -rf dist"
+    "dev": "node --env-file=../../.env --watch dist/main.js",
+    "clean": "rm -rf dist",
+    "start": "node --env-file=../../.env dist/main.js"
   },
   "dependencies": {
     "@deservefirst/config": "workspace:*",
     "@deservefirst/contracts": "workspace:*",
     "typeorm": "^0.3.24",
-    "mysql2": "^3.11.0"
+    "mysql2": "^3.11.0",
+    "fastify": "^5.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -9,7 +9,7 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
-import { productResource } from './contracts';
+import { productResource, productVariantResource } from './contracts';
 
 export const catalogManifest: ModuleManifest = {
   id: 'catalog',
@@ -46,9 +46,15 @@ export const catalogManifest: ModuleManifest = {
       translatableFields: ['title', 'description', 'handle'],
       moneyFields: ['price', 'compareAtPrice', 'costPerItem'],
     },
+    {
+      name: 'ProductVariant',
+      tableName: 'product_variants',
+      toolkit: { metaobjects: false, savedViews: false, seo: false, importExport: false },
+      moneyFields: ['price', 'compareAtPrice'],
+    },
   ],
 
-  resources: [productResource],
+  resources: [productResource, productVariantResource],
 
   routes: [
     { path: '/store/:handle/products', screen: 'ListScreen', entity: 'Product', permission: 'catalog.read' },

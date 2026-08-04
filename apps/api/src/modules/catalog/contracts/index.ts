@@ -93,3 +93,32 @@ export const productResource: ResourceDefinition = {
     delete: 'catalog.write',
   },
 };
+
+/**
+ * Variants are a child of the Product aggregate: loaded, saved and authorised
+ * through the root (§14.3). They get their own table and drawer route, but never
+ * their own top-level list — reaching a variant without its product would break
+ * the aggregate boundary.
+ */
+export const productVariantResource: ResourceDefinition = {
+  name: 'ProductVariant',
+  entity: 'ProductVariant',
+  pluralName: 'ProductVariants',
+  urlSegment: 'variants',
+  aggregateRoot: 'Product',
+  fields: [
+    { name: 'id', type: 'id' },
+    { name: 'productId', type: 'reference', references: 'Product', indexed: true, filterable: true },
+    { name: 'sku', type: 'string', filterable: true, searchable: true, indexed: true },
+    { name: 'optionValues', type: 'json' },
+    { name: 'price', type: 'money', filterable: true, sortable: true },
+    { name: 'compareAtPrice', type: 'money' },
+    { name: 'inventoryQuantity', type: 'integer', filterable: true, sortable: true },
+    { name: 'position', type: 'integer', sortable: true },
+    { name: 'createdAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'public' },
+  // No list screen: a variant is only ever reached through its product.
+  screens: ['detail'],
+  permissions: { read: 'catalog.read', write: 'catalog.write' },
+};

@@ -31,7 +31,11 @@ export const fileHeaders = {
     const violations = [];
     for (const source of sources) {
       if (source.exemptFromHeader) continue;
-      if (!/^\s*\/\*\*/.test(source.text)) {
+      // A directive prologue ('use client', 'use server') must be the first
+      // statement in the file, so the header comment follows it rather than
+      // preceding it. Skip past any directives before looking for the header.
+      const body = source.text.replace(/^\s*(['"])use (client|server)\1;?\s*/g, '');
+      if (!/^\s*\/\*\*/.test(body)) {
         violations.push(
           violation(source.relativePath, 1, 'file-headers', 'file does not open with a /** header comment'),
         );
@@ -39,8 +43,8 @@ export const fileHeaders = {
       }
       // Read the whole leading block, not a fixed prefix — headers legitimately
       // vary in length, and truncating produced false failures.
-      const end = source.text.indexOf('*/');
-      const head = end === -1 ? source.text : source.text.slice(0, end);
+      const end = body.indexOf('*/');
+      const head = end === -1 ? body : body.slice(0, end);
       if (!/Layer:/i.test(head)) {
         violations.push(
           violation(source.relativePath, 1, 'file-headers', 'header comment does not state its Layer'),

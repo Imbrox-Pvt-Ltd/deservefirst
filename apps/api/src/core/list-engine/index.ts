@@ -5,6 +5,7 @@
  * Layer: core.
  */
 
+export * from './dialect';
 export * from './cursor';
 export * from './query-compiler';
 export * from './list-engine';

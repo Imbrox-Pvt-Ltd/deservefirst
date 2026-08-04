@@ -36,7 +36,7 @@ export class UnscopedQueryError extends Error {
 /** Statements that only ever touch platform-owned data. */
 const PLATFORM_STATEMENT = /^\s*(SET|SHOW|BEGIN|COMMIT|ROLLBACK|EXPLAIN|SELECT\s+1\b|SELECT\s+VERSION|SELECT\s+DATABASE)/i;
 
-const TABLE_REFERENCE = /\b(?:FROM|JOIN|UPDATE|INTO)\s+[`"]?([a-z_][a-z0-9_]*)[`"]?/gi;
+const TABLE_REFERENCE = /\b(?:FROM|JOIN|UPDATE|INTO)\s+([a-z_][a-z0-9_]*)/gi;
 
 export interface QueryGuardOptions {
   /** Tables that carry `store_id`, collected from the module registry. */
@@ -81,7 +81,7 @@ export class QueryGuard {
 
   private storeScopedTablesIn(sql: string): string[] {
     const found: string[] = [];
-    for (const match of sql.matchAll(TABLE_REFERENCE)) {
+    for (const match of sql.replace(/[`"\[\]]/g, '').matchAll(TABLE_REFERENCE)) {
       const table = match[1]?.toLowerCase();
       if (table && this.scoped.has(table)) found.push(table);
     }
@@ -91,15 +91,24 @@ export class QueryGuard {
   /**
    * Looks for `store_id` used as a constraint. INSERT is treated as scoped when
    * the column list names `store_id`, since that is how the value is supplied.
+   *
+   * Identifiers are stripped of quoting first. The compiler emits `` `store_id` ``
+   * on MySQL and `"store_id"` on Postgres, and an earlier version of this check
+   * matched neither — it refused a correctly scoped query. Failing closed made
+   * that a loud 500 rather than a silent leak, which is the behaviour we want,
+   * but the pattern still has to be right.
    */
   private hasStorePredicate(sql: string): boolean {
-    if (/^\s*INSERT\b/i.test(sql)) {
-      return /\bstore_id\b/i.test(sql.slice(0, sql.indexOf('VALUES') === -1 ? sql.length : sql.indexOf('VALUES')));
+    const unquoted = sql.replace(/[`"\[\]]/g, '');
+
+    if (/^\s*INSERT\b/i.test(unquoted)) {
+      const valuesAt = unquoted.search(/\bVALUES\b/i);
+      return /\bstore_id\b/i.test(valuesAt === -1 ? unquoted : unquoted.slice(0, valuesAt));
     }
 
-    const whereIndex = sql.search(/\bWHERE\b/i);
+    const whereIndex = unquoted.search(/\bWHERE\b/i);
     if (whereIndex === -1) return false;
-    return /\bstore_id\b\s*(=|IN\b)/i.test(sql.slice(whereIndex));
+    return /\bstore_id\b\s*(=|IN\b)/i.test(unquoted.slice(whereIndex));
   }
 }
 

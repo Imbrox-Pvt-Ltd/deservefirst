@@ -116,7 +116,8 @@ test('routes and navigation compose into the registry without collision', () => 
     assert.ok(declared.has(entry.item.permission), `undeclared permission ${entry.item.permission}`);
   }
 
-  assert.deepEqual(registry.storeScopedTables(), ['products']);
+  // Both catalog entities are store-scoped; variants gained a table in Phase 3.
+  assert.deepEqual(registry.storeScopedTables(), ['products', 'product_variants']);
 });
 
 test('settings contribute into a shared group rather than a new page', () => {
