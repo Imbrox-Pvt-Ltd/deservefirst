@@ -86,8 +86,12 @@ export function classify(relativePath) {
   if (coreMatch) {
     return { kind: 'core', module: 'core', layer: coreMatch[1] };
   }
-  if (relativePath.startsWith('apps/api/src/auth/')) {
-    return { kind: 'core', module: 'auth', layer: 'auth' };
+  // Auth is a first-class sibling of core (§3), but it is layered like a module,
+  // so the layer law must apply to it as well — it is the most security-sensitive
+  // code on the platform and the least appropriate place to relax the rule.
+  const authMatch = /^apps\/api\/src\/auth\/([^/]+)/.exec(relativePath);
+  if (authMatch) {
+    return { kind: 'module', module: 'auth', layer: authMatch[1] };
   }
   return null;
 }

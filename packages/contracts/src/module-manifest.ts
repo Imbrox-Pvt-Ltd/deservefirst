@@ -7,7 +7,7 @@
  * Layer: contracts (pure types, no framework).
  */
 
-import type { ResourceDefinition } from './resource';
+import type { FieldDefinition, ResourceDefinition } from './resource';
 
 /** Semantic version string, e.g. "1.0.0". */
 export type SemVer = string;
@@ -161,6 +161,13 @@ export interface UsageFeatureDeclaration {
 export interface EntityDeclaration {
   readonly name: string;
   readonly tableName: string;
+  /**
+   * Which boundary owns this entity's rows. Defaults to `store` — the canonical
+   * tenant boundary. Identity tables are the exception: a User is global and an
+   * Organization spans stores, so forcing a store_id onto them would be a lie
+   * the isolation checks would then try to enforce.
+   */
+  readonly scope?: 'store' | 'organization' | 'platform';
   /** Entity Toolkit opt-ins (§12.1); everything defaults on unless disabled. */
   readonly toolkit?: {
     readonly metafields?: boolean;
@@ -176,6 +183,12 @@ export interface EntityDeclaration {
   };
   readonly translatableFields?: readonly string[];
   readonly moneyFields?: readonly string[];
+  /**
+   * Columns for an entity with no admin resource — sessions, memberships and
+   * the like. Entities that DO have a resource take their columns from it, so
+   * there is still exactly one declaration per entity.
+   */
+  readonly fields?: readonly FieldDefinition[];
 }
 
 /**

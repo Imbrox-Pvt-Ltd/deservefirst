@@ -74,17 +74,33 @@ function moneyColumns(dialect: SqlDialect, fieldName: string): ColumnSpec[] {
 /** Re-exported for callers that only need the naming convention. */
 export const snake = snakeCase;
 
-/** The columns every store-owned row carries (§12.1). */
-export function baseColumns(dialect: SqlDialect, softDelete: boolean): ColumnSpec[] {
+/** The columns every row carries, plus the boundary column for its scope (§12.1). */
+export function baseColumns(
+  dialect: SqlDialect,
+  softDelete: boolean,
+  scope: 'store' | 'organization' | 'platform' = 'store',
+): ColumnSpec[] {
   const timestamp = dialect.name === 'mysql' ? 'DATETIME(3)' : 'TIMESTAMPTZ';
+  const identifier = dialect.name === 'mysql' ? 'VARCHAR(64)' : 'TEXT';
   const columns: ColumnSpec[] = [
-    { name: 'id', type: dialect.name === 'mysql' ? 'VARCHAR(64)' : 'TEXT', nullable: false },
-    { name: 'store_id', type: dialect.name === 'mysql' ? 'VARCHAR(64)' : 'TEXT', nullable: false },
+    { name: 'id', type: identifier, nullable: false },
+  ];
+
+  // The boundary column is the scope. A platform-scoped table has none, and
+  // pretending otherwise would make the isolation guard enforce a fiction.
+  if (scope === 'store') {
+    columns.push({ name: 'store_id', type: identifier, nullable: false });
+  } else if (scope === 'organization') {
+    columns.push({ name: 'organization_id', type: identifier, nullable: false });
+  }
+
+  columns.push(
     { name: 'handle', type: dialect.name === 'mysql' ? 'VARCHAR(255)' : 'TEXT', nullable: true },
     { name: 'created_at', type: timestamp, nullable: false, defaultValue: 'CURRENT_TIMESTAMP(3)' },
     { name: 'updated_at', type: timestamp, nullable: false, defaultValue: 'CURRENT_TIMESTAMP(3)' },
     { name: 'version', type: dialect.name === 'mysql' ? 'INT' : 'INTEGER', nullable: false, defaultValue: '1' },
-  ];
+  );
+
   if (softDelete) {
     columns.push({ name: 'deleted_at', type: timestamp, nullable: true });
   }
@@ -119,7 +135,8 @@ export function buildEntityDdl(
   });
 
   // createdAt / updatedAt are base columns; drop any duplicate declaration.
-  const base = baseColumns(dialect, toolkit.softDelete);
+  const scope = entity.scope ?? 'store';
+  const base = baseColumns(dialect, toolkit.softDelete, scope);
   const baseNames = new Set(base.map((column) => column.name));
   const columns = [...base, ...declared.filter((column) => !baseNames.has(column.name))];
 
@@ -143,20 +160,28 @@ export function buildEntityDdl(
 
   // Every store-scoped table gets its tenant index whether the author remembered
   // or not — a missing one degrades every tenant on the shard, not just this one.
-  const indexes = [
-    {
-      name: `idx_${entity.tableName}_store`,
-      sql: `CREATE INDEX idx_${entity.tableName}_store ON ${quote(entity.tableName)} (${quote('store_id')})`,
-    },
-    {
-      name: `idx_${entity.tableName}_store_created`,
-      sql: `CREATE INDEX idx_${entity.tableName}_store_created ON ${quote(entity.tableName)} (${quote('store_id')}, ${quote('created_at')}, ${quote('id')})`,
-    },
-    {
-      name: `uq_${entity.tableName}_store_handle`,
-      sql: `CREATE UNIQUE INDEX uq_${entity.tableName}_store_handle ON ${quote(entity.tableName)} (${quote('store_id')}, ${quote('handle')})`,
-    },
-  ];
+  const boundary = scope === 'store' ? 'store_id' : scope === 'organization' ? 'organization_id' : null;
+  const indexes = boundary
+    ? [
+        {
+          name: `idx_${entity.tableName}_scope`,
+          sql: `CREATE INDEX idx_${entity.tableName}_scope ON ${quote(entity.tableName)} (${quote(boundary)})`,
+        },
+        {
+          name: `idx_${entity.tableName}_scope_created`,
+          sql: `CREATE INDEX idx_${entity.tableName}_scope_created ON ${quote(entity.tableName)} (${quote(boundary)}, ${quote('created_at')}, ${quote('id')})`,
+        },
+        {
+          name: `uq_${entity.tableName}_scope_handle`,
+          sql: `CREATE UNIQUE INDEX uq_${entity.tableName}_scope_handle ON ${quote(entity.tableName)} (${quote(boundary)}, ${quote('handle')})`,
+        },
+      ]
+    : [
+        {
+          name: `uq_${entity.tableName}_handle`,
+          sql: `CREATE UNIQUE INDEX uq_${entity.tableName}_handle ON ${quote(entity.tableName)} (${quote('handle')})`,
+        },
+      ];
 
   return { table: entity.tableName, createTable, indexes };
 }

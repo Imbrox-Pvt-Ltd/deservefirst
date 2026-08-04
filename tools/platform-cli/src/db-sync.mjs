@@ -16,6 +16,20 @@ import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 
+/** A resource-shaped wrapper around an entity that declares its own fields. */
+function syntheticResource(entity) {
+  return {
+    name: entity.name,
+    entity: entity.name,
+    pluralName: `${entity.name}s`,
+    urlSegment: entity.tableName,
+    fields: entity.fields ?? [],
+    api: { graphql: false, rest: false, visibility: 'internal' },
+    screens: [],
+    permissions: { read: 'internal', write: 'internal' },
+  };
+}
+
 export async function dbSync(root, options = {}) {
   const distCore = join(root, 'apps/api/dist/core');
   if (!existsSync(distCore)) {
@@ -35,6 +49,16 @@ export async function dbSync(root, options = {}) {
   // Discover manifests from the built module tree — the same source the runtime
   // reads, so the schema cannot drift from what the platform loads.
   const manifests = [];
+
+  // Auth is a first-class sibling of modules/ (§3), so it is discovered
+  // explicitly rather than by scanning the module tree.
+  const authManifestPath = join(root, 'apps/api/dist/auth/auth.manifest.js');
+  if (existsSync(authManifestPath)) {
+    const loaded = require(authManifestPath);
+    const manifest = loaded.default ?? loaded.authManifest;
+    if (manifest) manifests.push(manifest);
+  }
+
   const modulesDir = join(root, 'apps/api/dist/modules');
   if (existsSync(modulesDir)) {
     const { readdirSync } = await import('node:fs');
@@ -51,8 +75,12 @@ export async function dbSync(root, options = {}) {
   const statements = [];
   for (const manifest of manifests) {
     for (const entity of manifest.entities ?? []) {
-      const resource = (manifest.resources ?? []).find((item) => item.entity === entity.name);
-      if (!resource) continue;
+      // An entity with an admin resource takes its columns from it; one without
+      // declares them itself. Skipping the latter silently left sessions,
+      // memberships and roles with no table at all.
+      const resource =
+        (manifest.resources ?? []).find((item) => item.entity === entity.name) ??
+        syntheticResource(entity);
 
       const main = buildEntityDdl(dialect, entity, resource);
       statements.push(main);

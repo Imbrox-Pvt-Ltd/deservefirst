@@ -24,6 +24,9 @@ const TEST_GLOBS = [
   'packages/**/tests/**/*.test.mjs',
   'apps/api/tests/**/*.test.mjs',
   'apps/api/src/modules/**/tests/**/*.test.mjs',
+  // auth is a sibling of modules/, not inside it — omitting this silently
+  // excluded the platform's most security-critical tests from CI.
+  'apps/api/src/auth/tests/**/*.test.mjs',
 ];
 
 const cyan = (text) => `[36m${text}[0m`;

@@ -201,10 +201,17 @@ export class ModuleRegistry {
     return this.collect((manifest) => manifest.resources);
   }
 
-  /** Every store-scoped table, for the isolation check to validate at startup. */
+  /**
+   * Every STORE-scoped table, for the isolation check and the query guard.
+   * Organization- and platform-scoped tables are deliberately excluded: making
+   * the guard demand a store predicate on the users table would break every
+   * login.
+   */
   storeScopedTables(): readonly string[] {
     return this.enabled().flatMap((entry) =>
-      (entry.manifest.entities ?? []).map((entity) => entity.tableName),
+      (entry.manifest.entities ?? [])
+        .filter((entity) => (entity.scope ?? 'store') === 'store')
+        .map((entity) => entity.tableName),
     );
   }
 
