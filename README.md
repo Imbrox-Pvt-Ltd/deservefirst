@@ -31,7 +31,7 @@ pnpm platform doctor <name>      # validate one module
 ## Layout
 
 ```
-apps/api                 the modular monolith (NestJS)
+apps/api                 the modular monolith (Fastify — see ADR 0003)
   src/core/              the kernel: tenant context, registry, entitlements,
                          event bus, cache, rate limit, adapters, observability
   src/auth/              identity
@@ -39,7 +39,7 @@ apps/api                 the modular monolith (NestJS)
 apps/web                 admin (Next.js App Router)
 packages/contracts       cross-module types, the module manifest, the URL map
 packages/config          branding tokens and platform config
-packages/ui              design system: Polaris + the four screen templates
+packages/ui              design system: primitives, theme, four screen templates
 tools/platform-cli       the `platform` command
 tools/fitness            the fitness functions
 ```
