@@ -433,9 +433,11 @@ async function start(): Promise<void> {
     const { partnerId } = request.params as { partnerId: string };
     const links = await platform.partners.stores(partnerId as PartnerId, context.userId as UserId);
     return success(
-      links.map((link) => ({
+      links.map(({ link, storeName, storeHandle }) => ({
         id: link.id,
         storeId: link.storeId,
+        storeName,
+        storeHandle,
         status: link.status,
         accessLevel: link.accessLevel,
         permissions: link.permissions,

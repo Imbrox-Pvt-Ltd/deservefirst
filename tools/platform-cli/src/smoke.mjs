@@ -172,6 +172,30 @@ async function chooseStore(apiUrl, cookie, storeId) {
   if (body.errors?.length) throw new Error(`could not open the store: ${body.errors[0].detail}`);
 }
 
+/**
+ * The partner screens this person can actually open.
+ *
+ * Read from the API rather than guessed, because a partner id is a uuid: there
+ * is no manifest to walk and inventing one would test a redirect, not a screen.
+ */
+async function partnerDestinations(apiUrl, cookie) {
+  const paths = ['/partners'];
+  try {
+    const response = await fetch(`${apiUrl}/2026-01/partners`, { headers: { cookie } });
+    const body = await response.json();
+    for (const partner of body.data ?? []) {
+      paths.push(`/partners/${partner.id}`);
+      paths.push(`/partners/${partner.id}/stores`);
+      // Only an owner is shown Team, and only an owner may open it.
+      if (partner.role === 'owner') paths.push(`/partners/${partner.id}/team`);
+    }
+  } catch {
+    // The partner surface being unreachable is itself worth reporting, but the
+    // picker is walked either way and will fail loudly if the app is down.
+  }
+  return paths;
+}
+
 export async function smoke(rootDir, options = {}) {
   // 3000 because that is the port `apps/web` actually serves — see its dev and
   // start scripts. This defaulted to 4100, which nothing has ever listened on,
@@ -187,7 +211,14 @@ export async function smoke(rootDir, options = {}) {
   );
   await chooseStore(apiUrl, cookie, options.storeId ?? 'seed-store-us');
 
-  const destinations = navigationDestinations(rootDir, handle);
+  const destinations = [
+    ...navigationDestinations(rootDir, handle),
+    // The partner surface is not a store, so it is not in the store navigation
+    // and was walked by nothing. Its ids are data rather than manifest, so they
+    // are resolved against the signed-in person's own partner accounts; when
+    // they have none, only the picker is walked and that is the honest answer.
+    ...(await partnerDestinations(apiUrl, cookie)),
+  ];
   if (destinations.length === 0) {
     throw new Error('No navigation found — build first (`pnpm -r build`).');
   }

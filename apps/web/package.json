@@ -6,7 +6,8 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
-    "clean": "rm -rf .next"
+    "clean": "rm -rf .next",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@deservefirst/config": "workspace:*",

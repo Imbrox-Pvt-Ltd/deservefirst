@@ -253,14 +253,31 @@ export class SqlPartnerRepository {
 
   // --- links to client stores ------------------------------------------------
 
-  async linksFor(partnerId: PartnerId): Promise<readonly PartnerStoreLink[]> {
-    const rows = await this.executor.query<LinkRow>(
-      `SELECT * FROM ${this.q('partner_store_links')}
-        WHERE ${this.q('partner_id')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
-        ORDER BY ${this.q('requested_at')} DESC`,
+  /**
+   * This partner's client stores, with each store's name and handle.
+   *
+   * Joined rather than left to the caller to look up: a partner dashboard
+   * listing eleven opaque store ids is not a dashboard, and resolving them one
+   * at a time is the N+1 that turns a page into a page load.
+   */
+  async linksFor(
+    partnerId: PartnerId,
+  ): Promise<readonly { link: PartnerStoreLink; storeName: string | null; storeHandle: string | null }[]> {
+    const rows = await this.executor.query<LinkRow & { store_name: string | null; store_handle: string | null }>(
+      `SELECT l.*, s.${this.q('name')} AS store_name, s.${this.q('handle')} AS store_handle
+         FROM ${this.q('partner_store_links')} l
+         LEFT JOIN ${this.q('stores')} s ON s.${this.q('id')} = l.${this.q('store_id')}
+        WHERE l.${this.q('partner_id')} = ${this.p(1)} AND l.${this.q('deleted_at')} IS NULL
+        ORDER BY l.${this.q('requested_at')} DESC`,
       [partnerId],
     );
-    return rows.map(toLink);
+    return rows.map((row: LinkRow & { store_name: string | null; store_handle: string | null }) => ({
+      link: toLink(row),
+      // Null when the store was deleted out from under the link — shown as
+      // "no longer exists" rather than crashing the list.
+      storeName: row.store_name,
+      storeHandle: row.store_handle,
+    }));
   }
 
   /** The partners asking for, or holding, access to one store. */

@@ -400,3 +400,32 @@ export interface PartnerAccessDto {
   readonly decidedAt: string | null;
   readonly revokedReason: string | null;
 }
+
+export interface PartnerSummaryDto {
+  readonly id: string;
+  readonly name: string;
+  readonly status: 'active' | 'suspended' | 'closed';
+  readonly role: 'owner' | 'admin' | 'member';
+}
+
+export interface PartnerStoreDto {
+  readonly id: string;
+  readonly storeId: string;
+  /** Null when the store has been deleted out from under the link. */
+  readonly storeName: string | null;
+  readonly storeHandle: string | null;
+  readonly status: 'pending' | 'active' | 'revoked';
+  readonly accessLevel: 'full' | 'limited';
+  readonly permissions: readonly string[];
+  readonly createdByPartner: boolean;
+  readonly requestedAt: string;
+  readonly decidedAt: string | null;
+  readonly revokedReason: string | null;
+}
+
+export interface PartnerStaffDto {
+  readonly id: string;
+  readonly userId: string;
+  readonly role: 'owner' | 'admin' | 'member';
+  readonly status: 'active' | 'invited' | 'removed';
+}

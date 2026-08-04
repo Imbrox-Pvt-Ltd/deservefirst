@@ -58,6 +58,87 @@ function resolveRelative(fromRelativePath, specifier, byPath) {
  * error. It is distinguished here by the only signal available without running
  * the code: components are capitalised and functions are not.
  */
+/**
+ * Polaris components need React context, which a server component cannot supply.
+ *
+ * Read out of `packages/ui/src/primitives.ts` rather than listed here, so the
+ * set stays exactly what the design system re-exports. The package also exports
+ * pure helpers — `composeNavigation`, `SETTINGS_NAV` — which are perfectly safe
+ * on the server, so a blanket ban on the package would be wrong and would train
+ * people to ignore the rule.
+ */
+function polarisComponentNames(sources) {
+  const primitives = sources.find(
+    (source) => source.relativePath === 'packages/ui/src/primitives.ts',
+  );
+  if (!primitives) return new Set();
+
+  // The single `export { ... } from '@shopify/polaris'` block. The `export type`
+  // block that follows is types only and cannot fail at runtime.
+  const block = /export\s*\{([^}]*)\}\s*from\s*['"]@shopify\/polaris['"]/.exec(primitives.text);
+  if (!block) return new Set();
+
+  return new Set(
+    block[1]
+      .split(',')
+      .map((raw) => raw.replace(/\/\/.*$/gm, '').trim())
+      .filter((name) => /^[A-Z][A-Za-z0-9]*$/.test(name)),
+  );
+}
+
+/**
+ * A server page rendering Polaris directly.
+ *
+ * The sibling rule above only resolves RELATIVE imports, so it never looked at
+ * `@deservefirst/ui` — and importing `<Card>` from there into a server page
+ * type-checks, builds, and then throws `createContext is not a function` on
+ * every request. Nothing before this caught it: not tsc, not `next build`, not
+ * the smoke walk, because the screens were new and nothing else rendered them.
+ */
+export const polarisNeedsClient = {
+  name: 'polaris-needs-client',
+  description: 'Server components do not render design-system components (§8.3)',
+  run(sources) {
+    const violations = [];
+    const components = polarisComponentNames(sources);
+    if (components.size === 0) return violations;
+
+    for (const source of sources) {
+      if (!source.relativePath.startsWith(`${APP_DIR}/`)) continue;
+      if (!/\/(page|layout|template|default)\.tsx$/.test(source.relativePath)) continue;
+      if (isClientModule(source.text)) continue;
+
+      const pattern = /import\s+(type\s+)?\{([^}]*)\}\s*from\s*['"]@deservefirst\/ui['"]/g;
+      let match;
+
+      while ((match = pattern.exec(source.text)) !== null) {
+        const [, typeOnly, names] = match;
+        if (typeOnly) continue;
+
+        for (const raw of names.split(',')) {
+          const trimmed = raw.trim();
+          if (!trimmed || trimmed.startsWith('type ')) continue;
+          const name = trimmed.replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim();
+          if (!name || !components.has(name)) continue;
+
+          violations.push(
+            violation(
+              source.relativePath,
+              source.text.slice(0, match.index).split('\n').length,
+              'polaris-needs-client',
+              `renders <${name}> in a server component. It needs React context that only a ` +
+                `"use client" module can provide, so this throws on every request. Move the ` +
+                `markup into a client component and pass it the data.`,
+            ),
+          );
+        }
+      }
+    }
+
+    return violations;
+  },
+};
+
 export const clientBoundary = {
   name: 'client-boundary',
   description: 'Server components import only components from "use client" modules',
@@ -415,6 +496,7 @@ export const authorityFromSession = {
 
 export const webRules = [
   clientBoundary,
+  polarisNeedsClient,
   screenDestinations,
   transportIsThin,
   authorityFromSession,

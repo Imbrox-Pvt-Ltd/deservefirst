@@ -224,7 +224,7 @@ export class PartnerService {
 
   // --- the partner's side of the gate ---------------------------------------
 
-  async stores(partnerId: PartnerId, actingUserId: UserId): Promise<readonly PartnerStoreLink[]> {
+  async stores(partnerId: PartnerId, actingUserId: UserId) {
     await this.seat(partnerId, actingUserId);
     return this.ports.partners.linksFor(partnerId);
   }
