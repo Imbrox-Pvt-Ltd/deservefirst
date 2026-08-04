@@ -146,6 +146,24 @@ export abstract class SqlAggregateRepository<
     return entity;
   }
 
+  /**
+   * Handles already in use under a prefix, so a new one can be disambiguated
+   * before the insert rather than by catching a unique-constraint failure.
+   *
+   * Store-wide, matching the base entity's unique index on (store, handle) —
+   * narrowing it to a subset would let two records agree on a handle and fail at
+   * insert instead of quietly becoming "acme" and "acme-2".
+   */
+  async takenHandles(prefix: string): Promise<ReadonlySet<string>> {
+    const [p1, p2] = this.args(2);
+    const rows = await this.executor.query<{ handle: string }>(
+      `SELECT ${this.q('handle')} FROM ${this.q(this.tableName)}
+        WHERE ${this.q('store_id')} = ${p1} AND ${this.q('handle')} LIKE ${p2}`,
+      [this.storeId(), `${prefix}%`],
+    );
+    return new Set(rows.map((row) => row.handle));
+  }
+
   async softDelete(id: string): Promise<void> {
     const [p1, p2] = this.args(2);
     await this.executor.query(

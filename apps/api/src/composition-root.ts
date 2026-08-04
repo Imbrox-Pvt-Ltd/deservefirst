@@ -42,6 +42,12 @@ import { customersManifest } from './modules/customers/customers.manifest';
 import { CustomerService } from './modules/customers/application';
 import { CustomerRepositoryImpl } from './modules/customers/infrastructure';
 import { contentManifest } from './modules/content/content.manifest';
+import { MetaobjectService, PageService } from './modules/content/application';
+import {
+  SqlDefinitionRepository,
+  SqlEntryRepository,
+  SqlPageRepository,
+} from './modules/content/infrastructure';
 import { inventoryManifest } from './modules/inventory/inventory.manifest';
 import {
   InventoryService,
@@ -83,6 +89,8 @@ export interface Platform {
    * already scoped. The others take a storeId only because they predate that.
    */
   readonly inventory: InventoryService;
+  readonly pages: PageService;
+  readonly metaobjects: MetaobjectService;
   readonly purchaseOrders: PurchaseOrderService;
   readonly transfers: TransferService;
   readonly routes: ReturnType<typeof buildRouteRegistry>;
@@ -197,6 +205,20 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Request',
   });
 
+  const pageRecords = new SqlPageRepository(executor, dialect);
+  const definitions = new SqlDefinitionRepository(executor, dialect);
+  const entries = new SqlEntryRepository(executor, dialect);
+  const pageToolkit = createToolkitPorts({ executor, events, dialect, ownerEntity: 'Page' });
+  const metaobjectToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'MetaobjectEntry',
+    // The entity is MetaobjectEntry but the table is metaobject_entries — the
+    // plural is irregular, so it is stated rather than guessed at.
+    ownerTable: 'metaobject_entries',
+  });
+
   const locations = new SqlLocationRepository(executor, dialect);
   const levels = new SqlLevelRepository(executor, dialect);
   const adjustments = new SqlAdjustmentRepository(executor, dialect);
@@ -265,6 +287,8 @@ export async function bootstrap(): Promise<Platform> {
         storeId as never,
       ),
     inventory,
+    pages: new PageService(pageRecords, pageToolkit),
+    metaobjects: new MetaobjectService(definitions, entries, metaobjectToolkit),
     purchaseOrders: new PurchaseOrderService(purchaseOrders, locations, inventory, purchaseOrderToolkit),
     transfers: new TransferService(transfers, locations, inventory, transferToolkit),
     routes,

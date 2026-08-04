@@ -224,3 +224,48 @@ export interface CustomerDto {
   readonly totalSpent: MoneyDto;
   readonly version: number;
 }
+
+export interface PageDto {
+  readonly id: string;
+  readonly handle: string;
+  readonly title: string;
+  readonly body: string;
+  readonly status: 'draft' | 'published';
+  readonly templateSuffix: string | null;
+  readonly publishedAt: string | null;
+  readonly version: number;
+}
+
+export type MetaobjectFieldType =
+  | 'single_line_text' | 'multi_line_text' | 'rich_text' | 'integer' | 'decimal'
+  | 'boolean' | 'date' | 'url' | 'file_reference' | 'metaobject_reference';
+
+export interface MetaobjectFieldDto {
+  readonly key: string;
+  readonly name: string;
+  readonly type: MetaobjectFieldType;
+  readonly required: boolean;
+  readonly description: string | null;
+}
+
+export interface MetaobjectDefinitionDto {
+  readonly id: string;
+  readonly type: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly fields: readonly MetaobjectFieldDto[];
+  /** The field whose value names an entry in lists. */
+  readonly displayNameKey: string | null;
+  readonly version: number;
+}
+
+export interface MetaobjectEntryDto {
+  readonly id: string;
+  readonly definitionId: string;
+  readonly handle: string;
+  readonly values: Readonly<Record<string, unknown>>;
+  readonly status: 'draft' | 'published';
+  /** Resolved server-side: the naming rule belongs with the definition. */
+  readonly displayName: string;
+  readonly version: number;
+}

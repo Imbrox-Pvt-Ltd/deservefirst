@@ -33,6 +33,13 @@ import {
   type Transfer,
 } from './modules/inventory/domain';
 import type { StoredLevel, StoredLocation } from './modules/inventory/application';
+import {
+  ContentInvariantError,
+  entryDisplayName,
+  type MetaobjectDefinition,
+  type MetaobjectEntry,
+  type Page,
+} from './modules/content/domain';
 import { bootstrap, newRequestId } from './composition-root';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
@@ -768,6 +775,182 @@ async function start(): Promise<void> {
     );
   }
 
+  // --- content --------------------------------------------------------------
+
+  const toPageDto = (page: Page) => ({
+    id: page.id,
+    handle: page.handle,
+    title: page.title,
+    body: page.body,
+    status: page.status,
+    templateSuffix: page.templateSuffix,
+    publishedAt: page.publishedAt?.toISOString() ?? null,
+    version: page.version,
+  });
+
+  const toDefinitionDto = (definition: MetaobjectDefinition) => ({
+    id: definition.id,
+    type: definition.type,
+    name: definition.name,
+    description: definition.description,
+    fields: definition.fields,
+    displayNameKey: definition.displayNameKey,
+    version: definition.version,
+  });
+
+  const toEntryDto = (definition: MetaobjectDefinition, entry: MetaobjectEntry) => ({
+    id: entry.id,
+    definitionId: entry.definitionId,
+    handle: entry.handle,
+    values: entry.values,
+    status: entry.status,
+    // Resolved here rather than in the browser: the rule for which field names
+    // an entry belongs with the definition, not with each screen that shows one.
+    displayName: entryDisplayName(definition, entry),
+    version: entry.version,
+  });
+
+  app.get(`/${API_VERSION}/content/pages/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      return success(toPageDto(await platform.pages.get(id)), { requestId: context.requestId });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/content/pages`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const page = await platform.pages.create({
+        title: String(body.title ?? ''),
+        body: body.body === undefined ? undefined : String(body.body),
+        handle: body.handle === undefined ? undefined : String(body.handle),
+      });
+      return reply.status(201).send(success(toPageDto(page), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/content/pages/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const page = await platform.pages.update(id, Number(body.version ?? -1), {
+        title: body.title === undefined ? undefined : String(body.title),
+        body: body.body === undefined ? undefined : String(body.body),
+        handle: body.handle === undefined ? undefined : String(body.handle),
+        templateSuffix: body.templateSuffix as string | null | undefined,
+      });
+      return success(toPageDto(page), { requestId: context.requestId });
+    }),
+  );
+
+  // Publishing is its own endpoint, not a status field on the generic patch: it
+  // is the one change with a side effect beyond the record (§13.1).
+  app.post(`/${API_VERSION}/content/pages/:id/status`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.publish', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const page = await platform.pages.setStatus(
+        id,
+        Number(body.version ?? -1),
+        body.status === 'published' ? 'published' : 'draft',
+      );
+      return success(toPageDto(page), { requestId: context.requestId });
+    }),
+  );
+
+  app.get(`/${API_VERSION}/content/metaobject-definitions/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      return success(toDefinitionDto(await platform.metaobjects.getDefinition(id)), {
+        requestId: context.requestId,
+      });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/content/metaobject-definitions`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.definitions.manage', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const definition = await platform.metaobjects.createDefinition({
+        type: String(body.type ?? ''),
+        name: String(body.name ?? ''),
+        description: (body.description ?? null) as string | null,
+        fields: (body.fields ?? []) as never,
+        displayNameKey: (body.displayNameKey ?? null) as string | null,
+      });
+      return reply.status(201).send(success(toDefinitionDto(definition), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/content/metaobject-definitions/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.definitions.manage', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const definition = await platform.metaobjects.updateDefinition(id, Number(body.version ?? -1), {
+        name: body.name === undefined ? undefined : String(body.name),
+        description: body.description as string | null | undefined,
+        fields: body.fields as never,
+        displayNameKey: body.displayNameKey as string | null | undefined,
+      });
+      return success(toDefinitionDto(definition), { requestId: context.requestId });
+    }),
+  );
+
+  app.get(`/${API_VERSION}/content/metaobject-definitions/:id/entries`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const { definition, entries } = await platform.metaobjects.listEntries(
+        id,
+        parseListQuery(new URLSearchParams((request as never as { url: string }).url.split('?')[1] ?? '')),
+      );
+      return success(
+        {
+          definition: toDefinitionDto(definition),
+          entries: entries.nodes.map((entry) => toEntryDto(definition, entry)),
+        },
+        { requestId: context.requestId, pagination: entries.pageInfo },
+      );
+    }),
+  );
+
+  app.get(`/${API_VERSION}/content/metaobjects/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.read', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const { definition, entry } = await platform.metaobjects.getEntry(id);
+      return success(
+        { definition: toDefinitionDto(definition), entry: toEntryDto(definition, entry) },
+        { requestId: context.requestId },
+      );
+    }),
+  );
+
+  app.post(`/${API_VERSION}/content/metaobjects`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const entry = await platform.metaobjects.createEntry({
+        definitionId: String(body.definitionId ?? ''),
+        handle: body.handle === undefined ? undefined : String(body.handle),
+        values: (body.values ?? {}) as Record<string, unknown>,
+      });
+      const definition = await platform.metaobjects.getDefinition(entry.definitionId);
+      return reply
+        .status(201)
+        .send(success(toEntryDto(definition, entry), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/content/metaobjects/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'content.manage', async (_storeId, context) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const entry = await platform.metaobjects.updateEntry(id, Number(body.version ?? -1), {
+        values: body.values as Record<string, unknown> | undefined,
+        status: body.status === 'published' ? 'published' : body.status === 'draft' ? 'draft' : undefined,
+      });
+      const definition = await platform.metaobjects.getDefinition(entry.definitionId);
+      return success(toEntryDto(definition, entry), { requestId: context.requestId });
+    }),
+  );
+
   // --- error shape ----------------------------------------------------------
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -822,6 +1005,18 @@ async function start(): Promise<void> {
     }
 
     if (name === 'CollectionNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
+    }
+
+    if (error instanceof ContentInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Invalid content', message, error.field)], { requestId }));
+    }
+
+    if (name === 'ContentNotFoundError') {
       return reply
         .status(404)
         .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
