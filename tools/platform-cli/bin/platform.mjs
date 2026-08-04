@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { formatReport, runFitness } from '../../fitness/src/index.mjs';
 import { listModules } from '../../fitness/src/structure.mjs';
 import { dbSync } from '../src/db-sync.mjs';
+import { smoke } from '../src/smoke.mjs';
 import { seed } from '../src/seed.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
@@ -47,9 +48,12 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('db:sync')}               Apply the schema derived from every manifest (dev only)
   ${cyan('seed')}                  Seed deterministic development data
   ${cyan('routes')}                Print the composed route registry
+  ${cyan('smoke')}                 Open every navigation destination against a running admin
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
 ${dim('you name. `check` is what blocks a merge, so run it before you push.')}
+${dim('`smoke` needs the API and admin running; it catches what static rules cannot —')}
+${dim('a screen that compiles, passes every rule, and still shows the wrong thing.')}
 `);
 }
 
@@ -223,6 +227,37 @@ switch (command) {
       })
       .catch((error) => {
         console.error(red(`\ndb:sync failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'smoke': {
+    const baseArg = args.find((arg) => arg.startsWith('--base='));
+    const handleArg = args.find((arg) => arg.startsWith('--store='));
+    smoke(ROOT, {
+      ...(baseArg ? { baseUrl: baseArg.slice('--base='.length) } : {}),
+      ...(handleArg ? { handle: handleArg.slice('--store='.length) } : {}),
+    })
+      .then((report) => {
+        console.log(`\nOpening every navigation destination at ${report.baseUrl}\n`);
+        for (const result of report.results) {
+          const state = !result.ok
+            ? red(`FAIL  ${result.reason}`)
+            : result.placeholder
+              ? dim('not installed')
+              : green('ok');
+          console.log(`  ${state.padEnd(24)} ${result.path}`);
+        }
+        if (report.failed === 0) {
+          console.log(green(`\nAll ${report.results.length} destinations render.`));
+        } else {
+          console.error(red(`\n${report.failed} of ${report.results.length} destinations are broken.`));
+          process.exit(1);
+        }
+      })
+      .catch((error) => {
+        console.error(red(`\nsmoke failed: ${error.message}`));
+        console.error(dim('  Start the admin first: pnpm --filter @deservefirst/web start'));
         process.exit(1);
       });
     break;
