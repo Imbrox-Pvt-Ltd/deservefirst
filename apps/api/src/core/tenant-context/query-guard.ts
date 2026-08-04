@@ -121,14 +121,40 @@ export interface GuardableExecutor {
   query<T = Record<string, unknown>>(sql: string, parameters: readonly unknown[]): Promise<T[]>;
 }
 
+/**
+ * A Proxy, not an object spread. Spreading copies only own enumerable
+ * properties, so every prototype method other than the one being replaced is
+ * silently dropped — which is exactly what happened to `execute()`, taking
+ * optimistic concurrency with it and surfacing as a 500 rather than a conflict.
+ * A Proxy intercepts `query` and forwards everything else untouched, so the
+ * wrapper cannot narrow the interface it wraps.
+ */
 export function guardExecutor<T extends GuardableExecutor>(executor: T, guard: QueryGuard): T {
-  const original = executor.query.bind(executor);
-  const wrapped = {
-    ...executor,
-    query: async (sql: string, parameters: readonly unknown[] = []) => {
-      guard.assertScoped(sql);
-      return original(sql, parameters);
+  return new Proxy(executor, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+
+      if (property === 'query' && typeof value === 'function') {
+        return async (sql: string, parameters: readonly unknown[] = []) => {
+          guard.assertScoped(sql);
+          return (value as GuardableExecutor['query']).call(target, sql, parameters);
+        };
+      }
+
+      // Guard writes too: `execute` runs UPDATE and DELETE statements, which is
+      // precisely where a forgotten predicate does the most damage.
+      if (property === 'execute' && typeof value === 'function') {
+        return async (sql: string, parameters: readonly unknown[] = []) => {
+          guard.assertScoped(sql);
+          return (value as (sql: string, parameters: readonly unknown[]) => unknown).call(
+            target,
+            sql,
+            parameters,
+          );
+        };
+      }
+
+      return typeof value === 'function' ? value.bind(target) : value;
     },
-  };
-  return wrapped as T;
+  });
 }

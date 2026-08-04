@@ -37,7 +37,8 @@ import {
   type SqlDialect,
 } from './core';
 import { catalogManifest } from './modules/catalog/catalog.manifest';
-import { ProductRepositoryImpl } from './modules/catalog/infrastructure';
+import { ProductService } from './modules/catalog/application';
+import { createToolkitPorts, ProductRepositoryImpl } from './modules/catalog/infrastructure';
 
 export interface Platform {
   readonly registry: ModuleRegistry;
@@ -50,6 +51,8 @@ export interface Platform {
   readonly access: AccessEvaluator;
   readonly identity: SqlIdentityRepository;
   readonly products: ProductRepositoryImpl;
+  /** Built per request: the service is scoped to whichever store is active. */
+  productServiceFor(storeId: string): ProductService;
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
 }
@@ -127,6 +130,13 @@ export async function bootstrap(): Promise<Platform> {
   const identity = new SqlIdentityRepository(executor, dialect);
   const products = new ProductRepositoryImpl(executor, dialect);
 
+  const toolkitPorts = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Product',
+  });
+
   // 5. Compose the API surface. Throws on collision rather than picking a winner.
   composeApiRoutes(registry);
   const routes = buildRouteRegistry(registry);
@@ -142,6 +152,10 @@ export async function bootstrap(): Promise<Platform> {
     access,
     identity,
     products,
+    // The store is passed explicitly rather than read from context here, so a
+    // worker outside a request can build one too.
+    productServiceFor: (storeId) =>
+      new ProductService(products, toolkitPorts, storeId as never),
     routes,
     shutdown: async () => {
       await pool.end();

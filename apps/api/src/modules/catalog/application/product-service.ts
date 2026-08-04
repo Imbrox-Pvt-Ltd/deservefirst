@@ -14,6 +14,7 @@ import {
 } from '@deservefirst/contracts';
 
 import { productResource } from '../contracts';
+import { describeChange, diffFields } from '../../../core/entity-toolkit';
 import {
   assertProductValid,
   assertTransitionAllowed,
@@ -164,6 +165,22 @@ export class ProductService {
     assertProductValid(next);
     const saved = await this.repository.update(next, input.expectedVersion);
 
+    // The timeline is only worth having if it records what actually changed.
+    // Diffing here rather than in the repository keeps the record in terms the
+    // merchant recognises — domain fields, not column names.
+    const changes = diffFields(
+      existing as unknown as Record<string, unknown>,
+      next as unknown as Record<string, unknown>,
+      ['title', 'handle', 'description', 'status', 'vendor', 'productType'],
+    );
+    if (changes.length > 0) {
+      await this.toolkit.recordTimeline({
+        ownerId: saved.id,
+        message: changes.length === 1 ? describeChange(changes[0]!) : `made ${changes.length} changes`,
+        changes,
+      });
+    }
+
     await this.toolkit.emit(CATALOG_EVENTS.productUpdated, {
       productId: saved.id,
       handle: saved.handle,
@@ -189,6 +206,11 @@ export class ProductService {
     };
 
     const saved = await this.repository.update(next, expectedVersion);
+    await this.toolkit.recordTimeline({
+      ownerId: saved.id,
+      message: `published to ${saved.publishedChannels.join(', ') || 'no channels'}`,
+      changes: [],
+    });
     await this.toolkit.emit(CATALOG_EVENTS.productPublished, {
       productId: saved.id,
       channels: saved.publishedChannels,
@@ -204,6 +226,11 @@ export class ProductService {
       { ...existing, status: 'archived', publishedChannels: [], version: existing.version + 1 },
       expectedVersion,
     );
+    await this.toolkit.recordTimeline({
+      ownerId: saved.id,
+      message: 'archived this product',
+      changes: [],
+    });
     await this.toolkit.emit(CATALOG_EVENTS.productArchived, { productId: saved.id });
     return saved;
   }

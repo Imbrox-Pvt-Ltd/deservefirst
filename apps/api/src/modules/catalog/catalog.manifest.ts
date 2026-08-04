@@ -9,7 +9,7 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
-import { productResource, productVariantResource } from './contracts';
+import { collectionResource, productResource, productVariantResource } from './contracts';
 
 export const catalogManifest: ModuleManifest = {
   id: 'catalog',
@@ -47,6 +47,12 @@ export const catalogManifest: ModuleManifest = {
       moneyFields: ['price', 'compareAtPrice', 'costPerItem'],
     },
     {
+      name: 'Collection',
+      tableName: 'collections',
+      toolkit: { seo: true },
+      translatableFields: ['title', 'description', 'handle'],
+    },
+    {
       name: 'ProductVariant',
       tableName: 'product_variants',
       toolkit: { metaobjects: false, savedViews: false, seo: false, importExport: false },
@@ -54,7 +60,7 @@ export const catalogManifest: ModuleManifest = {
     },
   ],
 
-  resources: [productResource, productVariantResource],
+  resources: [productResource, productVariantResource, collectionResource],
 
   routes: [
     { path: '/store/:handle/products', screen: 'ListScreen', entity: 'Product', permission: 'catalog.read' },
@@ -67,9 +73,20 @@ export const catalogManifest: ModuleManifest = {
       permission: 'catalog.write',
       presentation: 'drawer',
     },
+    { path: '/store/:handle/collections', screen: 'ListScreen', entity: 'Collection', permission: 'catalog.read' },
+    { path: '/store/:handle/collections/new', screen: 'CreateScreen', entity: 'Collection', permission: 'catalog.write' },
+    { path: '/store/:handle/collections/:id', screen: 'DetailScreen', entity: 'Collection', permission: 'catalog.read' },
   ],
 
   navigation: [
+    {
+      id: 'collections',
+      label: 'Collections',
+      path: '/store/:handle/collections',
+      section: 'primary',
+      position: 21,
+      permission: 'catalog.read',
+    },
     {
       id: 'products',
       label: 'Products',
@@ -162,6 +179,12 @@ export const catalogManifest: ModuleManifest = {
   ],
 
   searchProviders: [
+    {
+      entity: 'Collection',
+      indexKey: 'collections',
+      permission: 'catalog.read',
+      fields: ['title', 'handle'],
+    },
     {
       entity: 'Product',
       indexKey: 'products',

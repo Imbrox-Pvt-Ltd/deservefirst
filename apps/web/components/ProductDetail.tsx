@@ -10,11 +10,14 @@
  */
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
+
+import { archiveProduct, publishProduct, saveProduct } from '../app/actions/products';
 
 
 import type { ProductDto } from '../lib/types';
 import {
+  Banner,
   BlockStack,
   Checkbox,
   DetailScreen,
@@ -36,7 +39,10 @@ const PANELS = ['tags', 'metafields', 'seo', 'translations', 'timeline'] as cons
 export function ProductDetail({ handle, product }: { handle: string; product: ProductDto }) {
   const router = useRouter();
 
+  const [saved, setSaved] = useState(product);
   const [draft, setDraft] = useState(product);
+  const [pending, startTransition] = useTransition();
+  const [banner, setBanner] = useState<{ tone: 'critical' | 'warning' | 'success'; message: string } | null>(null);
   const [tags, setTags] = useState<readonly string[]>([]);
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDescription, setSeoDescription] = useState('');
@@ -45,9 +51,41 @@ export function ProductDetail({ handle, product }: { handle: string; product: Pr
   // "Dirty" is a comparison against what was loaded, not a flag someone sets —
   // a flag drifts out of sync with reality the moment a field resets.
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(product) || tags.length > 0,
-    [draft, product, tags],
+    () => JSON.stringify(draft) !== JSON.stringify(saved) || tags.length > 0,
+    [draft, saved, tags],
   );
+
+  const commit = () =>
+    startTransition(async () => {
+      const result = await saveProduct(handle, {
+        id: draft.id,
+        version: saved.version,
+        title: draft.title,
+        description: draft.description,
+        handle: draft.handle,
+        status: draft.status,
+        vendor: draft.vendor,
+        productType: draft.productType,
+        price: draft.price,
+      });
+
+      if (result.ok && result.data) {
+        setSaved(result.data);
+        setDraft(result.data);
+        setTags([]);
+        setBanner({ tone: 'success', message: 'Saved.' });
+        return;
+      }
+
+      // A conflict is recoverable and a validation failure is the merchant's to
+      // fix; neither should read like a crash.
+      setBanner({
+        tone: result.conflict ? 'warning' : 'critical',
+        message: result.conflict
+          ? `${result.error} Reload to see the current version, then reapply your change.`
+          : (result.error ?? 'Could not save.'),
+      });
+    });
 
   const set = <K extends keyof ProductDto>(key: K, value: ProductDto[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -173,20 +211,49 @@ export function ProductDetail({ handle, product }: { handle: string; product: Pr
   return (
     <DetailScreen
       title={draft.title}
-      subtitle={`${draft.price.currency} · version ${product.version}`}
+      subtitle={`${draft.price.currency} · version ${saved.version}`}
       backAction={{ onAction: () => router.push(`/store/${handle}/products`) }}
       sections={sections}
       dirty={dirty}
-      onSave={() => setDraft(draft)}
+      saving={pending}
+      onSave={commit}
       onDiscard={() => {
-        setDraft(product);
+        setDraft(saved);
         setTags([]);
+        setBanner(null);
       }}
       secondaryActions={[
-        { label: 'Duplicate', onAction: () => {} },
-        { label: 'Archive', destructive: true, onAction: () => {} },
+        {
+          label: 'Publish',
+          onAction: () =>
+            startTransition(async () => {
+              const result = await publishProduct(handle, saved.id, saved.version);
+              if (result.ok && result.data) {
+                setSaved(result.data);
+                setDraft(result.data);
+                setBanner({ tone: 'success', message: 'Published to Online Store.' });
+              } else {
+                setBanner({ tone: 'critical', message: result.error ?? 'Could not publish.' });
+              }
+            }),
+        },
+        {
+          label: 'Archive',
+          destructive: true,
+          onAction: () =>
+            startTransition(async () => {
+              const result = await archiveProduct(handle, saved.id);
+              if (result.ok) router.push(`/store/${handle}/products`);
+              else setBanner({ tone: 'critical', message: result.error ?? 'Could not archive.' });
+            }),
+        },
       ]}
       slotContent={{
+        header: banner ? (
+          <Banner tone={banner.tone} onDismiss={() => setBanner(null)}>
+            <p>{banner.message}</p>
+          </Banner>
+        ) : null,
         // Everything below is inherited from the entity declaration — none of it
         // is product-specific code.
         sidebar: PANELS.includes('tags') ? (

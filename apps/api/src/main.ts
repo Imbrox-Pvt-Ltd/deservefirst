@@ -11,9 +11,11 @@ import Fastify from 'fastify';
 
 import { apiError, failure, paginated, success, withRequestContext } from './core';
 import { AccessDeniedError } from './auth/application';
+import { ProductInvariantError } from './modules/catalog/domain';
 import { bootstrap, newRequestId } from './composition-root';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
+  moneyFromDecimalString,
   parseListQuery,
   type OrganizationId,
   type RequestContext,
@@ -27,6 +29,26 @@ const API_VERSION = '2026-01';
 async function start(): Promise<void> {
   const platform = await bootstrap();
   const app = Fastify({ logger: false });
+
+  /**
+   * A DELETE with no body is normal, and clients routinely send a default
+   * `Content-Type: application/json` on every request. Fastify's stock parser
+   * rejects that combination with a 400, which reads as "your delete was
+   * malformed" when nothing was wrong.
+   */
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    (_request, body, done) => {
+      const text = typeof body === 'string' ? body.trim() : '';
+      if (text.length === 0) return done(null, {});
+      try {
+        done(null, JSON.parse(text));
+      } catch (error) {
+        done(error as Error, undefined);
+      }
+    },
+  );
 
   /**
    * Establishes the request context (§5.6). In development the store and actor
@@ -142,6 +164,89 @@ async function start(): Promise<void> {
     });
   });
 
+  /**
+   * Every write goes through the same shape: establish context, check the
+   * permission, call the use-case. The access check is explicit rather than a
+   * decorator so it is visible at the call site — authorisation that is easy to
+   * miss when reading is authorisation that gets missed when editing.
+   */
+  const withStore = async <T>(
+    request: { headers: Record<string, unknown>; id: string },
+    reply: { status(code: number): { send(body: unknown): unknown } },
+    permission: string,
+    handler: (storeId: StoreId, context: RequestContext) => Promise<T>,
+  ) => {
+    const context = contextFor(request);
+    if (context.storeId === null) {
+      return reply
+        .status(400)
+        .send(failure([apiError('validation_failed', 'Missing store', 'Set the X-Store-Id header.')], { requestId: context.requestId }));
+    }
+
+    await platform.access.assert({ context, permission, moduleId: 'catalog' });
+    return withRequestContext(context, () => handler(context.storeId as StoreId, context));
+  };
+
+  app.post(`/${API_VERSION}/catalog/products`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const product = await platform.productServiceFor(storeId).create({
+        title: String(body.title ?? ''),
+        description: body.description === undefined ? undefined : String(body.description),
+        handle: body.handle === undefined ? undefined : String(body.handle),
+        vendor: (body.vendor ?? null) as string | null,
+        productType: (body.productType ?? null) as string | null,
+        price: parseMoney(body.price),
+        status: body.status as 'draft' | 'active' | 'archived' | undefined,
+      });
+      return reply.status(201).send(success(toProductDto(product), { requestId: context.requestId }));
+    }),
+  );
+
+  app.patch(`/${API_VERSION}/catalog/products/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const { id } = request.params as { id: string };
+
+      const product = await platform.productServiceFor(storeId).update({
+        id,
+        // The client must send the version it read. Omitting it is not "no
+        // opinion", it is a lost update waiting to happen.
+        expectedVersion: Number(body.version ?? -1),
+        ...(body.title === undefined ? {} : { title: String(body.title) }),
+        ...(body.description === undefined ? {} : { description: String(body.description) }),
+        ...(body.handle === undefined ? {} : { handle: String(body.handle) }),
+        ...(body.status === undefined ? {} : { status: body.status as 'draft' | 'active' | 'archived' }),
+        ...(body.vendor === undefined ? {} : { vendor: body.vendor as string | null }),
+        ...(body.productType === undefined ? {} : { productType: body.productType as string | null }),
+        ...(body.price === undefined ? {} : { price: parseMoney(body.price) }),
+      });
+      return success(toProductDto(product), { requestId: context.requestId });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/catalog/products/:id/publish`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.publish', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const { id } = request.params as { id: string };
+      const channels = Array.isArray(body.channels) ? (body.channels as unknown[]).map(String) : ['online-store'];
+
+      const product = await platform
+        .productServiceFor(storeId)
+        .publish(id, channels, Number(body.version ?? -1));
+      return success(toProductDto(product), { requestId: context.requestId });
+    }),
+  );
+
+  app.delete(`/${API_VERSION}/catalog/products/:id`, async (request, reply) =>
+    withStore(request as never, reply as never, 'catalog.write', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      // Soft delete: hidden and restorable, never destroyed (§12.1).
+      await platform.productServiceFor(storeId).delete(id);
+      return success({ id, deleted: true }, { requestId: context.requestId });
+    }),
+  );
+
   // --- error shape ----------------------------------------------------------
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -151,9 +256,30 @@ async function start(): Promise<void> {
     const message = (error as { message?: string }).message ?? 'Unknown error';
 
     if (error instanceof AccessDeniedError) {
+      const code = error.decision.reason === 'not-entitled' ? 'not_entitled' : 'forbidden';
       return reply
         .status(error.status)
-        .send(failure([apiError('forbidden', 'Access denied', message)], { requestId }));
+        .send(failure([apiError(code, 'Access denied', message)], { requestId }));
+    }
+
+    // A lost update is a conflict the client can resolve by reloading, not a
+    // server fault — it must not look like one.
+    if (name === 'StaleWriteError') {
+      return reply
+        .status(409)
+        .send(failure([apiError('conflict', 'Modified by someone else', message)], { requestId }));
+    }
+
+    if (error instanceof ProductInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Invalid product', message, error.field)], { requestId }));
+    }
+
+    if (name === 'ProductNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
     }
 
     // Internal detail never reaches the client; the log keeps it.
@@ -184,6 +310,15 @@ async function start(): Promise<void> {
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+}
+
+/** Accepts `{ amount: "19.99", currency: "USD" }` and refuses anything else. */
+function parseMoney(value: unknown) {
+  const candidate = value as { amount?: unknown; currency?: unknown } | undefined;
+  if (!candidate || typeof candidate.amount !== 'string' || typeof candidate.currency !== 'string') {
+    throw new ProductInvariantError('price', 'must be { amount: "19.99", currency: "USD" }');
+  }
+  return moneyFromDecimalString(candidate.amount, candidate.currency);
 }
 
 start().catch((error) => {

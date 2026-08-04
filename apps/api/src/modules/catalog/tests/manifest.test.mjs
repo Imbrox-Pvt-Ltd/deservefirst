@@ -116,8 +116,13 @@ test('routes and navigation compose into the registry without collision', () => 
     assert.ok(declared.has(entry.item.permission), `undeclared permission ${entry.item.permission}`);
   }
 
-  // Both catalog entities are store-scoped; variants gained a table in Phase 3.
-  assert.deepEqual(registry.storeScopedTables(), ['products', 'product_variants']);
+  // Every catalog entity holds merchant data and must therefore be store-scoped.
+  // Asserting the property rather than the exact list keeps this test about the
+  // rule instead of about how many entities happen to exist today.
+  const scoped = registry.storeScopedTables();
+  const declaredTables = catalogManifest.entities.map((entity) => entity.tableName);
+  assert.deepEqual([...scoped].sort(), [...declaredTables].sort());
+  assert.ok(scoped.includes('products'));
 });
 
 test('settings contribute into a shared group rather than a new page', () => {

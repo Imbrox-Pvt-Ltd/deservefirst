@@ -360,6 +360,42 @@ describe('MySQL integration', { concurrency: 1 }, () => {
     const stores = new Set(leaked.map((row) => row.store_id));
     assert.ok(stores.has(STORE_A) && stores.has(STORE_B), 'expected the unguarded query to cross tenants');
   });
+
+  test('guarding an executor preserves its whole interface', async (t) => {
+    if (!available) return t.skip('no database');
+
+    const guarded = guardExecutor(
+      new MysqlExecutor({ pool }),
+      new QueryGuard({ storeScopedTables: ['products'], enforce: true }),
+    );
+
+    // An object spread would have dropped every prototype method except the one
+    // it replaced — which silently disabled optimistic concurrency and turned a
+    // lost update into a 500.
+    assert.equal(typeof guarded.query, 'function');
+    assert.equal(typeof guarded.execute, 'function', 'wrapping must not narrow the interface');
+
+    const result = await guarded.execute('UPDATE products SET title = title WHERE store_id = ?', [
+      'no-such-store',
+    ]);
+    assert.equal(result.affectedRows, 0);
+  });
+
+  test('the guard covers writes, not just reads', async (t) => {
+    if (!available) return t.skip('no database');
+
+    const guarded = guardExecutor(
+      new MysqlExecutor({ pool }),
+      new QueryGuard({ storeScopedTables: ['products'], enforce: true }),
+    );
+
+    // An unscoped UPDATE is where a missing predicate does the most damage.
+    await assert.rejects(
+      () => guarded.execute('UPDATE products SET title = ?', ['hacked']),
+      UnscopedQueryError,
+    );
+  });
+
 });
 
 // --- guard against realistic, quoted SQL ------------------------------------

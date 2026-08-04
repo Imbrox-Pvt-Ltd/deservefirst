@@ -122,3 +122,40 @@ export const productVariantResource: ResourceDefinition = {
   screens: ['detail'],
   permissions: { read: 'catalog.read', write: 'catalog.write' },
 };
+
+/**
+ * Collections. Note how little is here: fields, visibility and permissions.
+ * Everything a merchant sees on the screen — filters, saved views, bulk actions,
+ * metafields, timeline, SEO — comes from declaring the entity, not from this file.
+ */
+export const collectionResource: ResourceDefinition = {
+  name: 'Collection',
+  entity: 'Collection',
+  pluralName: 'Collections',
+  urlSegment: 'collections',
+  aggregateRoot: 'Collection',
+  fields: [
+    { name: 'id', type: 'id' },
+    { name: 'title', type: 'string', required: true, filterable: true, sortable: true, searchable: true, translatable: true },
+    { name: 'handle', type: 'handle', unique: true, indexed: true, filterable: true, translatable: true },
+    { name: 'description', type: 'richtext', translatable: true },
+    { name: 'type', type: 'enum', values: ['manual', 'automated'], filterable: true, sortable: true },
+    { name: 'match', type: 'enum', values: ['all', 'any'] },
+    { name: 'conditions', type: 'json' },
+    // Exclusions are a first-class rule set, not a flag on a condition — without
+    // them "everything tagged sale except clearance" cannot be expressed.
+    { name: 'exclusions', type: 'json' },
+    { name: 'productIds', type: 'json' },
+    { name: 'sortOrder', type: 'enum', values: ['manual', 'best-selling', 'title-asc', 'title-desc', 'price-asc', 'price-desc', 'created-desc'] },
+    { name: 'createdAt', type: 'datetime', sortable: true },
+    { name: 'updatedAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'public' },
+  screens: ['list', 'detail', 'create'],
+  columns: [
+    { field: 'title', label: 'Title', defaultVisible: true, position: 0 },
+    { field: 'type', label: 'Type', defaultVisible: true, position: 1 },
+    { field: 'sortOrder', label: 'Product sorting', defaultVisible: false, position: 2 },
+  ],
+  permissions: { read: 'catalog.read', write: 'catalog.write', delete: 'catalog.write' },
+};
