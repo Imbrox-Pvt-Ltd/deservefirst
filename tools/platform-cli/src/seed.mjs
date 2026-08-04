@@ -12,6 +12,15 @@ import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The one definition of "governs the platform, not a tenant".
+ *
+ * Read from the built contracts rather than restated here. Restating it is how
+ * the seed and the runtime end up disagreeing about which permissions a
+ * merchant may hold, and that disagreement is exactly the bug this fixes.
+ */
+const { isPlatformPermission } = require('../../../packages/contracts/dist/roles.js');
+
 export const SEED = {
   org: 'seed-org',
   entityUs: 'seed-entity-us',
@@ -20,6 +29,16 @@ export const SEED = {
   storeB: 'seed-store-in',
   user: 'seed-user',
   role: 'seed-role-owner',
+  /**
+   * The platform operator — a person, not a merchant.
+   *
+   * Separate because the permissions that govern every store were being granted
+   * to the store owner, so a merchant could disable a module platform-wide. An
+   * operator is not a bigger merchant; it is a different actor, and the seed has
+   * to make that visible or the next person to read it will assume otherwise.
+   */
+  operator: 'seed-operator',
+  operatorRole: 'seed-role-operator',
 };
 
 const PRODUCTS = [
@@ -81,7 +100,7 @@ export async function seed(root, options = {}) {
       ['memberships', 'organization_id', [SEED.org]],
       ['stores', 'organization_id', [SEED.org]],
       ['business_entities', 'organization_id', [SEED.org]],
-      ['users', 'id', [SEED.user]],
+      ['users', 'id', [SEED.user, SEED.operator]],
       ['organizations', 'id', [SEED.org]],
     ]) {
       await executor.query(
@@ -125,10 +144,34 @@ export async function seed(root, options = {}) {
     const declared = manifestsOf(root).flatMap((manifest) =>
       (manifest.permissions ?? []).map((entry) => entry.key),
     );
-    const permissions = [...new Set([...owner.permissions, ...declared, 'store.read'])];
+    /**
+     * A store owner gets every permission EXCEPT the platform's own.
+     *
+     * `platform.*` governs every store at once. Granting it here — which this
+     * did — meant the seeded merchant could disable a module for the whole
+     * platform. The filter is on the prefix rather than a list of known keys,
+     * so a new platform permission is excluded the day it is declared.
+     */
+    const tenantPermissions = declared.filter((key) => !isPlatformPermission(key));
+    const permissions = [...new Set([...owner.permissions, ...tenantPermissions, 'store.read'])]
+      .filter((key) => !isPlatformPermission(key));
 
     await identity.createRole({ id: SEED.role, organizationId: SEED.org, storeId: null, category: 'organization', name: owner.name, description: '', permissions, system: true, grantsApproval: true });
     await identity.assignRole({ id: 'seed-ra', organizationId: SEED.org, userId: SEED.user, roleId: SEED.role, storeId: null });
+
+    // The operator: holds the platform permissions and nothing else, so the
+    // seed demonstrates the separation rather than merely permitting it.
+    await identity.createUser(
+      { id: SEED.operator, email: 'operator@deservefirst.test', emailVerifiedAt: now, secondaryEmail: null, firstName: 'Platform', lastName: 'Operator', status: 'active', mfaEnabled: false, providerRef: null, locale: 'en-US', timeZone: 'UTC', createdAt: now },
+      await hashPassword('a-perfectly-fine-passphrase'),
+    );
+    await identity.createRole({
+      id: SEED.operatorRole, organizationId: SEED.org, storeId: null, category: 'platform',
+      name: 'Platform operator', description: 'Governs every store; belongs to no tenant.',
+      permissions: declared.filter((key) => isPlatformPermission(key)),
+      system: true, grantsApproval: false,
+    });
+    await identity.assignRole({ id: 'seed-ra-operator', organizationId: SEED.org, userId: SEED.operator, roleId: SEED.operatorRole, storeId: null });
 
     let count = 0;
     for (const [storeId, currency] of [[SEED.storeA, 'USD'], [SEED.storeB, 'INR']]) {

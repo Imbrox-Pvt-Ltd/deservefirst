@@ -186,6 +186,34 @@ export class SqlIdentityRepository implements IdentityRepository {
     return [...permissions].sort();
   }
 
+  /**
+   * The operator permissions this person holds, independent of any store.
+   *
+   * Separate from `permissionsFor` because that one takes a store, and an
+   * operator has none — platform permissions govern every store rather than
+   * one, so requiring a store to see them is the wrong shape. Loading them
+   * through the store path was why an operator who had not picked a store had
+   * no permissions at all.
+   */
+  async platformPermissionsFor(userId: UserId): Promise<readonly string[]> {
+    const [p1] = this.args(1);
+    const rows = await this.executor.query<{ permissions: unknown }>(
+      `SELECT r.${this.q('permissions')} AS permissions
+         FROM ${this.q('role_assignments')} ra
+         JOIN ${this.q('roles')} r ON r.${this.q('id')} = ra.${this.q('role_id')}
+        WHERE ra.${this.q('user_id')} = ${p1}
+          AND r.${this.q('category')} = 'platform'
+          AND r.${this.q('deleted_at')} IS NULL`,
+      [userId],
+    );
+
+    const permissions = new Set<string>();
+    for (const row of rows) {
+      for (const permission of parseJsonArray(row.permissions)) permissions.add(permission);
+    }
+    return [...permissions].sort();
+  }
+
   async roleKeysFor(userId: UserId, storeId: StoreId): Promise<readonly string[]> {
     const [p1, p2] = this.args(2);
     const rows = await this.executor.query<{ name: string }>(

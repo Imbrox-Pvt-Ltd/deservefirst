@@ -12,8 +12,38 @@ import type { OrganizationId, StoreId, UserId } from './scope';
 /**
  * The category determines which permissions may be granted at all — an
  * organization role and a point-of-sale role draw from different trees.
+ *
+ * `platform` is the operator's tree and belongs to nobody inside a tenant. It
+ * exists because the permissions that govern EVERY store were declared in the
+ * `organization` category, which meant an ordinary merchant's owner role could
+ * be granted them — and was, so one store owner could disable a module for
+ * every store on the platform. A category a tenant role can never hold is the
+ * only version of that rule that cannot be re-broken by a later grant.
  */
-export type RoleCategory = 'organization' | 'store' | 'point-of-sale' | 'partner';
+export type RoleCategory =
+  | 'organization'
+  | 'store'
+  | 'point-of-sale'
+  | 'partner'
+  | 'platform';
+
+/** Categories that belong to a tenant. `platform` is deliberately absent. */
+export const TENANT_ROLE_CATEGORIES = [
+  'organization',
+  'store',
+  'point-of-sale',
+  'partner',
+] as const;
+
+/**
+ * Whether this permission governs the platform rather than one tenant.
+ *
+ * Keyed on the prefix rather than a list, so a new `platform.*` permission is
+ * covered the moment it is declared. A list is what let the first two escape.
+ */
+export function isPlatformPermission(key: string): boolean {
+  return key.startsWith('platform.');
+}
 
 export interface PermissionGroup {
   readonly key: string;

@@ -222,6 +222,10 @@ async function start(): Promise<void> {
       storeId: identity.storeId,
       roleKeys: [...identity.roleKeys],
       permissions: [...identity.permissions],
+      // Carried from the session rather than assumed: `base` defaults to
+      // `member`, and an operator that silently stayed a member would be
+      // refused by its own guard.
+      accessType: identity.accessType,
     };
   };
 
@@ -854,12 +858,57 @@ async function start(): Promise<void> {
   // once, and no store can put it back. Deliberately NOT store-scoped — these
   // routes have no X-Store-Id and are guarded by a platform permission.
 
+  /**
+   * A platform OPERATOR, acting on every store at once.
+   *
+   * Three checks, and the first two are the ones that were missing. Holding the
+   * permission was treated as sufficient, which meant two separate ways in:
+   *
+   *   - a merchant, because `platform.*` was declared in the `organization`
+   *     category and the seed granted every declared permission to the store
+   *     owner, so one merchant could disable a module for every store
+   *   - an app, because nothing checked the actor — the same hole `requireUser`
+   *     had, and no scope grants a platform permission today only by luck
+   *
+   * Both are closed at their source as well as here. This is the backstop, and
+   * a backstop that only re-checks what the source already guarantees is not
+   * one.
+   */
   const platformGuard = async (
     request: { headers: Record<string, unknown>; id: string },
     reply: { status(code: number): { send(body: unknown): unknown } },
     permission: string,
   ) => {
     const context = await contextFor(request);
+
+    if (context.actorType === 'app') {
+      reply.status(403).send(
+        failure(
+          [
+            apiError(
+              'forbidden',
+              'Not available to apps',
+              'Platform administration acts on every store. No app token can reach it.',
+            ),
+          ],
+          { requestId: context.requestId },
+        ),
+      );
+      return null;
+    }
+
+    if (context.accessType !== 'platform') {
+      // Deliberately the same answer as a missing permission: telling a merchant
+      // that the endpoint exists and they are the wrong KIND of caller is more
+      // than they need, and maps the operator surface for anyone probing it.
+      reply.status(403).send(
+        failure([apiError('forbidden', 'Access denied', `This action needs "${permission}".`)], {
+          requestId: context.requestId,
+        }),
+      );
+      return null;
+    }
+
     if (!context.permissions.includes(permission)) {
       reply.status(403).send(
         failure([apiError('forbidden', 'Access denied', `This action needs "${permission}".`)], {

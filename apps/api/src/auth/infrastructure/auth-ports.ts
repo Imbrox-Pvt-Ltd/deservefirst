@@ -126,4 +126,12 @@ export interface SessionIdentity {
   readonly organizationId: string | null;
   readonly permissions: readonly string[];
   readonly roleKeys: readonly string[];
+  /**
+   * Whether this person is acting as a platform operator.
+   *
+   * Derived from holding a platform-category role, not stored on the session,
+   * so revoking the role takes effect on the next request rather than whenever
+   * the session happens to expire.
+   */
+  readonly accessType: 'member' | 'platform';
 }

@@ -136,7 +136,10 @@ export const platformManifest: ModuleManifest = {
       label: 'Enable and disable modules platform-wide',
       description:
         'Turn a module off for every store at once. This overrides every store setting and cannot be undone from a store.',
-      categories: ['organization'],
+      // Operators only. This was `organization`, which made it grantable to a
+      // merchant's own owner role — and the seed granted it, so one store owner
+      // could disable a module for every store on the platform.
+      categories: ['platform'],
     },
     {
       key: 'store.webhooks.manage',
@@ -148,7 +151,8 @@ export const platformManifest: ModuleManifest = {
       key: 'platform.settings.manage',
       label: 'Set platform-wide setting defaults',
       description: 'Change the default a store inherits when it has not chosen its own.',
-      categories: ['organization'],
+      // Operators only, for the same reason as the module switch above.
+      categories: ['platform'],
     },
   ],
 };

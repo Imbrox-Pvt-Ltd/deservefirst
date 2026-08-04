@@ -565,20 +565,33 @@ export async function bootstrap(): Promise<Platform> {
       // Expired or revoked is not a reduced session; it is no session.
       if (session.revokedAt !== null || session.expiresAt.getTime() <= Date.now()) return null;
 
-      const [permissions, roleKeys] = session.storeId
+      const [storePermissions, roleKeys] = session.storeId
         ? await Promise.all([
             identity.permissionsFor(session.userId, session.storeId),
             identity.roleKeysFor(session.userId, session.storeId),
           ])
         : [[], []];
 
+      /**
+       * Operator permissions are read whether or not a store is selected.
+       *
+       * They govern every store, so gating them behind having picked one meant
+       * an operator who had not chosen a store had no permissions at all — and
+       * an operator has no store to choose.
+       */
+      const platformPermissions = await identity.platformPermissionsFor(session.userId);
+
       return {
         sessionId: session.id,
         userId: session.userId,
         storeId: session.storeId,
         organizationId: session.organizationId,
-        permissions,
+        permissions: [...new Set([...storePermissions, ...platformPermissions])],
         roleKeys,
+        // Holding a platform role IS being an operator. Derived rather than
+        // stored on the session, so revoking the role takes effect on the next
+        // request rather than when the session happens to expire.
+        accessType: platformPermissions.length > 0 ? ('platform' as const) : ('member' as const),
       };
     },
 

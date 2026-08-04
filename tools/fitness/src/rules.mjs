@@ -344,7 +344,62 @@ export const urlSafety = {
   },
 };
 
+
+/**
+ * A platform permission is never grantable to a tenant role.
+ *
+ * `platform.modules.manage` and `platform.settings.manage` were declared with
+ * `categories: ['organization']`, which made them grantable to a merchant's own
+ * owner role — and the seed granted every declared permission, so the seeded
+ * store owner could disable a module for every store on the platform.
+ *
+ * The category is what decides whether a permission can be handed to a tenant
+ * at all, so the check belongs on the declaration rather than on any of the
+ * three places that later read it. One of those three was already a backstop
+ * and still let it through.
+ */
+export const platformPermissionsAreOperatorOnly = {
+  name: 'platform-permissions-are-operator-only',
+  description: 'A platform.* permission is grantable only to the platform category',
+  run(sources) {
+    const violations = [];
+
+    for (const source of sources) {
+      if (!/\.manifest\.ts$/.test(source.relativePath)) continue;
+
+      // Each declaration is `{ key: 'x', ... categories: [...] }`. Matched as a
+      // block so a key and the categories beside it stay associated.
+      const pattern = /key:\s*'(platform\.[^']+)'([\s\S]{0,400}?)categories:\s*\[([^\]]*)\]/g;
+      let match;
+
+      while ((match = pattern.exec(source.text)) !== null) {
+        const [, key, , categories] = match;
+        const listed = categories
+          .split(',')
+          .map((entry) => entry.trim().replace(/^'|'$/g, ''))
+          .filter(Boolean);
+
+        const tenant = listed.filter((category) => category !== 'platform');
+        if (tenant.length === 0) continue;
+
+        violations.push(
+          violation(
+            source.relativePath,
+            source.text.slice(0, match.index).split('\n').length,
+            'platform-permissions-are-operator-only',
+            `"${key}" governs every store but is grantable to the ${tenant.join(', ')} ` +
+              'category, so a tenant role can hold it. Use categories: [\'platform\'].',
+          ),
+        );
+      }
+    }
+
+    return violations;
+  },
+};
+
 export const allRules = [
+  platformPermissionsAreOperatorOnly,
   fileHeaders,
   moduleBoundaries,
   layerLaw,
