@@ -207,29 +207,48 @@ it is cheap: nothing has to be invented later, only rendered.
 
 The biggest structural gap in imbrox, and the thing that turns a product into a platform.
 
-1. **Partner org + partner user** — new top-level actor (not a flag on organization), reusing the existing
-   membership/invite machinery. Panels per `01-…§3.7`: overview, stores, **leads**, **referral history**,
-   **payouts**, apps, **partner API clients**, CLI token.
-2. **Dev dashboard** (`dev.<host>`, D9) — apps, dev stores (`?store_type=dev|client_transfer`), catalogs.
-3. **App platform:**
-   - app registry + install/uninstall lifecycle + per-store install records
-   - **OAuth 2.0** authorization-code for third-party apps, **online and offline** token types (§23.2)
-   - **app scopes** distinct from staff scopes, grouped `API family → feature → scope`, with
-     **per-scope access gating** ("request access") as captured
-   - **outbound webhooks** — extend the ported outbox to external HTTP with HMAC signing, retry, replay,
-     DLQ; then add **Pub/Sub** and **EventBridge** delivery targets (`01-…§3.6`)
-   - **app versions** with a dated webhooks API version, app URLs, embed-in-admin, app proxy, POS embed
-   - **app monitoring**: `/monitoring/api_health` with **deprecated-call surfacing**, plus the log taxonomy
-     (webhook · function · app event · billing event · GraphQL · REST · UI-extension error · assistant event)
-   - **app automation tokens** for CI/CD
-   - **app/merchant billing API** so apps can charge merchants through us (§23.2)
-4. **Execution tiers** (§22) — UI extensions in a sandboxed runtime on their own tier; Functions as WASM on
-   a separate tier. Never third-party code in the core process.
-5. **Public versioned API + generated reference** (§26.2) with a **GraphiQL-style explorer** bound to an
-   API client, dated — as the partner API does.
+**Status as of 2026-08-05.** The exit criterion is met. A third party can register an app,
+request scopes, be installed on a store through a browser, call the API with the token, and
+be told when it is removed. What remains is monitoring, billing and execution tiers.
 
-**Exit criterion:** a third party can register an app, request scopes, install it on a store via OAuth,
-receive a signed webhook, and see its own logs and API-health page.
+1. **Partner org + partner user** — ✅ **built**. A top-level actor, not a flag on organization.
+   Two independent gates: the store owner's LINK and the partner's own ROLE, with the merchant's
+   grant as the ceiling. Dashboard has overview, client stores, team, apps.
+   Still to build: leads, referral history, payouts, partner API clients, CLI token.
+2. **Dev dashboard** (`dev.<host>`, D9) — ⏳ **not started**. Dev stores, catalogs.
+3. **App platform:**
+   - ✅ app registry + install/uninstall lifecycle + per-store install records
+   - ✅ **OAuth 2.0** authorization-code, online and offline tokens, `state`, PKCE (S256 only)
+   - ✅ **app scopes** distinct from staff scopes, `API family → feature → scope`, declared per
+     module. A scope maps to store permissions, so authorisation downstream stays one mechanism.
+   - ✅ **per-scope access gating** — restricted scopes cannot be published unapproved. The
+     approval *workflow* is a port returning nothing, i.e. failing closed. **Next up.**
+   - ✅ **outbound webhooks** — outbox, HMAC signing, bounded retry, replay, dead-letter.
+     App-scoped subscriptions so one app cannot see another's lifecycle events.
+     Still to build: Pub/Sub and EventBridge delivery targets.
+   - ⏳ **app versions**, dated webhook API version, embed-in-admin, app proxy, POS embed
+   - ⏳ **app monitoring**: `/monitoring/api_health`, deprecated-call surfacing, log taxonomy
+   - ⏳ **app automation tokens** for CI/CD
+   - ⏳ **app/merchant billing API**
+4. ⏳ **Execution tiers** (§22) — never third-party code in the core process.
+5. ⏳ **Public versioned API + generated reference** (§26.2) with a GraphiQL-style explorer.
+   The generated reference exists (`docs/api/openapi.json`, CI-enforced current); the explorer does not.
+
+**Exit criterion:** ✅ met — a third party can register an app, request scopes, install it on a
+store via OAuth, and receive a signed webhook. Its own logs and API-health page remain.
+
+### What the app platform is missing before it is safe to open to strangers
+
+Written down because none of it is visible from the outside, and all of it is cheap now and
+expensive later:
+
+- **Scope approval workflow.** Restricted scopes fail closed today, which is safe and also means
+  no app can ever be published asking for one. Somebody has to be able to say yes.
+- **App suspension.** The status exists and nothing sets it. There is no way to stop a
+  misbehaving app across every store at once.
+- **Per-app rate limits.** The token endpoint is limited; the API an app then calls is not.
+- **Uninstall from the app's side.** An app can be removed by the merchant but cannot remove
+  itself, which it should be able to do when a customer cancels.
 
 ---
 

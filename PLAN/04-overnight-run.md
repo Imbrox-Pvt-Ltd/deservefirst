@@ -100,4 +100,114 @@ in line with reality and write the morning report.
 
 ## Morning report
 
-_Appended as blocks complete._
+Six blocks planned, six done. Every block ends with `platform ci` green and a
+thing observed against the running server, quoted below. Nothing was left
+half-applied and no data was destroyed.
+
+**Commits, newest first**
+
+```
+e792c44 An app is never the person, however it got its token
+231784d Report pre-UTC-fix timestamps, and do not repair them
+05c05aa Apps are told when they are uninstalled, instead of finding out from a 401
+cef5666 The consent screen: a merchant can now install an app in a browser
+072954b OAuth hardening: state, PKCE, restricted scopes, and a real rate limit
+07bd11c The app platform: a third party can install software into a store
+```
+
+### The one that matters: a live privilege escalation, found and closed
+
+The sweep in Block 5 found that **an app could act as the person who installed
+it**. An online app token carries the user id of whoever authorised it, so a
+gate written as `userId !== null` was true for an app. An app holding nothing
+but `read_products` listed that person's partner accounts and created a new one
+as them. I reproduced it against the running server, fixed it, and confirmed the
+same two calls now return 403 while the app's legitimate catalogue access still
+returns 200. The partner the exploit created has been deleted.
+
+Scope mapping happened to prevent the worst version — no scope grants
+`store.apps.manage`, so an app could not consent on its own behalf. That is luck
+rather than design and would evaporate the first time somebody writes a scope
+that grants it.
+
+### What each block delivered
+
+**Block 1 — OAuth hardening.** `state` was being dropped entirely, so an app
+could not tell its own authorization from one an attacker started. PKCE added,
+S256 only. Restricted scopes were decoration and now gate publishing. The token
+endpoint — the one place a client secret is presented — was unrate-limited.
+Proved: a wrong verifier refused, a *missing* verifier refused, and then the real
+client spending the same code successfully, because the check runs before the
+code is claimed and a failed attack must not deny service to the app it targeted.
+
+**Block 2 — The consent screen.** The flow had never been completed by a human;
+every install to date was curl. Scopes now read as sentences about the merchant's
+own data rather than `read_customer_contact`. Declining redirects to the app with
+`access_denied`, because an app that never hears back cannot tell "declined" from
+"closed the tab" and will ask again. Proved end to end against a real callback
+server: `state: browser-state-42, code present: True`, then a token carrying
+exactly the two approved scopes.
+
+**Block 3 — Apps are told they were uninstalled.** They previously found out from
+a 401, which is indistinguishable from an outage. This exposed a leak worth more
+than the feature: deliveries matched on store and event type alone, so with two
+apps on one store each would have received the other's lifecycle events — app A
+told, with an id, that app B had just been uninstalled. Also found: POST
+/oauth/authorize resolved the request context but never entered it, so every
+store-scoped write in the install hit the tenant guard.
+
+**Block 4 — Timestamps, reported not repaired.** `platform db:timestamps` is
+read-only with no flag to make it otherwise, because the correct offset is not
+recoverable from the data. **The number is now 8 of 303 rows, down from 164** —
+reseeds during this week's work recreated most of them. What is left is 3
+sessions, 3 login flows and 2 timeline rows. **My recommendation is to leave it.**
+Nothing was changed.
+
+**Block 5 — The sweep.** The escalation above, plus two more enumeration lists
+replaced with discovery: `typecheck` ran a hardcoded array of five projects, and
+nothing verified that a manifest on disk is actually registered — a module whose
+manifest exists but is never loaded looks exactly like one nobody has written.
+
+**Block 6 — Handover.** `PLAN/03` Phase 4 rewritten against reality, with a new
+section listing what the app platform still needs before it is safe to open to
+strangers.
+
+### The pattern worth naming
+
+Five separate times this week, a hardcoded list silently skipped real work: test
+globs excluded auth's tests, then excluded apps' 12 OAuth tests while CI stayed
+green; manifest paths excluded the app tables; typecheck excluded any new
+package; `apps/web/tests` was in no glob at all. Every one failed *quietly* and
+in the direction of doing less. All are now discovery by convention, and
+`manifests-are-registered` fails the build on the remaining case.
+
+If one rule survives from this week, it is: **when a list has failed twice,
+replace the list.**
+
+### Numbers
+
+| | before | after |
+|---|---|---|
+| tests | 391 | 406 |
+| fitness rules | 19 | 20 |
+| smoke destinations | 59 | 60 |
+| API operations documented | 102 | 102 |
+
+### What I would do next, in order
+
+1. **Scope approval workflow.** Restricted scopes fail closed, so no app can be
+   published asking for one. Somebody has to be able to say yes.
+2. **App suspension.** The status exists and nothing sets it — there is no way
+   to stop a misbehaving app across every store at once.
+3. **Per-app rate limits** on the API an app calls, not just on the token endpoint.
+4. **The dev dashboard and dev stores**, which is the remaining Phase 4 item with
+   nothing built.
+
+### Open decisions for you
+
+- **The 8 timestamp rows** — leave them, or reseed and lose hand-created records.
+  I recommend leaving them.
+- **Platform-admin UI** remains deferred by its explicit trigger: the first store
+  you do not own. Partners can now create stores, so that trigger is closer than
+  it was.
+
