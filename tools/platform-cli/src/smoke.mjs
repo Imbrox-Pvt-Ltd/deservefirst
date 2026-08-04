@@ -113,6 +113,15 @@ export function navigationDestinations(rootDir, handle) {
     paths.add(`/store/${handle}/settings/${id}`);
   }
 
+  // The consent screen, with a client id that does not exist. It must render
+  // its own refusal rather than crash — and rendering a refusal IS the check:
+  // an app that cannot be installed must never be redirected to, so this page
+  // is the last thing a merchant sees when something is wrong with the link.
+  paths.add(
+    `/store/${handle}/oauth/authorize?client_id=not-a-real-app` +
+      `&redirect_uri=${encodeURIComponent('https://example.test/cb')}`,
+  );
+
   return [...paths].sort();
 }
 

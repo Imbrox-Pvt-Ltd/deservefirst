@@ -466,3 +466,24 @@ export interface PartnerAppDto {
   readonly clientId: string;
   readonly version: number;
 }
+
+export interface AppConsentDto {
+  readonly clientId: string;
+  readonly appName: string;
+  readonly appHandle: string;
+  readonly appUrl: string | null;
+  readonly redirectUri: string;
+  readonly scopes: readonly {
+    readonly key: string;
+    readonly label: string;
+    readonly description: string;
+    readonly feature: string;
+    readonly access: 'read' | 'write';
+    readonly restricted: boolean;
+  }[];
+  readonly alreadyInstalled: boolean;
+  /** Carried through the screen untouched and handed back to the app. */
+  readonly state: string | null;
+  readonly codeChallenge: string | null;
+  readonly codeChallengeMethod: string | null;
+}

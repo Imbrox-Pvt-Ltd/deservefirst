@@ -39,7 +39,21 @@ const TEST_GLOBS = [
    * running none of them. A list that has failed this way twice is not a list.
    */
   'apps/api/src/*/tests/**/*.test.mjs',
+  // The web app has pure logic worth testing too — URL building for the OAuth
+  // callback, list-state parsing. Its tests import .ts directly, which is why
+  // the runner strips types below.
+  'apps/web/tests/**/*.test.mjs',
 ];
+
+/**
+ * Node needs telling it may import TypeScript.
+ *
+ * The web app has no build output to import from — Next compiles it in place —
+ * so its tests import the source. Without this the whole run fails on an
+ * unknown file extension rather than skipping quietly, which is the failure
+ * mode to prefer.
+ */
+const NODE_TEST_ARGS = ['--experimental-strip-types', '--no-warnings', '--test'];
 
 const cyan = (text) => `[36m${text}[0m`;
 const red = (text) => `[31m${text}[0m`;
@@ -160,7 +174,7 @@ function run(command, args, label) {
 function testSuite() {
   const built = run('pnpm', ['-r', 'run', 'build'], 'build');
   if (!built) process.exit(1);
-  const ok = run('node', ['--test', ...TEST_GLOBS], 'test');
+  const ok = run('node', [...NODE_TEST_ARGS, ...TEST_GLOBS], 'test');
   process.exit(ok ? 0 : 1);
 }
 
@@ -216,7 +230,7 @@ function ci() {
       console.log(formatReport(report));
       return report.total === 0;
     },
-    () => run('node', ['--test', ...TEST_GLOBS], 'test'),
+    () => run('node', [...NODE_TEST_ARGS, ...TEST_GLOBS], 'test'),
   ];
 
   for (const step of steps) {
