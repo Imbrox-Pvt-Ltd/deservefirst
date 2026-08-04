@@ -280,3 +280,14 @@ export interface MetaobjectEntryDto {
   readonly displayName: string;
   readonly version: number;
 }
+
+/** Where a resolved value came from — see the settings resolution chain. */
+export type SettingSource = 'store' | 'platform' | 'environment' | 'default';
+
+export interface ResolvedSettingDto {
+  readonly key: string;
+  readonly value: unknown;
+  readonly source: SettingSource;
+  /** What it would fall back to if this store's value were cleared. */
+  readonly inherited: unknown;
+}

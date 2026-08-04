@@ -8,7 +8,7 @@
 
 import { apiFetch } from '../../../../../lib/api';
 import { StoreSettings } from '../../../../../components/StoreSettings';
-import type { SettingDto } from '../../../../../lib/types';
+import type { ResolvedSettingDto, SettingDto } from '../../../../../lib/types';
 
 const STORES: Record<string, { id: string; name: string }> = {
   'acme-us': { id: 'seed-store-us', name: 'Acme US' },
@@ -25,13 +25,26 @@ export default async function SettingsPage({
   const active = section?.[0] ?? 'general';
 
   let contributed: SettingDto[] = [];
+  let effective: ResolvedSettingDto[] = [];
   try {
-    // Settings are read from the registry, so a module's declared schema shows
-    // up here without this screen knowing the module exists.
-    const response = await apiFetch<SettingDto[]>('/platform/settings', { storeId: store.id });
-    contributed = response.data;
+    // Two reads with different jobs: the registry says what a setting IS —
+    // label, kind, options — and the resolver says what its value is here and
+    // which level supplied it. Neither can answer the other's question.
+    const scope = {
+      storeId: store.id,
+      permissions: ['store.settings.read', 'store.settings.manage'],
+    };
+    const [declared, resolved] = await Promise.all([
+      apiFetch<SettingDto[]>('/platform/settings', scope),
+      apiFetch<ResolvedSettingDto[]>('/platform/effective-settings', scope),
+    ]);
+    contributed = declared.data;
+    effective = resolved.data;
   } catch {
+    // The settings screen must still open when the API is down; an empty form
+    // is better than a stack trace where the settings should be.
     contributed = [];
+    effective = [];
   }
 
   return (
@@ -42,6 +55,7 @@ export default async function SettingsPage({
       storeCount={Object.keys(STORES).length}
       section={active}
       contributed={contributed}
+      effective={effective}
     />
   );
 }

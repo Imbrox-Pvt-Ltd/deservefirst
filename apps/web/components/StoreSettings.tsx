@@ -10,13 +10,18 @@
  */
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 
 
-import type { SettingDto } from '../lib/types';
+import type { ResolvedSettingDto, SettingDto, SettingSource } from '../lib/types';
+import { resetSetting, saveSetting } from '../app/actions/settings';
 import {
+  Badge,
+  Banner,
   BlockStack,
+  Button,
   Checkbox,
+  InlineStack,
   Select,
   SettingsCard,
   SettingsScreen,
@@ -31,6 +36,8 @@ export interface StoreSettingsProps {
   readonly storeCount: number;
   readonly section: string;
   readonly contributed: readonly SettingDto[];
+  /** Each declared setting's resolved value, and which level supplied it. */
+  readonly effective: readonly ResolvedSettingDto[];
 }
 
 /** Core settings that exist regardless of which modules are installed. */
@@ -71,8 +78,11 @@ export function StoreSettings({
   storeCount,
   section,
   contributed,
+  effective,
 }: StoreSettingsProps) {
   const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
   const [values, setValues] = useState<Record<string, string | boolean>>({});
 
   // Core fields first, then whatever modules contributed into the same group —
@@ -89,11 +99,51 @@ export function StoreSettings({
     bySection.set(field.section, list);
   }
 
-  const valueOf = (field: SettingDto) =>
-    values[field.key] ?? (field.defaultValue as string | boolean | undefined) ?? '';
+  const resolved = new Map(effective.map((entry) => [entry.key, entry]));
+
+  /**
+   * Local edits win while typing; otherwise the resolved value, whatever level
+   * supplied it. Falling back to the DECLARED default would show the module's
+   * value while the platform had set another — the field would look wrong and
+   * saving it would "change" nothing.
+   */
+  const valueOf = (field: SettingDto) => {
+    if (values[field.key] !== undefined) return values[field.key]!;
+    const entry = resolved.get(field.key);
+    const value = entry ? entry.value : field.defaultValue;
+    return (value ?? '') as string | boolean;
+  };
 
   const set = (key: string, value: string | boolean) =>
     setValues((current) => ({ ...current, [key]: value }));
+
+  const commit = (field: SettingDto, value: string | boolean) =>
+    startTransition(async () => {
+      const result = await saveSetting(handle, field.key, value);
+      setError(result.ok ? null : (result.error ?? 'Could not save this setting'));
+      if (result.ok) {
+        setValues((current) => {
+          const next = { ...current };
+          delete next[field.key];
+          return next;
+        });
+        router.refresh();
+      }
+    });
+
+  const reset = (field: SettingDto) =>
+    startTransition(async () => {
+      const result = await resetSetting(handle, field.key);
+      setError(result.ok ? null : (result.error ?? 'Could not reset this setting'));
+      if (result.ok) {
+        setValues((current) => {
+          const next = { ...current };
+          delete next[field.key];
+          return next;
+        });
+        router.refresh();
+      }
+    });
 
   return (
     <SettingsScreen
@@ -106,6 +156,12 @@ export function StoreSettings({
       onClose={() => router.push(`/store/${handle}`)}
       onNavigate={(next) => router.push(`/store/${handle}/settings/${next}`)}
     >
+      {error ? (
+        <Banner tone="critical" title="Could not save">
+          <Text as="p">{error}</Text>
+        </Banner>
+      ) : null}
+
       {bySection.size === 0 ? (
         <SettingsCard title={sectionTitle(section)}>
           <Text as="p" tone="subdued">
@@ -122,7 +178,11 @@ export function StoreSettings({
                   key={`${field.moduleId}.${field.key}`}
                   field={field}
                   value={valueOf(field)}
+                  resolved={resolved.get(field.key)}
+                  pending={pending}
                   onChange={(value) => set(field.key, value)}
+                  onCommit={(value) => commit(field, value)}
+                  onReset={() => reset(field)}
                 />
               ))}
             </BlockStack>
@@ -133,50 +193,118 @@ export function StoreSettings({
   );
 }
 
+/**
+ * How a value's origin is described.
+ *
+ * Saying where a value came from is not decoration. Without it, a merchant
+ * looking at an inherited value cannot tell it apart from one they chose, and
+ * the first time somebody changes a platform default they get a support ticket
+ * from every store that assumed the value was theirs.
+ */
+const SOURCE_NOTE: Record<SettingSource, string> = {
+  store: 'Set for this store',
+  platform: 'Inherited from the platform default',
+  environment: 'Set by this deployment',
+  default: 'The module default',
+};
+
 function SettingField({
   field,
   value,
+  resolved,
+  pending,
   onChange,
+  onCommit,
+  onReset,
 }: {
   field: SettingDto;
   value: string | boolean;
+  resolved: ResolvedSettingDto | undefined;
+  pending: boolean;
   onChange(value: string | boolean): void;
+  onCommit(value: string | boolean): void;
+  onReset(): void;
 }) {
   const contributedBy =
     field.moduleId === 'core' ? undefined : `Contributed by the ${field.moduleId} module`;
+  const source = resolved?.source ?? 'default';
+
+  // A field with no resolved entry is not backed by the settings chain at all —
+  // one of the core placeholders that still has nowhere to store a value.
+  // Labelling it "the module default" would be a lie that reads as working.
+  const managed = resolved !== undefined;
+
+  const origin = managed ? (
+    <InlineStack gap="200" blockAlign="center">
+      <Badge tone={source === 'store' ? 'success' : undefined}>{SOURCE_NOTE[source]}</Badge>
+      {source === 'store' ? (
+        <Button variant="plain" disabled={pending} onClick={onReset}>
+          Reset to inherited
+        </Button>
+      ) : null}
+    </InlineStack>
+  ) : (
+    <Text as="span" tone="subdued" variant="bodySm">
+      Not stored yet — no module declares this setting.
+    </Text>
+  );
+
+  const help = field.description ?? contributedBy;
 
   if (field.kind === 'boolean') {
     return (
-      <Checkbox
-        label={field.label}
-        helpText={field.description ?? contributedBy}
-        checked={Boolean(value)}
-        onChange={onChange}
-      />
+      <BlockStack gap="150">
+        <Checkbox
+          label={field.label}
+          helpText={help}
+          checked={Boolean(value)}
+          disabled={pending || !managed}
+          // A checkbox has no blur, so the change IS the commit.
+          onChange={(next) => {
+            onChange(next);
+            onCommit(next);
+          }}
+        />
+        {origin}
+      </BlockStack>
     );
   }
 
   if (field.kind === 'select' && field.options) {
     return (
-      <Select
-        label={field.label}
-        helpText={field.description ?? contributedBy}
-        options={[...field.options]}
-        value={String(value)}
-        onChange={onChange}
-      />
+      <BlockStack gap="150">
+        <Select
+          label={field.label}
+          helpText={help}
+          options={[...field.options]}
+          value={String(value)}
+          disabled={pending || !managed}
+          onChange={(next) => {
+            onChange(next);
+            onCommit(next);
+          }}
+        />
+        {origin}
+      </BlockStack>
     );
   }
 
   return (
-    <TextField
-      label={field.label}
-      helpText={field.description ?? contributedBy}
-      autoComplete="off"
-      type={field.kind === 'number' ? 'number' : 'text'}
-      value={String(value)}
-      onChange={onChange}
-    />
+    <BlockStack gap="150">
+      <TextField
+        label={field.label}
+        helpText={help}
+        autoComplete="off"
+        type={field.kind === 'number' ? 'number' : 'text'}
+        value={String(value)}
+        disabled={pending || !managed}
+        onChange={onChange}
+        // Committed on blur rather than per keystroke: one write per edit, not
+        // one per character.
+        onBlur={() => managed && onCommit(value)}
+      />
+      {origin}
+    </BlockStack>
   );
 }
 
