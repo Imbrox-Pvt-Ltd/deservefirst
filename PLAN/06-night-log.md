@@ -185,3 +185,93 @@ publishing with no date gets "now", publishing an empty post refused.
 
 **62 destinations render.**
 
+### 05:4x — Block E · Sweep, and the handover
+
+**The sweep found nothing new.** The two recurring classes are clean: no other
+`{...current, ...patch}` spread that can overwrite with `undefined`, and no
+remaining enumerated list that should be discovery — the survivors
+(`FAILURE_MARKERS`, `PRODUCTS`) are data, not discovery.
+
+Checked that the operator/merchant split did not take anything away from
+merchants: `store.apps.manage`, `store.partners.manage`, `store.webhooks.manage`,
+`content.manage`, `catalog.write` all still held, and `platform.*` correctly
+none.
+
+`PLAN/03 §5.1` corrected — it listed five sections as placeholders and three of
+them shipped. The remaining three now say *why* they are deferred, so the next
+reader does not mistake a decision for an oversight.
+
+---
+
+## Morning summary
+
+Seven blocks, all committed, CI green at every one.
+
+```
+694f2e9 Menus and blog posts: the two placeholders with no blocker
+f483ede An app can uninstall itself
+d9cfc9f Per-app rate limits, on both ways into the data
+6515336 App suspension: stop a misbehaving app everywhere at once
+4d19fc4 Scope approval: an operator can now say yes
+6f0b9a1 A merchant is not an operator: close a live cross-tenant defect
+981b9d7 Bring the build plan in line with what is built, and write the handover
+e792c44 An app is never the person, however it got its token
+```
+
+### The one to read first
+
+**A live cross-tenant defect, found while planning rather than while building.**
+The seeded store owner held `platform.modules.manage` and
+`platform.settings.manage` — one merchant could have disabled a module for
+*every store on the platform*. Three independent causes, each of which alone was
+the bug: the permissions were declared in the `organization` category, the seed
+granted every declared permission to the owner, and the guard checked only that
+the permission was present. Fixed at all three, and there is now a `platform`
+role category no tenant role can hold — which makes the grant impossible rather
+than merely refused.
+
+The new fitness rule caught a real miss immediately: my own edit had changed one
+of the two declarations and not the other.
+
+### What this resolves
+
+The platform-admin surface was deferred pending "the first store you do not own".
+**That trigger arrived from a direction neither of us predicted** — not a new
+tenant, but the platform needing someone to answer for it. Scope approval and app
+suspension are operator actions, and until tonight there was no operator.
+
+### Numbers
+
+| | start of night | now |
+|---|---|---|
+| tests | 412 | 424 |
+| fitness rules | 20 | 21 |
+| smoke destinations | 60 | 62 |
+
+### Known gaps, stated plainly
+
+- **The operator has no screens.** Scope review and suspension work over the API
+  and I drove them with curl. A platform-admin UI is the obvious next block —
+  everything it needs now exists behind it.
+- **Menus and blog posts have list and create screens, not edit screens.** The
+  API supports editing; the detail screens are the follow-on.
+- **Blogs are created by API only** — there is no "add blog" screen, because the
+  captured nav has none. A merchant needs at least one blog before posting, so
+  this wants a decision: either a small blogs screen, or a default blog created
+  with the store.
+
+### What I would do next, in order
+
+1. **Platform-admin screens** for the review queue and suspension. The backend is
+   done and driving it by curl is not a product.
+2. **Detail screens for menus and posts**, so the tree editor and the publish
+   toggle exist.
+3. **Dev dashboard and dev stores** — the last Phase 4 item with nothing built.
+
+### Decisions waiting for you
+
+- **The 8 pre-UTC-fix rows** — still there, still my recommendation to leave
+  them. `platform db:timestamps` reports them.
+- **Files, gift cards, discounts, markets** — each blocked on a decision rather
+  than on effort. `PLAN/03 §5.1` now records which decision.
+- **Blogs**: default blog per store, or a screen to manage them?

@@ -167,18 +167,22 @@ variants, collections), customers, orders/RFQ, content (pages, metaobjects), inv
 orders, transfers), create screens for all eight creatable records, and the settings overlay wired to the
 resolution chain.
 
-Still placeholders, each rendering an honest "not part of this install" rather than a 404:
+Since built, and no longer placeholders: **Home · Growth · Analytics** (the dashboard widget
+mechanism), **Segments · Companies** (the customers extension), and **Menus · Blog posts** (the
+content extension).
 
-| Section | What it needs |
+Still placeholders, each rendering an honest "not part of this install" rather than a 404 — and
+each for a reason recorded here rather than because nobody got to it:
+
+| Section | Why it is still deferred |
 |---|---|
-| Home · Growth · Analytics | the dashboard widget mechanism (§31.2 `dashboards`, `metrics`) |
-| Segments · Companies | customers module extension — B2B is its own shape, not a customer flag |
-| Files · Menus · Blog posts | content module extension; Files needs the CDN story first (§22) |
-| Gift cards | a value-bearing entity; wants the ledger commerce does not have yet |
-| Discounts · Markets | Phase-1 commerce is request-only (D10), so both are deliberately deferred |
+| Files | Needs the CDN story first (§22). Building it without one means inventing a storage design nobody agreed. |
+| Gift cards | A value-bearing entity; wants the ledger commerce does not have yet. |
+| Discounts · Markets | Phase-1 commerce is request-only (D10), so both are deliberately deferred. |
 
-**Next up:** the dashboard mechanism, because it closes three sections with one composition and Home is
-the first screen every merchant sees.
+**Next up:** none of the three above. The blocker on each is a decision, not effort — so the next
+work is Phase 4's remainder (dev dashboard and dev stores) or taking one of these decisions
+deliberately.
 
 ### 5.2 Deferred: the platform-admin UI
 
