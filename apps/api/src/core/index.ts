@@ -15,3 +15,4 @@ export * from './http/response-envelope';
 export * from './adapters';
 export * from './entity-toolkit';
 export * from './list-engine';
+export * from './database';

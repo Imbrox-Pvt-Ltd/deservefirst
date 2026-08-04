@@ -4,22 +4,22 @@
  * here is store-scoped — the store comes from the ambient request context, never
  * from a caller argument, and the fitness suite fails the build on any query
  * that omits the boundary (§14.2, §20.1).
+ *
+ * Column names are NOT chosen here: they come from the schema builder, which
+ * derives them from the entity declaration. Hand-writing them is how a
+ * repository and its table drift apart.
  * Layer: infrastructure.
  */
 
-import {
-  type Connection,
-  type ListQuery,
-  money,
-  type StoreId,
-} from '@deservefirst/contracts';
+import { type Connection, type ListQuery, money, type StoreId } from '@deservefirst/contracts';
 
-import { ListEngine, type QueryExecutor } from '../../../core/list-engine';
 import { StaleWriteError } from '../../../core/entity-toolkit';
+import { ListEngine, type QueryExecutor } from '../../../core/list-engine';
+import { type SqlDialect, postgresDialect } from '../../../core/list-engine/dialect';
 import { requireStoreContext } from '../../../core/tenant-context';
 import { productResource } from '../contracts';
-import type { Product } from '../domain';
 import type { ProductRepository } from '../application';
+import type { Product } from '../domain';
 
 const TABLE = 'products';
 
@@ -32,18 +32,23 @@ interface ProductRow extends Record<string, unknown> {
   status: string;
   vendor: string | null;
   product_type: string | null;
-  price_amount_minor: string;
-  price_currency: string;
-  compare_at_amount_minor: string | null;
-  cost_amount_minor: string | null;
-  published_channels: string[] | null;
+  price_amount_minor: string | null;
+  price_currency: string | null;
+  compare_at_price_amount_minor: string | null;
+  compare_at_price_currency: string | null;
+  cost_per_item_amount_minor: string | null;
+  cost_per_item_currency: string | null;
+  published_channels: unknown;
   version: number;
 }
 
-export class PostgresProductRepository implements ProductRepository {
+export class ProductRepositoryImpl implements ProductRepository {
   private readonly listEngine: ListEngine;
 
-  constructor(private readonly executor: QueryExecutor) {
+  constructor(
+    private readonly executor: QueryExecutor,
+    private readonly dialect: SqlDialect = postgresDialect,
+  ) {
     this.listEngine = new ListEngine(executor);
   }
 
@@ -52,9 +57,19 @@ export class PostgresProductRepository implements ProductRepository {
     return requireStoreContext('catalog.products').storeId;
   }
 
+  /** Renders placeholders in the dialect's style: `$1…$n` or `?`. */
+  private args(count: number): string[] {
+    return Array.from({ length: count }, (_, index) => this.dialect.placeholder(index + 1));
+  }
+
+  private q(name: string): string {
+    return this.dialect.quoteIdentifier(name);
+  }
+
   async findById(id: string): Promise<Product | null> {
+    const [p1, p2] = this.args(2);
     const rows = await this.executor.query<ProductRow>(
-      `SELECT * FROM ${TABLE} WHERE store_id = $1 AND id = $2 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT * FROM ${this.q(TABLE)} WHERE ${this.q('store_id')} = ${p1} AND ${this.q('id')} = ${p2} AND ${this.q('deleted_at')} IS NULL LIMIT 1`,
       [this.storeId(), id],
     );
     const row = rows[0];
@@ -62,8 +77,9 @@ export class PostgresProductRepository implements ProductRepository {
   }
 
   async findByHandle(handle: string): Promise<Product | null> {
+    const [p1, p2] = this.args(2);
     const rows = await this.executor.query<ProductRow>(
-      `SELECT * FROM ${TABLE} WHERE store_id = $1 AND handle = $2 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT * FROM ${this.q(TABLE)} WHERE ${this.q('store_id')} = ${p1} AND ${this.q('handle')} = ${p2} AND ${this.q('deleted_at')} IS NULL LIMIT 1`,
       [this.storeId(), handle],
     );
     const row = rows[0];
@@ -71,12 +87,13 @@ export class PostgresProductRepository implements ProductRepository {
   }
 
   /**
-   * Handles that would collide with a new one. Deleted rows are included: a
-   * restored product must not find its handle stolen while it was away.
+   * Handles that would collide with a new one. Soft-deleted rows are included:
+   * a restored product must not find its handle stolen while it was away.
    */
   async takenHandles(prefix: string): Promise<ReadonlySet<string>> {
+    const [p1, p2] = this.args(2);
     const rows = await this.executor.query<{ handle: string }>(
-      `SELECT handle FROM ${TABLE} WHERE store_id = $1 AND handle LIKE $2`,
+      `SELECT ${this.q('handle')} FROM ${this.q(TABLE)} WHERE ${this.q('store_id')} = ${p1} AND ${this.q('handle')} LIKE ${p2}`,
       [this.storeId(), `${prefix}%`],
     );
     return new Set(rows.map((row) => row.handle));
@@ -87,21 +104,26 @@ export class PostgresProductRepository implements ProductRepository {
       resource: productResource,
       tableName: TABLE,
       query,
+      dialect: this.dialect,
     });
     return { ...connection, nodes: connection.nodes.map(toDomain) };
   }
 
   async insert(product: Product): Promise<Product> {
-    const storeId = this.storeId();
+    const columns = [
+      'id', 'store_id', 'handle', 'title', 'description', 'status', 'vendor', 'product_type',
+      'price_amount_minor', 'price_currency',
+      'compare_at_price_amount_minor', 'compare_at_price_currency',
+      'cost_per_item_amount_minor', 'cost_per_item_currency',
+      'published_channels', 'version',
+    ];
+
     await this.executor.query(
-      `INSERT INTO ${TABLE}
-         (id, store_id, handle, title, description, status, vendor, product_type,
-          price_amount_minor, price_currency, compare_at_amount_minor, cost_amount_minor,
-          published_channels, version, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now(), now())`,
+      `INSERT INTO ${this.q(TABLE)} (${columns.map((column) => this.q(column)).join(', ')})
+       VALUES (${this.args(columns.length).join(', ')})`,
       [
         product.id,
-        storeId,
+        this.storeId(),
         product.handle,
         product.title,
         product.description,
@@ -111,7 +133,9 @@ export class PostgresProductRepository implements ProductRepository {
         product.price.amountMinor.toString(),
         product.price.currency,
         product.compareAtPrice?.amountMinor.toString() ?? null,
+        product.compareAtPrice?.currency ?? null,
         product.costPerItem?.amountMinor.toString() ?? null,
+        product.costPerItem?.currency ?? null,
         JSON.stringify(product.publishedChannels),
         product.version,
       ],
@@ -125,42 +149,91 @@ export class PostgresProductRepository implements ProductRepository {
    * than silently discarding the other person's edit.
    */
   async update(product: Product, expectedVersion: number): Promise<Product> {
-    const rows = await this.executor.query<{ id: string }>(
-      `UPDATE ${TABLE}
-          SET handle = $3, title = $4, description = $5, status = $6, vendor = $7,
-              product_type = $8, price_amount_minor = $9, price_currency = $10,
-              compare_at_amount_minor = $11, cost_amount_minor = $12,
-              published_channels = $13, version = $14, updated_at = now()
-        WHERE store_id = $1 AND id = $2 AND version = $15 AND deleted_at IS NULL
-        RETURNING id`,
-      [
-        this.storeId(),
-        product.id,
-        product.handle,
-        product.title,
-        product.description,
-        product.status,
-        product.vendor,
-        product.productType,
-        product.price.amountMinor.toString(),
-        product.price.currency,
-        product.compareAtPrice?.amountMinor.toString() ?? null,
-        product.costPerItem?.amountMinor.toString() ?? null,
-        JSON.stringify(product.publishedChannels),
-        product.version,
-        expectedVersion,
-      ],
+    const assignments = [
+      'handle', 'title', 'description', 'status', 'vendor', 'product_type',
+      'price_amount_minor', 'price_currency',
+      'compare_at_price_amount_minor', 'compare_at_price_currency',
+      'cost_per_item_amount_minor', 'cost_per_item_currency',
+      'published_channels', 'version',
+    ];
+
+    const parameters: unknown[] = [
+      product.handle,
+      product.title,
+      product.description,
+      product.status,
+      product.vendor,
+      product.productType,
+      product.price.amountMinor.toString(),
+      product.price.currency,
+      product.compareAtPrice?.amountMinor.toString() ?? null,
+      product.compareAtPrice?.currency ?? null,
+      product.costPerItem?.amountMinor.toString() ?? null,
+      product.costPerItem?.currency ?? null,
+      JSON.stringify(product.publishedChannels),
+      product.version,
+      this.storeId(),
+      product.id,
+      expectedVersion,
+    ];
+
+    const placeholders = this.args(parameters.length);
+    const setClause = assignments
+      .map((column, index) => `${this.q(column)} = ${placeholders[index]}`)
+      .join(', ');
+    const [storeParam, idParam, versionParam] = placeholders.slice(assignments.length);
+
+    const affected = await this.executeUpdate(
+      `UPDATE ${this.q(TABLE)}
+          SET ${setClause}, ${this.q('updated_at')} = CURRENT_TIMESTAMP(3)
+        WHERE ${this.q('store_id')} = ${storeParam}
+          AND ${this.q('id')} = ${idParam}
+          AND ${this.q('version')} = ${versionParam}
+          AND ${this.q('deleted_at')} IS NULL`,
+      parameters,
     );
 
-    if (rows.length === 0) {
+    if (affected === 0) {
       throw new StaleWriteError('Product', product.id, expectedVersion, product.version);
     }
     return product;
   }
 
+  /**
+   * How many rows the versioned UPDATE matched. Postgres answers with RETURNING;
+   * MySQL answers with affectedRows from the driver.
+   *
+   * Re-reading the row to answer this is NOT equivalent and was wrong here
+   * before: by the time the loser re-reads, the winner has already written the
+   * very version the loser expected, so the check passes and a lost update goes
+   * unnoticed.
+   */
+  private async executeUpdate(sql: string, parameters: unknown[]): Promise<number> {
+    if (this.dialect.name === 'postgres') {
+      const rows = await this.executor.query<{ id: string }>(
+        `${sql} RETURNING ${this.q('id')}`,
+        parameters,
+      );
+      return rows.length;
+    }
+
+    const writable = this.executor as QueryExecutor & {
+      execute?: (sql: string, parameters: readonly unknown[]) => Promise<{ affectedRows: number }>;
+    };
+    if (typeof writable.execute !== 'function') {
+      throw new Error(
+        'This executor cannot report affected rows, so optimistic concurrency cannot be enforced. ' +
+          'Use MysqlExecutor, which implements execute().',
+      );
+    }
+    const result = await writable.execute(sql, parameters);
+    return result.affectedRows;
+  }
+
   async softDelete(id: string): Promise<void> {
+    const [p1, p2] = this.args(2);
     await this.executor.query(
-      `UPDATE ${TABLE} SET deleted_at = now() WHERE store_id = $1 AND id = $2`,
+      `UPDATE ${this.q(TABLE)} SET ${this.q('deleted_at')} = CURRENT_TIMESTAMP(3) WHERE ${this.q('store_id')} = ${p1} AND ${this.q('id')} = ${p2}`,
       [this.storeId(), id],
     );
   }
@@ -175,17 +248,25 @@ function toDomain(row: ProductRow): Product {
     status: row.status as Product['status'],
     vendor: row.vendor,
     productType: row.product_type,
-    price: money(BigInt(row.price_amount_minor), row.price_currency),
+    price: money(BigInt(row.price_amount_minor ?? '0'), row.price_currency ?? 'USD'),
     compareAtPrice:
-      row.compare_at_amount_minor === null
+      row.compare_at_price_amount_minor === null || row.compare_at_price_amount_minor === undefined
         ? null
-        : money(BigInt(row.compare_at_amount_minor), row.price_currency),
+        : money(
+            BigInt(row.compare_at_price_amount_minor),
+            row.compare_at_price_currency ?? row.price_currency ?? 'USD',
+          ),
     costPerItem:
-      row.cost_amount_minor === null ? null : money(BigInt(row.cost_amount_minor), row.price_currency),
+      row.cost_per_item_amount_minor === null || row.cost_per_item_amount_minor === undefined
+        ? null
+        : money(
+            BigInt(row.cost_per_item_amount_minor),
+            row.cost_per_item_currency ?? row.price_currency ?? 'USD',
+          ),
     variants: [],
     optionNames: [],
     publishedChannels: parseChannels(row.published_channels),
-    version: row.version,
+    version: Number(row.version),
   };
 }
 

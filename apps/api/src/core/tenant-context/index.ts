@@ -10,3 +10,4 @@ export * from './request-context.store';
 export * from './tenant-mismatch';
 export * from './postgres-rls-context';
 export * from './database-isolation.service';
+export * from './query-guard';

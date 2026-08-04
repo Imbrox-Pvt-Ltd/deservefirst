@@ -77,8 +77,10 @@ test('text equality is case-insensitive because users do not think in case', () 
 });
 
 test('comparison operators map to SQL', () => {
-  assert.match(compile('query=price%3A%3E100').sql, /"price" > \$/);
-  assert.match(compile('query=price%3A%3C%3D50').sql, /"price" <= \$/);
+  // Money compares on its integer amount column, never on the currency —
+  // ordering by currency is meaningless and filtering it would match nothing.
+  assert.match(compile('query=price%3A%3E100').sql, /"price_amount_minor" > \$/);
+  assert.match(compile('query=price%3A%3C%3D50').sql, /"price_amount_minor" <= \$/);
   assert.match(compile('query=status%3A%21archived').sql, /"status" <> \$/);
 });
 

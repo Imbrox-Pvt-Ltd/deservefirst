@@ -11,7 +11,8 @@
   "dependencies": {
     "@deservefirst/config": "workspace:*",
     "@deservefirst/contracts": "workspace:*",
-    "typeorm": "^0.3.24"
+    "typeorm": "^0.3.24",
+    "mysql2": "^3.11.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

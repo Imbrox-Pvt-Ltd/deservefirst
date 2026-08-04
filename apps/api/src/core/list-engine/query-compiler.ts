@@ -20,7 +20,13 @@ import {
   type StoreId,
 } from '@deservefirst/contracts';
 
+import {
+  comparableColumnFor,
+  physicalColumnsFor,
+  snakeCase,
+} from '../entity-toolkit/column-mapping';
 import { decodeCursor } from './cursor';
+import { type SqlDialect, postgresDialect } from './dialect';
 
 export interface CompiledQuery {
   readonly sql: string;
@@ -67,17 +73,20 @@ const OPERATOR_SQL: Record<FilterToken['operator'], string> = {
  * Identifiers come from the resource definition, never from user input, but we
  * still validate their shape — defence in depth costs one regex.
  */
-function quoteIdentifier(name: string): string {
+function safeIdentifier(name: string): string {
   if (!/^[a-z_][a-z0-9_]*$/i.test(name)) {
     throw new Error(`Refusing to build SQL with unsafe identifier "${name}"`);
   }
-  return `"${name}"`;
+  return name;
 }
 
+/**
+ * The column a field is filtered and sorted by. Delegates to the shared mapping
+ * so the compiler and the schema builder can never diverge.
+ */
 function columnFor(resource: ResourceDefinition, fieldName: string): string {
-  return fieldName
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase();
+  const field = resource.fields.find((candidate) => candidate.name === fieldName);
+  return field ? comparableColumnFor(field) : snakeCase(fieldName);
 }
 
 export interface CompileOptions {
@@ -87,16 +96,20 @@ export interface CompileOptions {
   readonly query: ListQuery;
   /** Excluded unless asked for — soft-deleted rows are invisible by default. */
   readonly includeDeleted?: boolean;
+  /** Defaults to Postgres, the platform's target database (ADR 0001 D7). */
+  readonly dialect?: SqlDialect;
 }
 
 export function compileListQuery(options: CompileOptions): CompiledQuery {
   const { resource, tableName, storeId, query } = options;
+  const dialect = options.dialect ?? postgresDialect;
   const parameters: unknown[] = [];
   const conditions: string[] = [];
 
+  const quoteIdentifier = (name: string) => dialect.quoteIdentifier(safeIdentifier(name));
   const bind = (value: unknown): string => {
     parameters.push(value);
-    return `$${parameters.length}`;
+    return dialect.placeholder(parameters.length);
   };
 
   // 1. Tenant scope. First predicate, always present, never conditional.
@@ -120,7 +133,7 @@ export function compileListQuery(options: CompileOptions): CompiledQuery {
       // Equality on text filters is case-insensitive; users do not think in case.
       conditions.push(
         filter.operator === ':'
-          ? `lower(${column}) = lower(${bind(filter.value)})`
+          ? dialect.caseInsensitiveEquals(column, bind(filter.value))
           : `${column} ${OPERATOR_SQL[filter.operator]} ${bind(filter.value)}`,
       );
     } else {
@@ -131,9 +144,14 @@ export function compileListQuery(options: CompileOptions): CompiledQuery {
   // 4. Free-text search across the declared searchable fields.
   const searchable = resource.fields.filter((field) => field.searchable);
   if (query.text && searchable.length > 0) {
-    const pattern = bind(`%${query.text}%`);
-    const clauses = searchable.map(
-      (field) => `${quoteIdentifier(columnFor(resource, field.name))} ILIKE ${pattern}`,
+    // Bound once PER CLAUSE. Postgres could reference a single $n repeatedly,
+    // but positional `?` consumes the next parameter at every occurrence — so
+    // sharing one binding produced a placeholder/parameter arity mismatch.
+    const clauses = searchable.map((field) =>
+      dialect.caseInsensitiveLike(
+        quoteIdentifier(columnFor(resource, field.name)),
+        bind(`%${query.text}%`),
+      ),
     );
     conditions.push(`(${clauses.join(' OR ')})`);
   }
@@ -165,10 +183,14 @@ export function compileListQuery(options: CompileOptions): CompiledQuery {
   // 7. Columns. The URL's selectedColumns is a *view* concern; we always select
   //    id and the sort column so cursors can be built regardless of what the
   //    user chose to display.
-  const declared = new Set(resource.fields.map((field) => field.name));
-  const requested = query.columns.filter((name) => declared.has(name));
-  const projected = requested.length > 0 ? requested : resource.fields.map((field) => field.name);
-  const columns = new Set(['id', columnFor(resource, sort.field), ...projected.map((name) => columnFor(resource, name))]);
+  const byName = new Map(resource.fields.map((field) => [field.name, field]));
+  const requested = query.columns.filter((name) => byName.has(name));
+  const projectedFields = requested.length > 0 ? requested : resource.fields.map((field) => field.name);
+  const projectedColumns = projectedFields.flatMap((name) => {
+    const field = byName.get(name);
+    return field ? physicalColumnsFor(field) : [snakeCase(name)];
+  });
+  const columns = new Set(['id', columnFor(resource, sort.field), ...projectedColumns]);
 
   const limit = Math.min(query.limit, MAX_PAGE_SIZE) + 1;
 
@@ -188,13 +210,15 @@ export function compileListQuery(options: CompileOptions): CompiledQuery {
  * the page itself on large tables, so callers opt in rather than pay by default.
  */
 export function compileCountQuery(options: CompileOptions): { sql: string; parameters: readonly unknown[] } {
+  const dialect = options.dialect ?? postgresDialect;
   const compiled = compileListQuery(options);
   const whereStart = compiled.sql.indexOf('WHERE');
   const orderStart = compiled.sql.indexOf('ORDER BY');
   const where = compiled.sql.slice(whereStart, orderStart).trim();
+  const table = dialect.quoteIdentifier(safeIdentifier(options.tableName));
 
   return {
-    sql: `SELECT COUNT(*)::int AS total\nFROM ${quoteIdentifier(options.tableName)}\n${where}`,
+    sql: `SELECT ${dialect.countExpression()} AS total\nFROM ${table}\n${where}`,
     parameters: compiled.parameters,
   };
 }

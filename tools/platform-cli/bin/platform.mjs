@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 import { formatReport, runFitness } from '../../fitness/src/index.mjs';
 import { listModules } from '../../fitness/src/structure.mjs';
+import { dbSync } from '../src/db-sync.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -39,6 +40,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('doctor')} [module]       Validate a module against the Standard
   ${cyan('test')}                  Run the test suite
   ${cyan('ci')}                    build + typecheck + check + test, exactly as CI runs it
+  ${cyan('db:sync')}               Apply the schema derived from every manifest (dev only)
   ${cyan('routes')}                Print the composed route registry
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
@@ -199,6 +201,21 @@ switch (command) {
   case 'ci':
     ci();
     break;
+  case 'db:sync': {
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    dbSync(ROOT, urlArg ? { url: urlArg.slice('--url='.length) } : {})
+      .then((result) => {
+        console.log(
+          green(`\nApplied ${result.applied} statement(s) to ${result.dialect}.`),
+        );
+        for (const table of result.tables) console.log(dim(`  ${table}`));
+      })
+      .catch((error) => {
+        console.error(red(`\ndb:sync failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
   case undefined:
   case '--help':
   case '-h':

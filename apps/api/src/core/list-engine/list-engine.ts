@@ -10,6 +10,7 @@ import type { Connection, ListQuery, ResourceDefinition, StoreId } from '@deserv
 
 import { requireStoreContext } from '../tenant-context/request-context.store';
 import { cursorFor } from './cursor';
+import { type SqlDialect, postgresDialect } from './dialect';
 import { compileCountQuery, compileListQuery } from './query-compiler';
 
 export interface QueryExecutor {
@@ -23,6 +24,8 @@ export interface ListRequest {
   readonly includeDeleted?: boolean;
   /** Counting is opt-in: on a large table it can cost more than the page. */
   readonly withTotalCount?: boolean;
+  /** Defaults to Postgres, the platform's target database (ADR 0001 D7). */
+  readonly dialect?: SqlDialect;
 }
 
 export class ListEngine {
@@ -46,6 +49,7 @@ export class ListEngine {
       storeId,
       query: request.query,
       includeDeleted: request.includeDeleted ?? false,
+      dialect: request.dialect ?? postgresDialect,
     };
 
     const compiled = compileListQuery(options);
