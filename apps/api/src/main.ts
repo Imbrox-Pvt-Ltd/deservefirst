@@ -21,11 +21,14 @@ import {
 } from './core';
 import { AccessDeniedError } from './auth/application';
 import { ProductInvariantError } from './modules/catalog/domain';
+// Aliased: `Request` would collide with the transport's own Request type.
+import { RequestInvariantError, subtotal, type Request as QuoteRequest } from './modules/orders/domain';
 import { bootstrap, newRequestId } from './composition-root';
 import { toProductDto } from './modules/catalog/api/product.controller';
 import {
   moneyFromDecimalString,
   parseListQuery,
+  toDecimalString,
   type OrganizationId,
   type RequestContext,
   type StoreId,
@@ -290,6 +293,122 @@ async function start(): Promise<void> {
     }),
   );
 
+  // --- requests -------------------------------------------------------------
+  // The quoting workflow. Each step is its own endpoint rather than a generic
+  // "set status", because the transitions carry rules — a quote cannot be sent
+  // half-priced, and an expired one cannot be accepted.
+
+  /** The wire shape, including lines, which the generic reader does not load. */
+  const toRequestDto = (request: QuoteRequest) => ({
+    id: request.id,
+    reference: request.reference,
+    customerId: request.customerId,
+    contactEmail: request.contactEmail,
+    contactName: request.contactName,
+    status: request.status,
+    currency: request.currency,
+    note: request.note,
+    quoteExpiresAt: request.quoteExpiresAt,
+    submittedAt: request.submittedAt,
+    version: request.version,
+    subtotal: {
+      amount: toDecimalString(subtotal(request)),
+      currency: request.currency,
+    },
+    lines: request.lines.map((line) => ({
+      id: line.id,
+      productId: line.productId,
+      title: line.title,
+      sku: line.sku,
+      quantity: line.quantity,
+      listPrice: { amount: toDecimalString(line.listPrice), currency: line.listPrice.currency },
+      quotedPrice: line.quotedPrice
+        ? { amount: toDecimalString(line.quotedPrice), currency: line.quotedPrice.currency }
+        : null,
+      note: line.note,
+    })),
+  });
+
+  app.get(`/${API_VERSION}/orders/requests/:id/detail`, async (request, reply) =>
+    withStore(request as never, reply as never, 'orders.read', async (storeId, context) => {
+      const { id } = request.params as { id: string };
+      const found = await platform.requestServiceFor(storeId).get(id);
+      return success(toRequestDto(found), { requestId: context.requestId });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/orders/requests/:id/lines`, async (request, reply) =>
+    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
+      const body = request.body as Record<string, unknown>;
+      const { id } = request.params as { id: string };
+
+      const updated = await platform.requestServiceFor(storeId).addLine(
+        id,
+        {
+          productId: String(body.productId ?? ''),
+          title: String(body.title ?? ''),
+          sku: body.sku === undefined ? null : String(body.sku),
+          quantity: Number(body.quantity ?? 1),
+          listPrice: parseMoney(body.listPrice),
+        },
+        Number(body.version ?? -1),
+      );
+      return success(toRequestDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  app.delete(`/${API_VERSION}/orders/requests/:id/lines/:lineId`, async (request, reply) =>
+    withStore(request as never, reply as never, 'orders.manage', async (storeId, context) => {
+      const { id, lineId } = request.params as { id: string; lineId: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform
+        .requestServiceFor(storeId)
+        .removeLine(id, lineId, Number(body.version ?? -1));
+      return success(toRequestDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  app.post(`/${API_VERSION}/orders/requests/:id/lines/:lineId/quote`, async (request, reply) =>
+    withStore(request as never, reply as never, 'orders.quote', async (storeId, context) => {
+      const { id, lineId } = request.params as { id: string; lineId: string };
+      const body = request.body as Record<string, unknown>;
+      const updated = await platform
+        .requestServiceFor(storeId)
+        .quoteLine(id, lineId, parseMoney(body.price), Number(body.version ?? -1));
+      return success(toRequestDto(updated), { requestId: context.requestId });
+    }),
+  );
+
+  for (const [action, permission] of [
+    ['submit', 'orders.manage'],
+    ['quote', 'orders.quote'],
+    ['accept', 'orders.manage'],
+    ['decline', 'orders.manage'],
+    ['cancel', 'orders.manage'],
+  ] as const) {
+    app.post(`/${API_VERSION}/orders/requests/:id/${action}`, async (request, reply) =>
+      withStore(request as never, reply as never, permission, async (storeId, context) => {
+        const { id } = request.params as { id: string };
+        const body = request.body as Record<string, unknown>;
+        const version = Number(body.version ?? -1);
+        const service = platform.requestServiceFor(storeId);
+
+        const updated =
+          action === 'submit'
+            ? await service.submit(id, version)
+            : action === 'quote'
+              ? await service.sendQuote(id, version)
+              : action === 'accept'
+                ? await service.accept(id, version)
+                : action === 'decline'
+                  ? await service.decline(id, String(body.reason ?? 'no reason given'), version)
+                  : await service.cancel(id, version);
+
+        return success(toRequestDto(updated), { requestId: context.requestId });
+      }),
+    );
+  }
+
   // --- error shape ----------------------------------------------------------
 
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -317,6 +436,18 @@ async function start(): Promise<void> {
       return reply
         .status(422)
         .send(failure([apiError('validation_failed', 'Invalid product', message, error.field)], { requestId }));
+    }
+
+    if (error instanceof RequestInvariantError) {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Cannot do that', message, error.field)], { requestId }));
+    }
+
+    if (name === 'RequestNotFoundError') {
+      return reply
+        .status(404)
+        .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
     }
 
     if (name === 'ProductNotFoundError') {

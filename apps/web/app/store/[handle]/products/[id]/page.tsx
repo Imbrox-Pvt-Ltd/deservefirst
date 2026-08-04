@@ -8,7 +8,7 @@
 
 import { ErrorState } from '../../../../../components/ErrorState';
 import { ProductDetail } from '../../../../../components/ProductDetail';
-import { apiFetch } from '../../../../../lib/api';
+import { apiFetch, isNotFound } from '../../../../../lib/api';
 import type { ProductDto } from '../../../../../lib/types';
 
 const STORE_IDS: Record<string, string> = {
@@ -28,7 +28,7 @@ export default async function ProductDetailPage({
     const response = await apiFetch<ProductDto>(`/catalog/products/${id}`, { storeId });
     return <ProductDetail handle={handle} product={response.data} />;
   } catch (error) {
-    const notFound = error instanceof Error && /not_found|404/.test(error.message);
+    const notFound = isNotFound(error);
     return (
       <ErrorState
         pageTitle="Product"

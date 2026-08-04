@@ -76,3 +76,32 @@ export function formatMoney(money: MoneyDto, locale = 'en-US'): string {
     currency: money.currency,
   }).format(Number(money.amount));
 }
+
+export interface RequestLineDto {
+  readonly id: string;
+  readonly productId: string;
+  readonly title: string;
+  readonly sku: string | null;
+  readonly quantity: number;
+  readonly listPrice: MoneyDto;
+  /** Null until the merchant has priced this line. */
+  readonly quotedPrice: MoneyDto | null;
+  readonly note: string | null;
+}
+
+export interface RequestDto {
+  readonly id: string;
+  readonly reference: string;
+  readonly customerId: string | null;
+  readonly contactEmail: string | null;
+  readonly contactName: string | null;
+  readonly status: 'draft' | 'submitted' | 'quoted' | 'accepted' | 'declined' | 'expired' | 'cancelled';
+  readonly currency: string;
+  readonly note: string | null;
+  readonly quoteExpiresAt: string | null;
+  readonly submittedAt: string | null;
+  readonly version: number;
+  /** Quoted where quoted, list otherwise. Deliberately not a total: no tax. */
+  readonly subtotal: MoneyDto;
+  readonly lines: readonly RequestLineDto[];
+}

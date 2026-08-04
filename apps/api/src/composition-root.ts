@@ -39,6 +39,8 @@ import {
 import { catalogManifest } from './modules/catalog/catalog.manifest';
 import { customersManifest } from './modules/customers/customers.manifest';
 import { ordersManifest } from './modules/orders/orders.manifest';
+import { RequestService } from './modules/orders/application';
+import { SqlRequestRepository } from './modules/orders/infrastructure';
 import { ProductService } from './modules/catalog/application';
 import { createToolkitPorts, ProductRepositoryImpl } from './modules/catalog/infrastructure';
 
@@ -55,6 +57,7 @@ export interface Platform {
   readonly products: ProductRepositoryImpl;
   /** Built per request: the service is scoped to whichever store is active. */
   productServiceFor(storeId: string): ProductService;
+  requestServiceFor(storeId: string): RequestService;
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
 }
@@ -141,6 +144,19 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Product',
   });
 
+  const requests = new SqlRequestRepository(executor, dialect);
+  const requestToolkit = createToolkitPorts({
+    executor,
+    events,
+    dialect,
+    ownerEntity: 'Request',
+  });
+
+  /** Store settings, from the registry's declared defaults until storage exists. */
+  const settingDefaults = new Map(
+    registry.settings().map((entry) => [entry.item.key, entry.item.defaultValue]),
+  );
+
   // 5. Compose the API surface. Throws on collision rather than picking a winner.
   composeApiRoutes(registry);
   const routes = buildRouteRegistry(registry);
@@ -160,6 +176,15 @@ export async function bootstrap(): Promise<Platform> {
     // worker outside a request can build one too.
     productServiceFor: (storeId) =>
       new ProductService(products, toolkitPorts, storeId as never),
+    requestServiceFor: (storeId) =>
+      new RequestService(
+        requests,
+        {
+          ...requestToolkit,
+          setting: async (key, fallback) => (settingDefaults.get(key) as never) ?? fallback,
+        },
+        storeId as never,
+      ),
     routes,
     shutdown: async () => {
       await pool.end();

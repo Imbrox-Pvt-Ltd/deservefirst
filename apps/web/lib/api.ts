@@ -71,3 +71,17 @@ export function withSearch(path: string, search: URLSearchParams | string): stri
   const query = typeof search === 'string' ? search : search.toString();
   return query ? `${path}?${query}` : path;
 }
+
+/**
+ * Whether a failure was a missing resource. Screens previously pattern-matched
+ * the message, which is fragile and was already wrong: the API's detail string
+ * says "No request with id …", containing neither "404" nor "not_found". The
+ * typed code was there the whole time.
+ */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'not_found';
+}
+
+export function isForbidden(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === 'forbidden' || error.code === 'not_entitled');
+}
