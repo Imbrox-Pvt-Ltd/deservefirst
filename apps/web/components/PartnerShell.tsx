@@ -50,6 +50,7 @@ export function PartnerShell({
     const items = [
       { id: 'overview', label: 'Overview', path: base, permission: 'partner.read' },
       { id: 'stores', label: 'Client stores', path: `${base}/stores`, permission: 'partner.read' },
+      { id: 'apps', label: 'Apps', path: `${base}/apps`, permission: 'partner.read' },
     ];
 
     // Only an owner can change who works here, so only an owner is shown the

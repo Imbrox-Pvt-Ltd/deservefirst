@@ -51,6 +51,38 @@ export interface PermissionDeclaration {
   readonly categories: readonly string[];
 }
 
+/**
+ * A scope a third-party app may ask a merchant for.
+ *
+ * Deliberately a different vocabulary from staff permissions: a merchant
+ * granting an app access is answering a different question from a merchant
+ * giving an employee a role, and one list serving both ends up phrased for
+ * neither. Apps get coarse, legible scopes; staff get fine-grained permissions.
+ *
+ * They are different vocabularies but NOT different enforcement. `grants` maps
+ * the scope onto the store permissions it implies, and an app's token carries
+ * those permissions past the edge — so every authorisation check downstream is
+ * the same check, whoever is calling. A second parallel mechanism for apps is
+ * how one of the two ends up missing a rule the other has.
+ */
+export interface ApiScopeDeclaration {
+  /** The string an app requests, e.g. `read_products`. */
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  /** Grouping for the consent screen: API family → feature → scope. */
+  readonly family: string;
+  readonly feature: string;
+  readonly access: 'read' | 'write';
+  /** Store permissions this scope implies once granted. */
+  readonly grants: readonly string[];
+  /**
+   * True when the platform must approve the app before a merchant may be asked
+   * for it — customer PII and payment data, not product titles.
+   */
+  readonly restricted?: boolean;
+}
+
 /** A UI route contributed by the module. Screens map to §8.3 templates. */
 export interface RouteDeclaration {
   readonly path: string;
@@ -256,6 +288,8 @@ export interface ModuleManifest {
   readonly navigation?: readonly NavigationDeclaration[];
   readonly settings?: readonly SettingDeclaration[];
   readonly permissions?: readonly PermissionDeclaration[];
+  /** Scopes third-party apps may request against this module (§23.2). */
+  readonly apiScopes?: readonly ApiScopeDeclaration[];
   readonly events?: readonly EventDeclaration[];
   readonly webhooks?: readonly WebhookDeclaration[];
   readonly jobs?: readonly JobDeclaration[];

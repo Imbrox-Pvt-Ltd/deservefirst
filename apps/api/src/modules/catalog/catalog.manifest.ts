@@ -205,6 +205,21 @@ export const catalogManifest: ModuleManifest = {
     },
   ],
 
+  apiScopes: [
+    {
+      key: 'read_products', label: 'View products', family: 'Admin API', feature: 'Products',
+      access: 'read', description: 'Read products, variants and collections.',
+      grants: ['catalog.read'],
+    },
+    {
+      key: 'write_products', label: 'Manage products', family: 'Admin API', feature: 'Products',
+      access: 'write', description: 'Create and change products, variants and collections.',
+      // Write implies read: an app that can change a product but not read one
+      // would have to guess at what it is changing.
+      grants: ['catalog.read', 'catalog.write', 'catalog.publish'],
+    },
+  ],
+
   events: [
     {
       type: 'catalog.product.created',

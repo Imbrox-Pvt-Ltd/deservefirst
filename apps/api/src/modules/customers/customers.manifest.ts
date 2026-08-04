@@ -175,6 +175,28 @@ export const customersManifest: ModuleManifest = {
     },
   ],
 
+  apiScopes: [
+    {
+      key: 'read_customers', label: 'View customers', family: 'Admin API', feature: 'Customers',
+      access: 'read', description: 'Read customer records, without contact details.',
+      grants: ['customers.read'],
+    },
+    {
+      key: 'write_customers', label: 'Manage customers', family: 'Admin API', feature: 'Customers',
+      access: 'write', description: 'Create and change customer records.',
+      grants: ['customers.read', 'customers.manage'],
+    },
+    {
+      key: 'read_customer_contact', label: 'View customer contact details',
+      family: 'Admin API', feature: 'Customers', access: 'read',
+      description: 'Read customer email addresses and phone numbers.',
+      // Separate from read_customers, and restricted, because this is the line
+      // between "works with your catalogue" and "has your customer list".
+      restricted: true,
+      grants: ['customers.read', 'customers.pii.read'],
+    },
+  ],
+
   events: [
     { type: 'customers.customer.created', version: 1, label: 'Customer created', description: 'A customer record was created.', direction: 'emits' },
     { type: 'customers.customer.updated', version: 1, label: 'Customer updated', description: 'A customer record changed.', direction: 'emits' },

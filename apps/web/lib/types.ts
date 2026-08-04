@@ -429,3 +429,40 @@ export interface PartnerStaffDto {
   readonly role: 'owner' | 'admin' | 'member';
   readonly status: 'active' | 'invited' | 'removed';
 }
+
+export interface AppScopeDto {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  readonly family: string;
+  readonly feature: string;
+  readonly access: 'read' | 'write';
+  readonly grants: readonly string[];
+  readonly restricted: boolean;
+}
+
+export interface InstalledAppDto {
+  readonly id: string;
+  readonly appId: string;
+  readonly appName: string;
+  readonly appHandle: string;
+  readonly status: 'installed' | 'uninstalled';
+  readonly grantedScopes: readonly string[];
+  /** Each granted scope resolved to what it actually opens. */
+  readonly scopeDetail: readonly Omit<AppScopeDto, 'grants' | 'family'>[];
+  readonly installedAt: string;
+  readonly uninstalledAt: string | null;
+}
+
+export interface PartnerAppDto {
+  readonly id: string;
+  readonly name: string;
+  readonly handle: string;
+  readonly status: 'draft' | 'published' | 'suspended';
+  readonly distribution: 'public' | 'custom';
+  readonly appUrl: string | null;
+  readonly redirectUris: readonly string[];
+  readonly requestedScopes: readonly string[];
+  readonly clientId: string;
+  readonly version: number;
+}

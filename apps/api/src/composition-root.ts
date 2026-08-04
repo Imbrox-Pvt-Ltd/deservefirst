@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { loadPlatformConfig } from '@deservefirst/config';
 
 import { authManifest } from './auth/auth.manifest';
+import { appsManifest } from './apps/apps.manifest';
 import { platformManifest } from './core/platform.manifest';
 import { AccessEvaluator, AuthService } from './auth/application';
 import {
@@ -58,6 +59,9 @@ import {
 import { PartnerService } from './auth/application/partner-service';
 import { SqlPartnerRepository } from './auth/infrastructure/partner.repository';
 import { partnerController } from './auth/api/partner.controller';
+import { AppService, type ScopeCatalogEntry } from './apps/application';
+import { SqlAppRepository } from './apps/infrastructure';
+import { appsController } from './apps/api';
 import { catalogController } from './modules/catalog/api/catalog.controller';
 import { catalogMetrics } from './modules/catalog/api/catalog.metrics';
 import { contentMetrics } from './modules/content/api/content.metrics';
@@ -131,6 +135,10 @@ export interface Platform {
   readonly identity: SqlIdentityRepository;
   /** Partners, their staff, and their grants into client stores. */
   readonly partners: PartnerService;
+  /** Third-party apps: registry, install lifecycle and token resolution. */
+  readonly apps: AppService;
+  /** Every app scope the installed modules declare (§23.2). */
+  scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
   /**
    * Turns a session id into who the caller is and what they may do.
@@ -179,6 +187,7 @@ export async function bootstrap(): Promise<Platform> {
   registry.register(ordersManifest);
   registry.register(contentManifest);
   registry.register(inventoryManifest);
+  registry.register(appsManifest);
   registry.seal();
 
   // 2. Database. The dialect follows the URL scheme, so moving to Postgres is a
@@ -278,6 +287,36 @@ export async function bootstrap(): Promise<Platform> {
   });
 
   const identity = new SqlIdentityRepository(executor, dialect);
+
+  /**
+   * The scope vocabulary, read off the manifests every time.
+   *
+   * Not captured at boot: `full` and `read_*` have to mean what the installed
+   * modules say TODAY, and a snapshot would quietly deny an app a scope its
+   * module already declares.
+   */
+  const scopeCatalog = (): readonly ScopeCatalogEntry[] =>
+    registry.all().flatMap((entry) =>
+      (entry.manifest.apiScopes ?? []).map((scope) => ({
+        key: scope.key,
+        label: scope.label,
+        description: scope.description,
+        family: scope.family,
+        feature: scope.feature,
+        access: scope.access,
+        grants: scope.grants,
+        restricted: scope.restricted === true,
+      })),
+    );
+
+  const appRecords = new SqlAppRepository(executor, dialect);
+  const appService = new AppService({
+    apps: appRecords,
+    scopeCatalog,
+    publish: async (event) => {
+      await events.emit(event.type, event.payload);
+    },
+  });
   const partnerRecords = new SqlPartnerRepository(executor, dialect);
   const partnerService = new PartnerService({
     partners: partnerRecords,
@@ -495,6 +534,8 @@ export async function bootstrap(): Promise<Platform> {
     webhookDeliveries,
     identity,
     partners: partnerService,
+    apps: appService,
+    scopeCatalog,
     auth,
 
     resolveSession: async (sessionId) => {
@@ -605,6 +646,7 @@ export async function bootstrap(): Promise<Platform> {
       }),
       // The merchant's half of the partner gate: store-scoped, so it mounts with
       // the modules. The partner's own half is not store-scoped and does not.
+      appsController({ apps: appService }),
       partnerController({
         partners: partnerService,
         grantablePermissions: () =>

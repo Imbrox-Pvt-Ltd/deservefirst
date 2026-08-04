@@ -27,6 +27,8 @@ import { inventoryController } from './modules/inventory/api/inventory.controlle
 import { ordersController } from './modules/orders/api/orders.controller';
 import { webhooksController } from './core/webhooks/webhooks.controller';
 import { partnerController } from './auth/api/partner.controller';
+import { appsController } from './apps/api/apps.controller';
+import { appsManifest } from './apps/apps.manifest';
 
 /**
  * Stands in for a module's services while its routes are read.
@@ -60,6 +62,7 @@ export function describePlatform(): {
     ordersManifest,
     contentManifest,
     inventoryManifest,
+    appsManifest,
   ]) {
     registry.register(manifest);
   }
@@ -77,6 +80,7 @@ export function describePlatform(): {
       // most — they are how a partner receives anything at all.
       webhooksController(unused),
       partnerController(unused),
+      appsController(unused),
     ],
   };
 }

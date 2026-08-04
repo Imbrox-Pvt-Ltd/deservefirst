@@ -17,12 +17,14 @@ import type {
   ResolvedSettingDto,
   SettingDto,
   SettingSource,
+  InstalledAppDto,
   PartnerAccessDto,
   WebhookDeliveryDto,
   WebhookSubscriptionDto,
 } from '../lib/types';
 import { WebhookSettings } from './WebhookSettings';
 import { PartnerAccessSettings } from './PartnerAccessSettings';
+import { InstalledApps } from './InstalledApps';
 import { resetSetting, saveSetting } from '../app/actions/settings';
 import {
   Badge,
@@ -54,6 +56,8 @@ export interface StoreSettingsProps {
   readonly partnerAccess: readonly PartnerAccessDto[];
   readonly grantable: readonly { key: string; label: string }[];
   readonly canManagePartners: boolean;
+  readonly installedApps: readonly InstalledAppDto[];
+  readonly canManageApps: boolean;
 }
 
 /** Core settings that exist regardless of which modules are installed. */
@@ -100,6 +104,8 @@ export function StoreSettings({
   partnerAccess,
   grantable,
   canManagePartners,
+  installedApps,
+  canManageApps,
   contributed,
   effective,
 }: StoreSettingsProps) {
@@ -195,6 +201,10 @@ export function StoreSettings({
         />
       ) : null}
 
+      {section === 'apps' ? (
+        <InstalledApps handle={handle} installed={installedApps} canManage={canManageApps} />
+      ) : null}
+
       {section === 'organization-account' ? (
         <PartnerAccessSettings
           handle={handle}
@@ -204,7 +214,10 @@ export function StoreSettings({
         />
       ) : null}
 
-      {bySection.size === 0 && section !== 'notifications' && section !== 'organization-account' ? (
+      {bySection.size === 0 &&
+      section !== 'notifications' &&
+      section !== 'organization-account' &&
+      section !== 'apps' ? (
         <SettingsCard title={sectionTitle(section)}>
           <Text as="p" tone="subdued">
             No settings are contributed to this section yet. Modules declare a settings schema

@@ -44,10 +44,26 @@ export function manifestsOf(root) {
     }
   };
 
-  // Core owns the operator tables and declares them like any module.
+  // Core owns the operator tables and declares them like any module. Named
+  // explicitly because it is the one manifest whose file is not <dir>.manifest.
   load(join(root, 'apps/api/dist/core/platform.manifest.js'), ['platformManifest']);
-  // Auth is a first-class sibling of modules/ (§3), discovered explicitly.
-  load(join(root, 'apps/api/dist/auth/auth.manifest.js'), ['authManifest']);
+
+  /**
+   * Platform capabilities that sit BESIDE modules/ — auth, apps (§3).
+   *
+   * Discovered by convention rather than listed. They were listed, and the
+   * consequence was quiet: a new capability's manifest was simply not seen, so
+   * `db:sync` created none of its tables and the first insert failed with
+   * "unknown table" a long way from the declaration. Any `x/x.manifest.js`
+   * beside modules/ is found now, so adding one is one file, not two.
+   */
+  const distDir = join(root, 'apps/api/dist');
+  if (existsSync(distDir)) {
+    for (const name of readdirSync(distDir)) {
+      if (name === 'core' || name === 'modules') continue;
+      load(join(distDir, name, `${name}.manifest.js`), [`${name}Manifest`]);
+    }
+  }
 
   const modulesDir = join(root, 'apps/api/dist/modules');
   if (existsSync(modulesDir)) {

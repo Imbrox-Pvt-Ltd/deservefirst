@@ -196,6 +196,19 @@ export const inventoryManifest: ModuleManifest = {
     },
   ],
 
+  apiScopes: [
+    {
+      key: 'read_inventory', label: 'View inventory', family: 'Admin API', feature: 'Inventory',
+      access: 'read', description: 'Read stock levels, locations and transfers.',
+      grants: ['inventory.read'],
+    },
+    {
+      key: 'write_inventory', label: 'Manage inventory', family: 'Admin API', feature: 'Inventory',
+      access: 'write', description: 'Adjust stock and manage transfers and purchase orders.',
+      grants: ['inventory.read', 'inventory.adjust', 'inventory.manage'],
+    },
+  ],
+
   events: [
     { type: 'inventory.level.adjusted', version: 1, label: 'Stock adjusted', description: 'On-hand changed at a location; catalog listens to update its denormalised quantity.', direction: 'emits' },
     { type: 'inventory.purchase-order.received', version: 1, label: 'Purchase order received', description: 'Stock arrived from a supplier.', direction: 'emits' },

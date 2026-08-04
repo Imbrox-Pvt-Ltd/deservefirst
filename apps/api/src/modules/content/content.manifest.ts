@@ -113,6 +113,19 @@ export const contentManifest: ModuleManifest = {
     { key: 'content.definitions.manage', label: 'Manage content types', description: 'Define new content types and their fields.', categories: ['organization'] },
   ],
 
+  apiScopes: [
+    {
+      key: 'read_content', label: 'View content', family: 'Admin API', feature: 'Content',
+      access: 'read', description: 'Read pages and metaobject entries.',
+      grants: ['content.read'],
+    },
+    {
+      key: 'write_content', label: 'Manage content', family: 'Admin API', feature: 'Content',
+      access: 'write', description: 'Create and change pages and metaobject entries.',
+      grants: ['content.read', 'content.manage', 'content.publish'],
+    },
+  ],
+
   events: [
     { type: 'content.page.published', version: 1, label: 'Page published', description: 'A page became publicly visible; SEO updates the sitemap.', direction: 'emits' },
     { type: 'content.page.unpublished', version: 1, label: 'Page unpublished', description: 'A page was hidden.', direction: 'emits' },

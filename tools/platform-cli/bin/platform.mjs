@@ -29,9 +29,16 @@ const TEST_GLOBS = [
   'packages/**/tests/**/*.test.mjs',
   'apps/api/tests/**/*.test.mjs',
   'apps/api/src/modules/**/tests/**/*.test.mjs',
-  // auth is a sibling of modules/, not inside it — omitting this silently
-  // excluded the platform's most security-critical tests from CI.
-  'apps/api/src/auth/tests/**/*.test.mjs',
+  /**
+   * Platform capabilities that sit BESIDE modules/ — auth, apps.
+   *
+   * A wildcard rather than one line per capability. This was a list, and it
+   * silently excluded auth's tests until somebody noticed; the fix at the time
+   * was to add auth to the list, so when `apps` arrived — with the OAuth rules
+   * on it — its tests were silently excluded too, and CI stayed green while
+   * running none of them. A list that has failed this way twice is not a list.
+   */
+  'apps/api/src/*/tests/**/*.test.mjs',
 ];
 
 const cyan = (text) => `[36m${text}[0m`;

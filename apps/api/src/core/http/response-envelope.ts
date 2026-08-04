@@ -76,6 +76,17 @@ export const ERROR_CODES = {
   CONFLICT: 'conflict',
   PRECONDITION_FAILED: 'precondition_failed',
   INTERNAL: 'internal_error',
+
+  // OAuth. Named as the specification names them, because an integrator's
+  // client library switches on these exact strings and inventing our own
+  // spelling means every one of them needs a special case for us.
+  INVALID_TOKEN: 'invalid_token',
+  INVALID_CLIENT: 'invalid_client',
+  INVALID_GRANT: 'invalid_grant',
+  INVALID_SCOPE: 'invalid_scope',
+  INVALID_REDIRECT_URI: 'invalid_redirect_uri',
+  APP_SUSPENDED: 'app_suspended',
+  APP_NOT_PUBLISHED: 'app_not_published',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -91,6 +102,13 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   conflict: 409,
   precondition_failed: 412,
   internal_error: 500,
+  invalid_token: 401,
+  invalid_client: 401,
+  invalid_grant: 400,
+  invalid_scope: 400,
+  invalid_redirect_uri: 400,
+  app_suspended: 403,
+  app_not_published: 403,
 };
 
 export function apiError(

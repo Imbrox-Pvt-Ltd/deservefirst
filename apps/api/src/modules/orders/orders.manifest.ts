@@ -163,6 +163,19 @@ export const ordersManifest: ModuleManifest = {
     },
   ],
 
+  apiScopes: [
+    {
+      key: 'read_orders', label: 'View orders', family: 'Admin API', feature: 'Orders',
+      access: 'read', description: 'Read orders and requests.',
+      grants: ['orders.read'],
+    },
+    {
+      key: 'write_orders', label: 'Manage orders', family: 'Admin API', feature: 'Orders',
+      access: 'write', description: 'Create and change orders and requests.',
+      grants: ['orders.read', 'orders.manage', 'orders.quote'],
+    },
+  ],
+
   events: [
     { type: 'orders.request.submitted', version: 1, label: 'Request submitted', description: 'A buyer submitted a request for quote.', direction: 'emits' },
     { type: 'orders.request.quoted', version: 1, label: 'Request quoted', description: 'A merchant sent a quote.', direction: 'emits' },

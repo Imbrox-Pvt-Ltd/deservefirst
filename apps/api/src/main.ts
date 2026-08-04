@@ -22,6 +22,7 @@ import {
   withRequestContext,
 } from './core';
 import { AccessDeniedError } from './auth/application';
+import type { ErrorCode } from './core/http/response-envelope';
 import { ProductInvariantError } from './modules/catalog/domain';
 // Aliased: `Request` would collide with the transport's own Request type.
 import { RequestInvariantError, subtotal, type Request as QuoteRequest } from './modules/orders/domain';
@@ -57,6 +58,21 @@ import {
   type StoreId,
   type UserId,
 } from '@deservefirst/contracts';
+
+/**
+ * A bearer token that did not resolve.
+ *
+ * Its message says what to do rather than which of expired / revoked /
+ * uninstalled it was: distinguishing them for an unauthenticated caller tells
+ * somebody holding a stolen token exactly how stale it is.
+ */
+class InvalidTokenError extends Error {
+  readonly status = 401;
+  constructor() {
+    super('This access token is not valid. It may have expired, been revoked, or the app may have been uninstalled.');
+    this.name = 'InvalidTokenError';
+  }
+}
 
 /** Dated API version (§13.6). */
 const API_VERSION = '2026-01';
@@ -158,6 +174,40 @@ async function start(): Promise<void> {
       roleKeys: [],
       permissions: [],
     };
+
+    /**
+     * A bearer token means an app is calling.
+     *
+     * Checked BEFORE the session cookie, because an app's request may carry
+     * both — a browser embedding an app sends its cookies too, and resolving
+     * the cookie first would silently run the app's request as the person
+     * looking at it, with THEIR permissions rather than the app's scopes.
+     *
+     * Past this point nothing downstream knows the difference. The app arrives
+     * as a caller with permissions, so every authorisation check further in is
+     * the same check it always was.
+     */
+    const bearer = /^Bearer\s+(.+)$/i.exec(header('authorization') ?? '')?.[1]?.trim();
+    if (bearer) {
+      const caller = await platform.apps.resolveToken(bearer);
+      // Not a fall-through to anonymous. A token that does not resolve is
+      // expired, revoked, or for an app that was uninstalled — and every one of
+      // those is a thing the app's author needs told plainly. Falling through
+      // reported "no store selected", which sends them to debug the wrong end.
+      if (!caller) throw new InvalidTokenError();
+
+      return {
+        ...base,
+        actorType: 'app',
+        // The store comes from the TOKEN, never from a header. A token issued
+        // for one store cannot be pointed at another by changing a request.
+        storeId: caller.storeId,
+        userId: caller.userId as UserId | null,
+        organizationId: null,
+        roleKeys: [],
+        permissions: [...caller.permissions],
+      };
+    }
 
     const sessionId = openSessionCookie(sessionSecret, cookieFrom(header('cookie')));
     if (!sessionId) return anonymous;
@@ -481,6 +531,196 @@ async function start(): Promise<void> {
       storeId as StoreId,
     );
     return success({ id: link.id, status: link.status }, { requestId: context.requestId });
+  });
+
+  // --- OAuth, and the partner's app registry ---------------------------------
+  //
+  // The token endpoint is the only route on the platform that is authenticated
+  // by a client secret rather than a session, because the caller is a server
+  // somewhere else with no browser and no cookie. It is deliberately the ONLY
+  // one: every other app request arrives as a bearer token, which `contextFor`
+  // turns back into an ordinary caller with permissions.
+
+  app.get(`/${API_VERSION}/oauth/authorize`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+    if (context.storeId === null) {
+      return reply.status(400).send(
+        failure(
+          [apiError('validation_failed', 'No store selected', 'Choose a store before installing an app.')],
+          { requestId: context.requestId },
+        ),
+      );
+    }
+
+    const query = new URL(request.url, 'http://internal').searchParams;
+    const preview = await platform.apps.beginAuthorization({
+      clientId: query.get('client_id') ?? '',
+      redirectUri: query.get('redirect_uri') ?? '',
+      scopes: (query.get('scope') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      storeId: context.storeId,
+    });
+
+    // Describes the consent, and grants nothing. Opening a link is not consent.
+    return success(
+      {
+        app: {
+          id: preview.app.id,
+          name: preview.app.name,
+          handle: preview.app.handle,
+          appUrl: preview.app.appUrl,
+        },
+        scopes: preview.scopes,
+        alreadyInstalled: preview.alreadyInstalled,
+      },
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/oauth/authorize`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+    if (context.storeId === null) {
+      return reply.status(400).send(
+        failure(
+          [apiError('validation_failed', 'No store selected', 'Choose a store before installing an app.')],
+          { requestId: context.requestId },
+        ),
+      );
+    }
+
+    // The merchant's own permission. Installing software that can read the
+    // customer list is not something every staff account should be able to do.
+    await platform.access.assert({
+      context,
+      permission: 'store.apps.manage',
+      moduleId: 'apps',
+    });
+
+    const body = request.body as Record<string, unknown>;
+    const granted = await platform.apps.grantAuthorization({
+      clientId: String(body.clientId ?? ''),
+      redirectUri: String(body.redirectUri ?? ''),
+      scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : [],
+      storeId: context.storeId,
+      userId: context.userId as string,
+      tokenType: body.tokenType === 'online' ? 'online' : 'offline',
+    });
+
+    return success(granted, { requestId: context.requestId });
+  });
+
+  /**
+   * The token exchange. No session — the caller is the app's own server.
+   *
+   * Errors here are returned, never redirected: sending an error to a URI we
+   * have not verified is the same disclosure as sending a code there.
+   */
+  app.post(`/${API_VERSION}/oauth/token`, async (request, reply) => {
+    const body = request.body as Record<string, unknown>;
+    const issued = await platform.apps.exchangeCode({
+      clientId: String(body.client_id ?? body.clientId ?? ''),
+      clientSecret: String(body.client_secret ?? body.clientSecret ?? ''),
+      code: String(body.code ?? ''),
+      redirectUri: String(body.redirect_uri ?? body.redirectUri ?? ''),
+    });
+
+    return reply.send({
+      access_token: issued.accessToken,
+      token_type: 'Bearer',
+      scope: issued.scopes.join(','),
+      expires_at: issued.expiresAt?.toISOString() ?? null,
+    });
+  });
+
+  /** Every scope any installed module exposes, for the app registration form. */
+  app.get(`/${API_VERSION}/oauth/scopes`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+    return success(platform.scopeCatalog(), { requestId: context.requestId });
+  });
+
+  app.get(`/${API_VERSION}/partners/:partnerId/apps`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    // Proves the caller works at this partner before anything is returned.
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const registered = await platform.apps.appsForPartner(partnerId);
+    return success(
+      registered.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        handle: entry.handle,
+        status: entry.status,
+        distribution: entry.distribution,
+        appUrl: entry.appUrl,
+        redirectUris: entry.redirectUris,
+        requestedScopes: entry.requestedScopes,
+        clientId: entry.clientId,
+        // The secret is not here, and there is no endpoint that returns it.
+        version: entry.version,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/apps`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId } = request.params as { partnerId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    const { app: registered, clientSecret } = await platform.apps.register({
+      partnerId,
+      name: String(body.name ?? ''),
+      handle: String(body.handle ?? ''),
+      appUrl: typeof body.appUrl === 'string' ? body.appUrl : null,
+      redirectUris: Array.isArray(body.redirectUris) ? (body.redirectUris as string[]) : [],
+      requestedScopes: Array.isArray(body.requestedScopes) ? (body.requestedScopes as string[]) : [],
+      distribution: body.distribution === 'custom' ? 'custom' : 'public',
+    });
+
+    return reply.status(201).send(
+      success(
+        {
+          id: registered.id,
+          name: registered.name,
+          handle: registered.handle,
+          clientId: registered.clientId,
+          // Shown once, here, and never again.
+          clientSecret,
+          version: registered.version,
+        },
+        { requestId: context.requestId },
+      ),
+    );
+  });
+
+  app.patch(`/${API_VERSION}/partners/:partnerId/apps/:appId`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    const updated = await platform.apps.updateApp(appId, partnerId, {
+      name: typeof body.name === 'string' ? body.name : undefined,
+      status: body.status as 'draft' | 'published' | 'suspended' | undefined,
+      appUrl: body.appUrl === undefined ? undefined : (body.appUrl as string | null),
+      redirectUris: Array.isArray(body.redirectUris) ? (body.redirectUris as string[]) : undefined,
+      requestedScopes: Array.isArray(body.requestedScopes)
+        ? (body.requestedScopes as string[])
+        : undefined,
+      version: Number(body.version ?? 0),
+    });
+
+    return success({ id: updated.id, version: updated.version }, { requestId: context.requestId });
   });
 
   // --- platform reflection (§36.1) -----------------------------------------
@@ -836,6 +1076,32 @@ async function start(): Promise<void> {
     const status = (error as { status?: number }).status ?? 500;
     const name = (error as { name?: string }).name ?? 'Error';
     const message = (error as { message?: string }).message ?? 'Unknown error';
+
+    if (name === 'InvalidTokenError') {
+      return reply
+        .status(401)
+        .send(failure([apiError('invalid_token', 'Invalid access token', message)], { requestId }));
+    }
+
+    // OAuth errors carry their own code, which is what an integrator's client
+    // library switches on. Flattening them to "validation_failed" would make
+    // every failure in the flow look the same from the outside.
+    if (name === 'OAuthError') {
+      return reply
+        .status((error as { status?: number }).status ?? 400)
+        .send(
+          failure(
+            [apiError((error as { code: ErrorCode }).code, 'Authorization failed', message)],
+            { requestId },
+          ),
+        );
+    }
+
+    if (name === 'AppRuleError') {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Refused', message, (error as { field?: string }).field)], { requestId }));
+    }
 
     if (error instanceof AccessDeniedError) {
       const code = error.decision.reason === 'not-entitled' ? 'not_entitled' : 'forbidden';

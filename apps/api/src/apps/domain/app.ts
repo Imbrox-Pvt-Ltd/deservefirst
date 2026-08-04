@@ -1,0 +1,337 @@
+/**
+ * Apps · domain/app.ts
+ * Third-party apps, and the rules that make installing one safe.
+ *
+ * OAuth is easy to make work and easy to make wrong, and the wrong versions
+ * pass every happy-path test. The failures that matter here are all "it worked,
+ * and it also did something else":
+ *
+ *   - a redirect URI matched by prefix, so `https://app.test.evil.com` passes a
+ *     check written for `https://app.test` and the code lands on the attacker
+ *   - an authorization code that can be exchanged twice, so anyone who captures
+ *     one from a log or a referrer gets a token of their own
+ *   - a token issued with the scopes the APP asked for at exchange time rather
+ *     than the ones the MERCHANT approved at install time
+ *   - an uninstall that removes a row but leaves live tokens working
+ *
+ * Each of those is a one-line difference from the correct version. They are
+ * written here as rules rather than left to the service, because the service is
+ * where a hurried change goes.
+ * Layer: domain (pure).
+ */
+
+import type { StoreId } from '@deservefirst/contracts';
+
+export type AppStatus = 'draft' | 'published' | 'suspended';
+export type AppDistribution = 'public' | 'custom';
+export type InstallationStatus = 'installed' | 'uninstalled';
+
+/**
+ * Online tokens act as the person who authorised them and expire; offline
+ * tokens act as the app and do not. An app doing background work needs offline;
+ * an app rendering something for the person in front of it should use online,
+ * so its reach ends when their access does.
+ */
+export type TokenType = 'online' | 'offline';
+
+export class AppRuleError extends Error {
+  readonly status = 422;
+  constructor(
+    readonly field: string,
+    detail: string,
+  ) {
+    super(`${field}: ${detail}`);
+    this.name = 'AppRuleError';
+  }
+}
+
+export class OAuthError extends Error {
+  readonly status = 400;
+  constructor(
+    readonly code: string,
+    detail: string,
+  ) {
+    super(detail);
+    this.name = 'OAuthError';
+  }
+}
+
+export interface App {
+  readonly id: string;
+  readonly partnerId: string;
+  readonly name: string;
+  readonly handle: string;
+  readonly status: AppStatus;
+  readonly distribution: AppDistribution;
+  readonly appUrl: string | null;
+  /** Exact URIs a code may be sent to. Never prefixes — see `redirectIsRegistered`. */
+  readonly redirectUris: readonly string[];
+  /** What the app asks every merchant for. The merchant may grant less. */
+  readonly requestedScopes: readonly string[];
+  readonly clientId: string;
+  readonly clientSecretHash: string;
+  readonly version: number;
+}
+
+export interface AppInstallation {
+  readonly id: string;
+  readonly appId: string;
+  readonly storeId: StoreId;
+  readonly status: InstallationStatus;
+  /**
+   * What the merchant actually approved, frozen at consent.
+   *
+   * Stored rather than read back off the app, because the app can change what
+   * it requests at any time and that must not silently widen an existing
+   * install. A wider request produces a re-consent, not a bigger token.
+   */
+  readonly grantedScopes: readonly string[];
+  readonly installedAt: Date;
+  readonly uninstalledAt: Date | null;
+}
+
+export interface AuthorizationCode {
+  readonly code: string;
+  readonly appId: string;
+  readonly storeId: StoreId;
+  readonly userId: string;
+  readonly redirectUri: string;
+  readonly scopes: readonly string[];
+  readonly tokenType: TokenType;
+  readonly expiresAt: Date;
+  /** Set the moment it is exchanged. A second exchange must fail. */
+  readonly usedAt: Date | null;
+}
+
+export interface AppToken {
+  readonly id: string;
+  readonly appId: string;
+  readonly storeId: StoreId;
+  readonly tokenType: TokenType;
+  /** Null for offline tokens: they act as the app, not as a person. */
+  readonly userId: string | null;
+  readonly tokenHash: string;
+  readonly scopes: readonly string[];
+  readonly expiresAt: Date | null;
+  readonly revokedAt: Date | null;
+}
+
+/** How long an authorization code lives. Long enough to redirect, no longer. */
+export const CODE_TTL_SECONDS = 300;
+
+/** Online tokens follow the person; a day is longer than any single session. */
+export const ONLINE_TOKEN_TTL_SECONDS = 86_400;
+
+// --- registering an app ------------------------------------------------------
+
+const HANDLE = /^[a-z][a-z0-9-]{1,48}[a-z0-9]$/;
+
+export function assertAppValid(app: App): void {
+  if (app.name.trim().length === 0) throw new AppRuleError('name', 'is required');
+  if (!HANDLE.test(app.handle)) {
+    throw new AppRuleError('handle', 'must be lowercase letters, digits and hyphens');
+  }
+
+  if (app.redirectUris.length === 0) {
+    throw new AppRuleError('redirectUris', 'at least one redirect URL is required');
+  }
+  for (const uri of app.redirectUris) assertRedirectUriValid(uri);
+
+  if (new Set(app.redirectUris).size !== app.redirectUris.length) {
+    throw new AppRuleError('redirectUris', 'the same redirect URL is listed twice');
+  }
+}
+
+export function assertRedirectUriValid(uri: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new AppRuleError('redirectUris', `"${uri}" is not an absolute URL`);
+  }
+
+  if (parsed.protocol !== 'https:' && !isLoopback(parsed.hostname)) {
+    throw new AppRuleError('redirectUris', `"${uri}" must use https`);
+  }
+  if (parsed.hash.length > 0) {
+    // A fragment never reaches the server, so it cannot be part of a match, and
+    // allowing it invites a registration that looks stricter than it is.
+    throw new AppRuleError('redirectUris', `"${uri}" must not contain a fragment`);
+  }
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    throw new AppRuleError('redirectUris', `"${uri}" must not contain credentials`);
+  }
+}
+
+function isLoopback(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+/**
+ * Whether a code may be sent here. EXACT string match, deliberately.
+ *
+ * Prefix matching is the classic hole: a check for `https://app.test` also
+ * accepts `https://app.test.evil.com`, and one for `https://app.test/cb`
+ * accepts `https://app.test/cb/../../wherever`. Comparing whole strings is
+ * blunt and cannot be argued around, and the cost — an app registering each
+ * callback it uses — is a form field, once.
+ */
+export function redirectIsRegistered(app: App, uri: string): boolean {
+  return app.redirectUris.includes(uri);
+}
+
+// --- asking a merchant -------------------------------------------------------
+
+export function assertInstallable(app: App): void {
+  if (app.status === 'suspended') {
+    throw new OAuthError('app_suspended', 'This app has been suspended and cannot be installed.');
+  }
+  if (app.status === 'draft' && app.distribution === 'public') {
+    throw new OAuthError('app_not_published', 'This app is not published yet.');
+  }
+}
+
+/**
+ * The scopes to put in front of the merchant.
+ *
+ * An app may ask for fewer than it registered — a narrower install for a
+ * narrower job is a good thing — but never for one it did not declare, because
+ * the declared list is what the platform reviewed.
+ */
+export function scopesToConsent(app: App, requested: readonly string[]): readonly string[] {
+  if (requested.length === 0) return [...app.requestedScopes];
+
+  const declared = new Set(app.requestedScopes);
+  const undeclared = requested.filter((scope) => !declared.has(scope));
+  if (undeclared.length > 0) {
+    throw new OAuthError(
+      'invalid_scope',
+      `This app has not registered the scope${undeclared.length === 1 ? '' : 's'}: ${undeclared.join(', ')}`,
+    );
+  }
+  return [...requested];
+}
+
+/**
+ * Whether the merchant has to be asked again.
+ *
+ * True when the app now wants something the existing install does not cover.
+ * Checked on every authorize rather than at publish time, because the app can
+ * change what it asks for without telling anybody who already installed it.
+ */
+export function needsReconsent(
+  installation: AppInstallation,
+  wanted: readonly string[],
+): boolean {
+  if (installation.status !== 'installed') return true;
+  const granted = new Set(installation.grantedScopes);
+  return wanted.some((scope) => !granted.has(scope));
+}
+
+// --- exchanging the code -----------------------------------------------------
+
+export function assertCodeUsable(code: AuthorizationCode, now: Date): void {
+  if (code.usedAt !== null) {
+    // Single use. A code that works twice is a code anyone who saw it in a log,
+    // a referrer header or a browser history can spend.
+    throw new OAuthError('invalid_grant', 'This authorization code has already been used.');
+  }
+  if (code.expiresAt.getTime() <= now.getTime()) {
+    throw new OAuthError('invalid_grant', 'This authorization code has expired.');
+  }
+}
+
+/**
+ * The scopes a token actually gets.
+ *
+ * The install is the authority, not the exchange request. An app that asks for
+ * more at exchange time than the merchant approved gets what the merchant
+ * approved — silently narrowing rather than failing, because the app is not
+ * doing anything wrong by asking, and the merchant's answer is simply the
+ * answer.
+ */
+export function tokenScopes(
+  code: AuthorizationCode,
+  installation: AppInstallation,
+): readonly string[] {
+  const granted = new Set(installation.grantedScopes);
+  return code.scopes.filter((scope) => granted.has(scope));
+}
+
+export function tokenExpiry(tokenType: TokenType, at: Date): Date | null {
+  // Offline tokens do not expire on a clock. They end when the install does,
+  // which `tokenIsUsable` enforces — an expiry would only mean an app silently
+  // stopping at 3am on a date nobody wrote down.
+  return tokenType === 'online' ? new Date(at.getTime() + ONLINE_TOKEN_TTL_SECONDS * 1000) : null;
+}
+
+/**
+ * Whether a token may be used right now.
+ *
+ * The installation is re-checked on every request, not just at issue: an
+ * uninstall has to stop live tokens immediately, and a token that keeps working
+ * until it expires means "uninstall" was a lie for up to a day.
+ */
+export function tokenIsUsable(
+  token: AppToken,
+  installation: AppInstallation | null,
+  now: Date,
+): { ok: true } | { ok: false; reason: string } {
+  if (token.revokedAt !== null) return { ok: false, reason: 'This token was revoked.' };
+  if (token.expiresAt !== null && token.expiresAt.getTime() <= now.getTime()) {
+    return { ok: false, reason: 'This token has expired.' };
+  }
+  if (!installation || installation.status !== 'installed') {
+    return { ok: false, reason: 'This app is no longer installed on this store.' };
+  }
+
+  // A token cannot outlive the consent it was issued under. If the merchant
+  // narrowed the install afterwards, the token narrows with it.
+  const granted = new Set(installation.grantedScopes);
+  if (!token.scopes.some((scope) => granted.has(scope))) {
+    return { ok: false, reason: 'The scopes this token was issued for are no longer granted.' };
+  }
+
+  return { ok: true };
+}
+
+/** The scopes still live on a token, after any narrowing of the install. */
+export function effectiveScopes(
+  token: AppToken,
+  installation: AppInstallation,
+): readonly string[] {
+  const granted = new Set(installation.grantedScopes);
+  return token.scopes.filter((scope) => granted.has(scope));
+}
+
+/**
+ * The store permissions an app call carries.
+ *
+ * This is where the two vocabularies meet. Past this point nothing downstream
+ * knows or cares that the caller is an app — it has permissions like anybody
+ * else, and every authorisation check is the one check.
+ */
+export function permissionsForScopes(
+  scopes: readonly string[],
+  grantsFor: (scope: string) => readonly string[],
+): readonly string[] {
+  const permissions = new Set<string>();
+  for (const scope of scopes) {
+    for (const permission of grantsFor(scope)) permissions.add(permission);
+  }
+  return [...permissions];
+}
+
+const INSTALL_TRANSITIONS: Record<InstallationStatus, readonly InstallationStatus[]> = {
+  installed: ['uninstalled'],
+  // Reinstalling is allowed and is a fresh consent — the merchant is asked
+  // again, so an old grant cannot come back with them.
+  uninstalled: ['installed'],
+};
+
+export function assertInstallTransition(from: InstallationStatus, to: InstallationStatus): void {
+  if (from === to) return;
+  if (!INSTALL_TRANSITIONS[from].includes(to)) {
+    throw new AppRuleError('status', `an installation cannot go from ${from} to ${to}`);
+  }
+}

@@ -1,0 +1,137 @@
+/**
+ * Apps · apps.manifest.ts
+ * What the app platform declares: its tables, its permissions, its events.
+ *
+ * The scopes apps may request are NOT declared here. Each module declares its
+ * own, because the module is what knows which of its data a scope opens — and a
+ * central list would go stale the day somebody adds a module, in the direction
+ * that quietly denies access rather than the one that grants it.
+ * Layer: manifest.
+ */
+
+import type { ModuleManifest } from '@deservefirst/contracts';
+
+/** App tables carry no merchant content, so most toolkit features are off. */
+const APP_TOOLKIT = {
+  metafields: false,
+  metaobjects: false,
+  tags: false,
+  savedViews: false,
+  bulkActions: false,
+  importExport: false,
+  seo: false,
+} as const;
+
+export const appsManifest: ModuleManifest = {
+  id: 'apps',
+  version: '0.1.0',
+  label: 'Apps',
+  description: 'Third-party apps, their installations, and the tokens they call with.',
+
+  entitlementKey: 'core',
+  dependsOn: [{ module: 'core', type: 'required' }],
+
+  capabilities: ['entities', 'permissions', 'events'],
+
+  entities: [
+    {
+      name: 'App',
+      tableName: 'apps',
+      // Platform scope: an app exists above any store, and is installed INTO
+      // stores. Scoping the app itself to a store would mean one row per
+      // install of the same software.
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'partnerId', type: 'reference', references: 'Partner', indexed: true, filterable: true },
+        { name: 'name', type: 'string', required: true, filterable: true, sortable: true, searchable: true },
+        { name: 'status', type: 'enum', values: ['draft', 'published', 'suspended'], filterable: true },
+        { name: 'distribution', type: 'enum', values: ['public', 'custom'], filterable: true },
+        { name: 'appUrl', type: 'string' },
+        { name: 'redirectUris', type: 'json' },
+        { name: 'requestedScopes', type: 'json' },
+        { name: 'clientId', type: 'string', unique: true, indexed: true, filterable: true },
+        // Hashed, never stored in the clear: a database disclosure must not
+        // hand somebody the ability to impersonate every installed app.
+        { name: 'clientSecretHash', type: 'string', visibility: 'internal' },
+      ],
+    },
+    {
+      name: 'AppInstallation',
+      tableName: 'app_installations',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        { name: 'storeId', type: 'reference', references: 'Store', indexed: true, filterable: true },
+        { name: 'status', type: 'enum', values: ['installed', 'uninstalled'], filterable: true },
+        // The merchant's answer, frozen at consent — not read back off the app,
+        // which can change what it asks for at any time.
+        { name: 'grantedScopes', type: 'json' },
+        { name: 'installedAt', type: 'datetime', sortable: true },
+        { name: 'uninstalledAt', type: 'datetime', sortable: true },
+      ],
+    },
+    {
+      name: 'AppAuthorizationCode',
+      tableName: 'app_authorization_codes',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: false, softDelete: false },
+      fields: [
+        { name: 'code', type: 'string', unique: true, indexed: true },
+        { name: 'appId', type: 'reference', references: 'App', indexed: true },
+        { name: 'storeId', type: 'reference', references: 'Store', indexed: true },
+        { name: 'userId', type: 'reference', references: 'User' },
+        { name: 'redirectUri', type: 'string' },
+        { name: 'scopes', type: 'json' },
+        { name: 'tokenType', type: 'enum', values: ['online', 'offline'] },
+        { name: 'expiresAt', type: 'datetime', filterable: true },
+        /** Set on exchange. Its presence is what makes a code single-use. */
+        { name: 'usedAt', type: 'datetime', filterable: true },
+      ],
+    },
+    {
+      name: 'AppToken',
+      tableName: 'app_tokens',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: false, softDelete: false },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        { name: 'storeId', type: 'reference', references: 'Store', indexed: true, filterable: true },
+        { name: 'tokenType', type: 'enum', values: ['online', 'offline'], filterable: true },
+        { name: 'userId', type: 'reference', references: 'User' },
+        // Hashed for the same reason a password is: the database is not a place
+        // to keep something that grants access on sight.
+        { name: 'tokenHash', type: 'string', indexed: true, visibility: 'internal' },
+        { name: 'scopes', type: 'json' },
+        { name: 'expiresAt', type: 'datetime', filterable: true },
+        { name: 'revokedAt', type: 'datetime', filterable: true },
+      ],
+    },
+  ],
+
+  permissions: [
+    {
+      key: 'store.apps.manage',
+      label: 'Install and remove apps',
+      description: 'Approve what an app may reach, and remove it.',
+      categories: ['store'],
+    },
+    {
+      key: 'partner.apps.manage',
+      label: 'Manage apps',
+      description: 'Register apps and change what they ask merchants for.',
+      categories: ['partner'],
+    },
+  ],
+
+  events: [
+    { type: 'apps.app.installed', version: 1, label: 'App installed', description: 'A merchant installed an app.', direction: 'emits' },
+    { type: 'apps.app.uninstalled', version: 1, label: 'App uninstalled', description: 'A merchant removed an app; its tokens stop working.', direction: 'emits' },
+    { type: 'apps.scopes.updated', version: 1, label: 'App scopes changed', description: 'A merchant changed what an installed app may reach.', direction: 'emits' },
+  ],
+
+  lifecycle: { startup: 'eager' },
+};
+
+export default appsManifest;

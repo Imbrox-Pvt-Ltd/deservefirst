@@ -15,6 +15,7 @@ import type {
   ResolvedSettingDto,
   SettingDto,
   WebhookDeliveryDto,
+  InstalledAppDto,
   PartnerAccessDto,
   WebhookEventDto,
   WebhookSubscriptionDto,
@@ -97,6 +98,15 @@ export default async function SettingsPage({
     }
   }
 
+  let installedApps: InstalledAppDto[] = [];
+  if (active === 'apps') {
+    try {
+      installedApps = (await apiFetch<InstalledAppDto[]>('/apps/installations')).data;
+    } catch {
+      installedApps = [];
+    }
+  }
+
   return (
     <StoreSettings
       handle={handle}
@@ -113,6 +123,8 @@ export default async function SettingsPage({
       partnerAccess={partnerAccess}
       grantable={grantable}
       canManagePartners={session.permissions.includes('store.partners.manage')}
+      installedApps={installedApps}
+      canManageApps={session.permissions.includes('store.apps.manage')}
     />
   );
 }

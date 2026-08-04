@@ -186,6 +186,7 @@ async function partnerDestinations(apiUrl, cookie) {
     for (const partner of body.data ?? []) {
       paths.push(`/partners/${partner.id}`);
       paths.push(`/partners/${partner.id}/stores`);
+      paths.push(`/partners/${partner.id}/apps`);
       // Only an owner is shown Team, and only an owner may open it.
       if (partner.role === 'owner') paths.push(`/partners/${partner.id}/team`);
     }
