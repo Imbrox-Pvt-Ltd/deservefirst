@@ -391,6 +391,93 @@ export class SqlAppRepository {
     return rows[0] ? toToken(rows[0]) : null;
   }
 
+  // --- scope approvals -------------------------------------------------------
+
+  /** The scopes an operator has approved for this app. */
+  async approvedScopesFor(appId: string): Promise<readonly string[]> {
+    const rows = await this.executor.query<{ scope: string }>(
+      `SELECT ${this.q('scope')} FROM ${this.q('app_scope_approvals')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('status')} = 'approved'
+          AND ${this.q('deleted_at')} IS NULL`,
+      [appId],
+    );
+    return rows.map((row) => row.scope);
+  }
+
+  /** Every decision on this app, approved and denied, for the review screen. */
+  async decisionsFor(appId: string) {
+    const rows = await this.executor.query<{
+      id: string; scope: string; status: string; reason: string | null; decided_at: Date | null;
+    }>(
+      `SELECT * FROM ${this.q('app_scope_approvals')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('decided_at')} DESC`,
+      [appId],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      scope: row.scope,
+      status: row.status as 'approved' | 'denied',
+      reason: row.reason,
+      decidedAt: row.decided_at,
+    }));
+  }
+
+  /**
+   * Records a decision, replacing any earlier one for the same scope.
+   *
+   * Replaced rather than appended because the question "may this app have this
+   * scope" has one current answer, and a screen that has to reduce a history to
+   * find it will eventually reduce it differently from the check that enforces
+   * it. The timeline keeps the history.
+   */
+  async recordDecision(input: {
+    id: string;
+    appId: string;
+    scope: string;
+    status: 'approved' | 'denied';
+    decidedBy: string;
+    reason: string | null;
+    decidedAt: Date;
+  }): Promise<void> {
+    await this.runWrite(
+      `DELETE FROM ${this.q('app_scope_approvals')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('scope')} = ${this.p(2)}`,
+      [input.appId, input.scope],
+    );
+
+    const columns = ['id', 'handle', 'app_id', 'scope', 'status', 'decided_by', 'reason', 'decided_at'];
+    await this.executor.query(
+      `INSERT INTO ${this.q('app_scope_approvals')} (${columns.map((c) => this.q(c)).join(', ')})
+       VALUES (${columns.map((_, index) => this.p(index + 1)).join(', ')})`,
+      [
+        input.id, input.id, input.appId, input.scope, input.status,
+        input.decidedBy, input.reason, input.decidedAt,
+      ],
+    );
+  }
+
+  /** Apps with at least one restricted scope and no decision yet. */
+  async awaitingReview(restricted: readonly string[]): Promise<readonly App[]> {
+    if (restricted.length === 0) return [];
+    const rows = await this.executor.query<AppRow>(
+      `SELECT * FROM ${this.q('apps')} WHERE ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('created_at')} DESC`,
+      [],
+    );
+    const wanted = new Set(restricted);
+    const pending: App[] = [];
+    for (const row of rows) {
+      const app = toApp(row);
+      if (!app.requestedScopes.some((scope) => wanted.has(scope))) continue;
+      const decided = new Set(await this.approvedScopesFor(app.id));
+      if (app.requestedScopes.some((scope) => wanted.has(scope) && !decided.has(scope))) {
+        pending.push(app);
+      }
+    }
+    return pending;
+  }
+
   /** Kills every token an app holds for one store. Used by uninstall. */
   async revokeTokensFor(appId: string, storeId: StoreId, at: Date): Promise<number> {
     return this.runWrite(

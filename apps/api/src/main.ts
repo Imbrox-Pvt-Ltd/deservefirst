@@ -920,6 +920,56 @@ async function start(): Promise<void> {
     return context;
   };
 
+  /**
+   * The review queue: apps asking for a restricted scope nobody has answered on.
+   *
+   * Behind `platformGuard`, so a merchant and an app are both refused whatever
+   * they hold. Reviewing an app is a decision about every store at once.
+   */
+  app.get(`/${API_VERSION}/platform/app-reviews`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.apps.review');
+    if (!context) return reply;
+
+    const queue = await platform.appReview.queue();
+    return success(
+      queue.map((item) => ({
+        appId: item.app.id,
+        name: item.app.name,
+        handle: item.app.handle,
+        status: item.app.status,
+        partnerId: item.app.partnerId,
+        requested: item.requested.map((scope) => ({
+          key: scope.key,
+          label: scope.label,
+          description: scope.description,
+          restricted: scope.restricted,
+        })),
+        decisions: item.decisions,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/platform/app-reviews/:appId`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.apps.review');
+    if (!context) return reply;
+
+    const { appId } = request.params as { appId: string };
+    const body = request.body as Record<string, unknown>;
+
+    await platform.appReview.decide({
+      appId,
+      scope: String(body.scope ?? ''),
+      approve: body.approve === true,
+      operatorId: context.userId as string,
+      reason: typeof body.reason === 'string' ? body.reason : null,
+    });
+
+    return success({ appId, scope: body.scope, approved: body.approve === true }, {
+      requestId: context.requestId,
+    });
+  });
+
   app.get(`/${API_VERSION}/platform/module-states`, async (request, reply) => {
     const context = await platformGuard(request as never, reply as never, 'platform.modules.manage');
     if (!context) return reply;

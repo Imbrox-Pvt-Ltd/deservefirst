@@ -499,3 +499,109 @@ export class AppService {
     };
   }
 }
+
+// --- the operator's side -----------------------------------------------------
+
+export interface ScopeReviewItem {
+  readonly app: App;
+  readonly requested: readonly ScopeCatalogEntry[];
+  readonly decisions: readonly {
+    readonly scope: string;
+    readonly status: 'approved' | 'denied';
+    readonly reason: string | null;
+  }[];
+}
+
+/**
+ * Scope review, as an operator does it.
+ *
+ * A separate class from `AppService` because it is a different actor's use
+ * case with a different permission, and the one thing that must not happen is a
+ * partner reaching an approval path by finding a method on the service they
+ * already hold.
+ */
+export class AppReviewService {
+  constructor(private readonly ports: AppServicePorts & { readonly apps: AppReviewPorts }) {}
+
+  private now(): Date {
+    return this.ports.now?.() ?? new Date();
+  }
+
+  private restrictedScopes(): readonly string[] {
+    return this.ports
+      .scopeCatalog()
+      .filter((scope) => scope.restricted)
+      .map((scope) => scope.key);
+  }
+
+  /** Apps asking for a restricted scope that nobody has answered on yet. */
+  async queue(): Promise<readonly ScopeReviewItem[]> {
+    const pending = await this.ports.apps.awaitingReview(this.restrictedScopes());
+    return Promise.all(
+      pending.map(async (app) => ({
+        app,
+        requested: app.requestedScopes
+          .map((key) => this.ports.scopeCatalog().find((entry) => entry.key === key))
+          .filter((entry): entry is ScopeCatalogEntry => entry !== undefined),
+        decisions: await this.ports.apps.decisionsFor(app.id),
+      })),
+    );
+  }
+
+  /**
+   * Records one decision about one scope.
+   *
+   * Only restricted scopes are reviewable. Accepting a decision about an
+   * ordinary one would create a record implying it needed approval, and the
+   * next reader would reasonably conclude it did.
+   */
+  async decide(input: {
+    appId: string;
+    scope: string;
+    approve: boolean;
+    operatorId: string;
+    reason?: string | null;
+  }): Promise<void> {
+    const app = await this.ports.apps.findApp(input.appId);
+    if (!app) throw new AppRuleError('appId', 'is not a registered app');
+
+    if (!this.restrictedScopes().includes(input.scope)) {
+      throw new AppRuleError('scope', 'is not a restricted scope and needs no approval');
+    }
+    if (!app.requestedScopes.includes(input.scope)) {
+      throw new AppRuleError('scope', 'is not a scope this app has asked for');
+    }
+    if (!input.approve && !input.reason?.trim()) {
+      // A denial the partner cannot act on is a denial they will re-submit.
+      throw new AppRuleError('reason', 'is required when denying a scope');
+    }
+
+    await this.ports.apps.recordDecision({
+      id: randomUUID(),
+      appId: input.appId,
+      scope: input.scope,
+      status: input.approve ? 'approved' : 'denied',
+      decidedBy: input.operatorId,
+      reason: input.reason?.trim() || null,
+      decidedAt: this.now(),
+    });
+  }
+}
+
+/** What review needs from storage, beyond what the app service already uses. */
+export interface AppReviewPorts {
+  findApp(id: string): Promise<App | null>;
+  awaitingReview(restricted: readonly string[]): Promise<readonly App[]>;
+  decisionsFor(appId: string): Promise<
+    readonly { scope: string; status: 'approved' | 'denied'; reason: string | null }[]
+  >;
+  recordDecision(input: {
+    id: string;
+    appId: string;
+    scope: string;
+    status: 'approved' | 'denied';
+    decidedBy: string;
+    reason: string | null;
+    decidedAt: Date;
+  }): Promise<void>;
+}

@@ -115,9 +115,32 @@ export const appsManifest: ModuleManifest = {
         { name: 'revokedAt', type: 'datetime', filterable: true },
       ],
     },
+
+    {
+      name: 'AppScopeApproval',
+      tableName: 'app_scope_approvals',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        // Per SCOPE, not per app: approving an app to read customer contact
+        // details is not approving it for everything else it may later ask for.
+        { name: 'scope', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'status', type: 'enum', values: ['approved', 'denied'], filterable: true },
+        { name: 'decidedBy', type: 'reference', references: 'User' },
+        { name: 'reason', type: 'text' },
+        { name: 'decidedAt', type: 'datetime', sortable: true },
+      ],
+    },
   ],
 
   permissions: [
+    {
+      key: 'platform.apps.review',
+      label: 'Review app scope requests',
+      description: 'Approve or deny an app asking for a restricted scope.',
+      categories: ['platform'],
+    },
     {
       key: 'store.apps.manage',
       label: 'Install and remove apps',
