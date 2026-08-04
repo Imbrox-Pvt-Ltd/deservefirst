@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { loadPlatformConfig } from '@deservefirst/config';
 
 import { authManifest } from './auth/auth.manifest';
+import { platformManifest } from './core/platform.manifest';
 import { AccessEvaluator } from './auth/application';
 import { SqlIdentityRepository } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
@@ -28,9 +29,11 @@ import {
   MemoryCacheStore,
   MemoryTokenBucketStore,
   ModuleRegistry,
+  ModuleStateService,
   MysqlExecutor,
   QueryGuard,
   RateLimiter,
+  SettingsService,
   buildRouteRegistry,
   createToolkitPorts,
   dialectFor,
@@ -76,6 +79,9 @@ export interface Platform {
   readonly rateLimiter: RateLimiter;
   readonly entitlements: EntitlementsService;
   readonly access: AccessEvaluator;
+  /** The platform admin's controls, and where each setting's value comes from. */
+  readonly moduleState: ModuleStateService;
+  readonly settings: SettingsService;
   readonly identity: SqlIdentityRepository;
   readonly products: ProductRepositoryImpl;
   /** Built per request: the service is scoped to whichever store is active. */
@@ -103,6 +109,9 @@ export async function bootstrap(): Promise<Platform> {
   // 1. Discover and validate. Registration throws on an invalid manifest, and
   //    sealing throws on an unmet required dependency or a route collision.
   const registry = new ModuleRegistry();
+  // Core's own entities and permissions, declared like a module's so the schema
+  // builder and the permission catalogue see them the same way.
+  registry.register(platformManifest);
   registry.register(authManifest);
   registry.register(catalogManifest);
   registry.register(customersManifest);
@@ -163,9 +172,45 @@ export async function bootstrap(): Promise<Platform> {
     },
   );
 
+  /** Declared defaults from every manifest — the bottom of the settings chain. */
+  const settingDefaults = new Map(
+    registry.settings().map((entry) => [entry.item.key, entry.item.defaultValue]),
+  );
+
+  const moduleState = new ModuleStateService({
+    executor,
+    dialect,
+    cache,
+    known: () => registry.all().map((entry) => entry.manifest.id),
+  });
+
+  const settings = new SettingsService({
+    executor,
+    dialect,
+    defaults: () => settingDefaults,
+  });
+
+  /**
+   * The three gates, in the order the evaluator applies them.
+   *
+   * `isModuleEnabledGlobally` was the registry's boot health — whether the
+   * module loaded — which is a different question from whether an operator wants
+   * it running. Both matter, so both are asked: a module that failed its
+   * capability contract is unavailable, and so is one a platform admin turned
+   * off. Boot health is checked synchronously here; the operator's decision is
+   * the cached lookup, and the evaluator's own ordering keeps it ahead of any
+   * store setting.
+   */
   const access = new AccessEvaluator({
-    isModuleEnabledGlobally: (moduleId) => registry.get(moduleId)?.enabled ?? false,
-    isModuleEnabledForStore: async (storeId, moduleId) => entitlements.isModuleEnabled(storeId, moduleId),
+    isModuleEnabledGlobally: async (moduleId) =>
+      // Two different questions, both platform-wide: did it load, and does the
+      // operator permit it. Asking only the first made an incident kill switch
+      // surface as "not enabled for this store", which sends support to a store
+      // screen that cannot fix it.
+      (registry.get(moduleId)?.enabled ?? false) &&
+      (await moduleState.isEnabledPlatformWide(moduleId)),
+    isModuleEnabledForStore: async (storeId, moduleId) =>
+      moduleState.isEnabledForStore(storeId as never, moduleId),
     isEntitled: async (storeId, moduleId) => entitlements.isModuleEnabled(storeId, moduleId),
     permissionRequiresApproval: (permission) => requiresApproval(permission),
     supportSessionValid: async () => true,
@@ -249,11 +294,6 @@ export async function bootstrap(): Promise<Platform> {
     ownerEntity: 'Transfer',
   });
 
-  /** Store settings, from the registry's declared defaults until storage exists. */
-  const settingDefaults = new Map(
-    registry.settings().map((entry) => [entry.item.key, entry.item.defaultValue]),
-  );
-
   // 5. Compose the API surface. Throws on collision rather than picking a winner.
   composeApiRoutes(registry);
   const routes = buildRouteRegistry(registry);
@@ -267,6 +307,8 @@ export async function bootstrap(): Promise<Platform> {
     rateLimiter,
     entitlements,
     access,
+    moduleState,
+    settings,
     identity,
     products,
     // The store is passed explicitly rather than read from context here, so a
@@ -282,7 +324,10 @@ export async function bootstrap(): Promise<Platform> {
         requests,
         {
           ...requestToolkit,
-          setting: async (key, fallback) => (settingDefaults.get(key) as never) ?? fallback,
+          // Resolved through store → platform → environment → declared default,
+          // so a module never has to know which level answered.
+          setting: async (key, fallback) =>
+            ((await settings.get(key, storeId as never)).value as never) ?? fallback,
         },
         storeId as never,
       ),

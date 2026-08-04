@@ -16,6 +16,7 @@ import { formatReport, runFitness } from '../../fitness/src/index.mjs';
 import { listModules } from '../../fitness/src/structure.mjs';
 import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
+import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { seed } from '../src/seed.mjs';
 import { moduleFiles } from '../src/scaffold.mjs';
 
@@ -49,6 +50,9 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('seed')}                  Seed deterministic development data
   ${cyan('routes')}                Print the composed route registry
   ${cyan('smoke')}                 Open every navigation destination against a running admin
+  ${cyan('module:enable')} <mod>    Make a module available again  [--store=handle]
+  ${cyan('module:disable')} <mod>   Take a module away             [--store=handle] --reason=".."
+  ${cyan('module:states')}          Show what is enabled, and where the decision was made
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
 ${dim('you name. `check` is what blocks a merge, so run it before you push.')}
@@ -227,6 +231,58 @@ switch (command) {
       })
       .catch((error) => {
         console.error(red(`\ndb:sync failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'module:enable':
+  case 'module:disable': {
+    const enabled = command === 'module:enable';
+    const moduleId = args.find((arg) => !arg.startsWith('--'));
+    const flag = (name) => {
+      const found = args.find((arg) => arg.startsWith(`--${name}=`));
+      return found ? found.slice(name.length + 3) : undefined;
+    };
+
+    setModuleState(ROOT, {
+      moduleId,
+      enabled,
+      reason: flag('reason'),
+      storeHandle: flag('store'),
+      url: flag('url'),
+    })
+      .then((result) => {
+        console.log(
+          green(
+            `\n${result.moduleId} is now ${result.enabled ? 'ENABLED' : 'DISABLED'} for ${result.scope}.`,
+          ),
+        );
+        if (result.reason) console.log(dim(`  reason: ${result.reason}`));
+        if (!result.enabled && result.scope === 'every store') {
+          console.log(dim('  No store can re-enable it while this stands.'));
+        }
+      })
+      .catch((error) => {
+        console.error(red(`\n${command} failed: ${error.message}`));
+        process.exit(1);
+      });
+    break;
+  }
+  case 'module:states': {
+    const urlArg = args.find((arg) => arg.startsWith('--url='));
+    listModuleStates(ROOT, urlArg ? { url: urlArg.slice('--url='.length) } : {})
+      .then((states) => {
+        console.log(`\n${cyan('Module availability')}\n`);
+        for (const state of states) {
+          const label = state.enabled ? green('enabled ') : red('DISABLED');
+          const origin = state.decided ? '' : dim('  (no decision recorded — default on)');
+          console.log(`  ${label}  ${state.moduleId}${origin}`);
+          if (state.reason) console.log(dim(`             ${state.reason}`));
+        }
+        console.log('');
+      })
+      .catch((error) => {
+        console.error(red(`\nmodule:states failed: ${error.message}`));
         process.exit(1);
       });
     break;

@@ -299,7 +299,7 @@ describe('identity isolation (e2e)', { concurrency: 1 }, () => {
     if (!available) return t.skip('no database');
 
     const evaluator = new AccessEvaluator({
-      isModuleEnabledGlobally: () => true,
+      isModuleEnabledGlobally: async () => true,
       isModuleEnabledForStore: async () => true,
       isEntitled: async () => true,
       permissionRequiresApproval: () => false,
@@ -325,7 +325,7 @@ describe('identity isolation (e2e)', { concurrency: 1 }, () => {
     if (!available) return t.skip('no database');
 
     const evaluator = new AccessEvaluator({
-      isModuleEnabledGlobally: () => true,
+      isModuleEnabledGlobally: async () => true,
       isModuleEnabledForStore: async () => true,
       isEntitled: async () => true,
       permissionRequiresApproval: () => false,

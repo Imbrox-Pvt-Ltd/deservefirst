@@ -7,6 +7,7 @@
 
 export * from './tenant-context';
 export * from './module-registry/registry';
+export * from './platform-state';
 export * from './event-bus/event-bus';
 export * from './cache/cache.service';
 export * from './entitlements/entitlements.service';

@@ -12,7 +12,7 @@ import test from 'node:test';
 import { AccessDeniedError, AccessEvaluator } from '../../../dist/auth/application/index.js';
 
 const ports = (overrides = {}) => ({
-  isModuleEnabledGlobally: () => true,
+  isModuleEnabledGlobally: async () => true,
   isModuleEnabledForStore: async () => true,
   isEntitled: async () => true,
   permissionRequiresApproval: () => false,
@@ -96,7 +96,7 @@ test('support access is bounded by its own explicit permission list', async () =
 
 test('a global module disable outranks a store enable', async () => {
   const evaluator = new AccessEvaluator(
-    ports({ isModuleEnabledGlobally: () => false, isModuleEnabledForStore: async () => true }),
+    ports({ isModuleEnabledGlobally: async () => false, isModuleEnabledForStore: async () => true }),
   );
   const decision = await evaluator.evaluate({
     context: context(),

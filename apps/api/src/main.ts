@@ -158,6 +158,108 @@ async function start(): Promise<void> {
     ),
   );
 
+  // --- platform administration ----------------------------------------------
+  // The first control: a platform admin turns a module off for every store at
+  // once, and no store can put it back. Deliberately NOT store-scoped — these
+  // routes have no X-Store-Id and are guarded by a platform permission.
+
+  const platformGuard = async (
+    request: { headers: Record<string, unknown>; id: string },
+    reply: { status(code: number): { send(body: unknown): unknown } },
+    permission: string,
+  ) => {
+    const context = contextFor(request);
+    if (!context.permissions.includes(permission)) {
+      reply.status(403).send(
+        failure([apiError('forbidden', 'Access denied', `This action needs "${permission}".`)], {
+          requestId: context.requestId,
+        }),
+      );
+      return null;
+    }
+    return context;
+  };
+
+  app.get(`/${API_VERSION}/platform/module-states`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.modules.manage');
+    if (!context) return reply;
+    return success(await platform.moduleState.platformOverview(), { requestId: context.requestId });
+  });
+
+  app.put(`/${API_VERSION}/platform/module-states/:moduleId`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.modules.manage');
+    if (!context) return reply;
+
+    const { moduleId } = request.params as { moduleId: string };
+    const body = request.body as Record<string, unknown>;
+    await platform.moduleState.setPlatformState(
+      moduleId,
+      body.enabled === true,
+      body.reason === undefined ? undefined : String(body.reason),
+    );
+    return success(await platform.moduleState.platformOverview(), { requestId: context.requestId });
+  });
+
+  app.put(`/${API_VERSION}/platform/settings/:key`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.settings.manage');
+    if (!context) return reply;
+
+    const { key } = request.params as { key: string };
+    const body = request.body as Record<string, unknown>;
+    await platform.settings.setForPlatform(key, body.value);
+    return success(await platform.settings.get(key, null), { requestId: context.requestId });
+  });
+
+  // --- store-level module state and settings ---------------------------------
+
+  app.get(`/${API_VERSION}/platform/store-modules`, async (request, reply) =>
+    withStore(request as never, reply as never, 'store.settings.read', async (storeId, context) => {
+      const states = await Promise.all(
+        platform.registry.all().map(async (entry) => ({
+          moduleId: entry.manifest.id,
+          label: entry.manifest.label,
+          ...(await platform.moduleState.availability(storeId, entry.manifest.id)),
+        })),
+      );
+      return success(states, { requestId: context.requestId });
+    }),
+  );
+
+  app.put(`/${API_VERSION}/platform/store-modules/:moduleId`, async (request, reply) =>
+    withStore(request as never, reply as never, 'store.settings.manage', async (storeId, context) => {
+      const { moduleId } = request.params as { moduleId: string };
+      const body = request.body as Record<string, unknown>;
+      await platform.moduleState.setStoreState(storeId, moduleId, body.enabled === true);
+      return success(await platform.moduleState.availability(storeId, moduleId), {
+        requestId: context.requestId,
+      });
+    }),
+  );
+
+  app.get(`/${API_VERSION}/platform/effective-settings`, async (request, reply) =>
+    withStore(request as never, reply as never, 'store.settings.read', async (storeId, context) =>
+      // Each value carries the level that supplied it. A settings screen that
+      // hides that is how somebody "changes" a value that was never theirs.
+      success(await platform.settings.all(storeId), { requestId: context.requestId }),
+    ),
+  );
+
+  app.put(`/${API_VERSION}/platform/effective-settings/:key`, async (request, reply) =>
+    withStore(request as never, reply as never, 'store.settings.manage', async (storeId, context) => {
+      const { key } = request.params as { key: string };
+      const body = request.body as Record<string, unknown>;
+
+      // An explicit null clears the store's choice so it inherits again, which
+      // is a different act from setting it to nothing.
+      if (body.value === null && body.clear === true) {
+        await platform.settings.clearForStore(storeId, key);
+      } else {
+        await platform.settings.setForStore(storeId, key, body.value);
+      }
+      return success(await platform.settings.get(key, storeId), { requestId: context.requestId });
+    }),
+  );
+
   // --- generic read surface -------------------------------------------------
   // Every REST-exposed resource gets list and get from its declaration alone.
   // Writes stay module-owned: a generic writer would be a way around the domain.
@@ -1106,6 +1208,12 @@ async function start(): Promise<void> {
         .send(failure([apiError('not_found', 'Not found', message)], { requestId }));
     }
 
+    if (name === 'ModuleStateError' || name === 'SettingsError') {
+      return reply
+        .status(422)
+        .send(failure([apiError('validation_failed', 'Refused', message)], { requestId }));
+    }
+
     if (error instanceof ContentInvariantError) {
       return reply
         .status(422)
@@ -1194,7 +1302,11 @@ const MODULE_BY_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
   customers: 'customers',
   inventory: 'inventory',
   content: 'content',
-  store: 'catalog',
+  // Store-level administration belongs to Core, not to catalog. Mapping it there
+  // was a stand-in from before Core had a manifest of its own, and it meant
+  // editing a store setting asked whether CATALOG was enabled.
+  store: 'platform',
+  platform: 'platform',
   auth: 'auth',
 };
 

@@ -52,6 +52,14 @@ export async function dbSync(root, options = {}) {
 
   // Auth is a first-class sibling of modules/ (§3), so it is discovered
   // explicitly rather than by scanning the module tree.
+  // Core owns the operator tables — module availability and layered settings —
+  // and declares them like any module, so they are built from the same source.
+  const platformManifestPath = join(root, 'apps/api/dist/core/platform.manifest.js');
+  if (existsSync(platformManifestPath)) {
+    const loaded = require(platformManifestPath);
+    if (loaded.platformManifest) manifests.push(loaded.platformManifest);
+  }
+
   const authManifestPath = join(root, 'apps/api/dist/auth/auth.manifest.js');
   if (existsSync(authManifestPath)) {
     const loaded = require(authManifestPath);

@@ -50,7 +50,12 @@ export interface AccessRequest {
 }
 
 export interface AccessPorts {
-  isModuleEnabledGlobally(moduleId: string): boolean;
+  /**
+   * Platform-wide availability: the module both loaded cleanly AND is permitted
+   * by the platform admin. Async because the operator's decision is stored, and
+   * answering it from memory would mean a kill switch that lags a deploy behind.
+   */
+  isModuleEnabledGlobally(moduleId: string): Promise<boolean>;
   isModuleEnabledForStore(storeId: StoreId, moduleId: string): Promise<boolean>;
   isEntitled(storeId: StoreId, moduleId: string): Promise<boolean>;
   permissionRequiresApproval(permission: string): boolean;
@@ -102,7 +107,7 @@ export class AccessEvaluator {
 
     if (request.moduleId) {
       // 4. Global disable beats a store enable, always.
-      if (!this.ports.isModuleEnabledGlobally(request.moduleId)) {
+      if (!(await this.ports.isModuleEnabledGlobally(request.moduleId))) {
         return deny('module-disabled', `Module "${request.moduleId}" is disabled platform-wide.`);
       }
       if (!(await this.ports.isModuleEnabledForStore(storeId, request.moduleId))) {
