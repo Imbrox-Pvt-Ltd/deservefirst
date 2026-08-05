@@ -23,6 +23,7 @@ import {
   type PageType,
   type TemplateSection,
 } from '../domain/template-resolution';
+import { resolveFontSettings } from '../domain/font-handle';
 import type { ThemeSource } from '../domain/theme-source';
 import type { ThemeEngine } from '../engine';
 
@@ -183,8 +184,21 @@ export class PageRenderer {
             section: {
               id: section.id,
               type: section.type,
-              settings: section.settings,
-              blocks: section.blocks.map((block, position) => ({ ...block, index: position })),
+              /**
+               * Font handles become font objects here too.
+               *
+               * A `font_picker` in a SECTION's schema stores the same
+               * `dm_sans_n4` string as one in the theme's settings, and a theme
+               * reads it the same way — so a section that sets its own
+               * typography rendered `font-family: , ;`, which browsers discard.
+               * Theme settings alone were not enough.
+               */
+              settings: resolveFontSettings(section.settings),
+              blocks: section.blocks.map((block, position) => ({
+                ...block,
+                settings: resolveFontSettings(block.settings ?? {}),
+                index: position,
+              })),
               index,
             },
           }),

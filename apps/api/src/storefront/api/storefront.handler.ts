@@ -32,6 +32,7 @@ import {
   assetResponseFor,
   flattenTranslations,
   localeFileFor,
+  resolveThemeSettings,
   cacheKeyFor,
   canonicalPath,
   canonicalRedirect,
@@ -196,6 +197,8 @@ export class StorefrontHandler {
    * strings and a publish replaces rather than adds to the working set.
    */
   private readonly translations = new Map<string, Record<string, string>>();
+  /** Theme settings, by version, for the same reason. */
+  private readonly settings = new Map<string, Record<string, unknown>>();
 
   constructor(
     private readonly resolver: StoreResolver,
@@ -820,6 +823,32 @@ export class StorefrontHandler {
     return loaded;
   }
 
+  /**
+   * The theme's settings, read once per version.
+   *
+   * Cached for the same reason as the translations and keyed the same way: the
+   * file cannot change without the version changing, so a publish invalidates
+   * it by producing a new key.
+   */
+  private async settingsFor(store: ResolvedStore): Promise<Record<string, unknown>> {
+    const key = store.themeVersion ?? store.storeId;
+    const cached = this.settings.get(key);
+    if (cached) return cached;
+
+    let loaded: Record<string, unknown> = {};
+    try {
+      const contents = await store.theme.read('config/settings_data.json');
+      if (contents) loaded = resolveThemeSettings(JSON.parse(contents));
+    } catch {
+      // A settings file a merchant has broken costs them their colours, not
+      // their storefront: the theme's own defaults are still a page.
+      loaded = {};
+    }
+
+    this.settings.set(key, loaded);
+    return loaded;
+  }
+
   /** The drops a given page type needs, and whether its record exists. */
   private async scopeFor(
     store: ResolvedStore,
@@ -850,7 +879,15 @@ export class StorefrontHandler {
 
     const base: Record<string, unknown> = {
       shop: shopDrop(shop, drops),
-      settings: await data.settings(),
+      /**
+       * The merchant's theme configuration, from the theme's own file.
+       *
+       * Read here rather than through `StorefrontData` because it lives in the
+       * THEME, not in the database — `data.settings()` returned an empty object
+       * and said the theme source reads it, which nothing did. A store-level
+       * override belongs in that port when there is one; there is not yet.
+       */
+      settings: await this.settingsFor(store),
       template: templateDrop({ name: match.pageType }, drops),
       request: requestDrop(
         {
