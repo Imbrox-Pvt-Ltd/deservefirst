@@ -374,3 +374,133 @@ test('an unsupported method is still refused', async () => {
   assert.equal(response.status, 405);
   assert.equal(response.headers.allow, 'GET, HEAD, POST');
 });
+
+// ==================================== the adapter, against the orders module
+
+test('the price comes from the catalogue, never from the form', async () => {
+  /**
+   * The quantity is the customer's to choose; the price is not. A list price
+   * posted from a browser would let anyone name their own, and a merchant
+   * reading the quote would have no way to tell it had been changed.
+   */
+  const { SqlStorefrontSubmissions } = await import(
+    '../../../dist/storefront/infrastructure/index.js'
+  );
+
+  const added = [];
+  const quotes = {
+    create: async () => ({ id: 'req_1', reference: 'RFQ-1', version: 1 }),
+    addLine: async (id, input, version) => {
+      added.push(input);
+      return { id, version: version + 1 };
+    },
+    submit: async () => ({ reference: 'RFQ-1' }),
+  };
+  const catalogue = {
+    byId: async () => ({ id: 'p1', title: 'Linen Shirt', priceAmountMinor: '4500' }),
+  };
+
+  const submissions = new SqlStorefrontSubmissions(
+    quotes, catalogue, { query: async () => [] }, () => 'id1', 'USD',
+  );
+
+  await submissions.requestQuote({
+    contactEmail: 'buyer@acme.test',
+    contactName: null,
+    message: null,
+    productId: 'p1',
+    quantity: 25,
+  });
+
+  assert.equal(added.length, 1);
+  assert.equal(added[0].quantity, 25, 'the quantity is the customer’s');
+  assert.equal(added[0].listPrice.amountMinor, 4500n, 'the price is the catalogue’s');
+  assert.equal(added[0].title, 'Linen Shirt', 'and so is the title');
+});
+
+test('a quote is SUBMITTED, not left as a draft', async () => {
+  /**
+   * A draft sits where nobody looks: the customer believes they asked for a
+   * quote and the merchant never sees one.
+   */
+  const { SqlStorefrontSubmissions } = await import(
+    '../../../dist/storefront/infrastructure/index.js'
+  );
+
+  const calls = [];
+  const submissions = new SqlStorefrontSubmissions(
+    {
+      create: async () => { calls.push('create'); return { id: 'r', reference: 'RFQ-9', version: 1 }; },
+      addLine: async (id, _i, v) => { calls.push('addLine'); return { id, version: v + 1 }; },
+      submit: async () => { calls.push('submit'); return { reference: 'RFQ-9' }; },
+    },
+    { byId: async () => ({ id: 'p', title: 'T', priceAmountMinor: '100' }) },
+    { query: async () => [] }, () => 'id', 'USD',
+  );
+
+  const result = await submissions.requestQuote({
+    contactEmail: 'a@b.test', contactName: null, message: null, productId: 'p', quantity: 1,
+  });
+
+  assert.deepEqual(calls, ['create', 'addLine', 'submit']);
+  assert.equal(result.reference, 'RFQ-9');
+});
+
+test('a product that no longer exists does not lose the enquiry', async () => {
+  /**
+   * Somebody wants to buy something and got as far as asking. A request with a
+   * note and no line is one a merchant can answer; a discarded one is a
+   * customer who thinks they asked.
+   */
+  const { SqlStorefrontSubmissions } = await import(
+    '../../../dist/storefront/infrastructure/index.js'
+  );
+
+  const calls = [];
+  const submissions = new SqlStorefrontSubmissions(
+    {
+      create: async () => { calls.push('create'); return { id: 'r', reference: 'RFQ-7', version: 1 }; },
+      addLine: async () => { calls.push('addLine'); throw new Error('should not be called'); },
+      submit: async () => { calls.push('submit'); return { reference: 'RFQ-7' }; },
+    },
+    { byId: async () => null },
+    { query: async () => [] }, () => 'id', 'USD',
+  );
+
+  const result = await submissions.requestQuote({
+    contactEmail: 'a@b.test', contactName: null, message: 'Do you still sell this?',
+    productId: 'gone', quantity: 1,
+  });
+
+  assert.deepEqual(calls, ['create', 'submit'], 'no line, but still a request');
+  assert.equal(result.reference, 'RFQ-7');
+});
+
+test('the contact insert has one placeholder per value', async () => {
+  /**
+   * Reusing a placeholder for both timestamps produced seven placeholders and
+   * six values, which MariaDB reported as a syntax error near the end of the
+   * statement. Found by submitting a real form, so it is pinned here.
+   */
+  const { SqlStorefrontSubmissions } = await import(
+    '../../../dist/storefront/infrastructure/index.js'
+  );
+  const { withRequestContext, storefrontContext } = await import(
+    '../../../dist/core/tenant-context/index.js'
+  );
+
+  let captured = null;
+  const submissions = new SqlStorefrontSubmissions(
+    {}, {},
+    { query: async (sql, params) => { captured = { sql, params }; return []; } },
+    () => 'msg_1', 'USD',
+  );
+
+  await withRequestContext(storefrontContext('store_1'), () =>
+    submissions.contact({ email: 'a@b.test', name: null, body: 'Hello' }),
+  );
+
+  const placeholders = (captured.sql.match(/\$\d+|\?/g) ?? []).length;
+  assert.equal(placeholders, captured.params.length, `${placeholders} placeholders, ${captured.params.length} values`);
+  assert.equal(captured.params[1], 'store_1', 'the store comes from the context, not an argument');
+});

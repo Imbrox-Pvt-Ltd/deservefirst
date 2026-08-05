@@ -19,7 +19,7 @@ import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
 import { storefrontManifest } from './storefront/storefront.manifest';
-import { SqlStoreResolver } from './storefront/infrastructure';
+import { SqlStorefrontSubmissions, SqlStoreResolver } from './storefront/infrastructure';
 import { StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
@@ -623,10 +623,57 @@ export async function bootstrap(): Promise<Platform> {
    * every query downstream reads that store from the ambient context rather
    * than from an argument.
    */
+  /**
+   * What a storefront enquiry becomes.
+   *
+   * Built here because this is the only place that has both the storefront and
+   * the orders module — which is exactly why the storefront declares a port
+   * rather than importing one. A quote goes through RequestService rather than
+   * its repository, so it gets the reference sequence, the timeline entry and
+   * the `orders.request.submitted` event a merchant's notifications rely on.
+   *
+   * No context is established here: the storefront handler already runs the
+   * whole submission inside the store's context, and re-wrapping would be a
+   * second place deciding which tenant this is.
+   */
+  const storefrontSubmissionsFor = (storeId: string, currency: string) => {
+    const quotes = new RequestService(
+      requests,
+      {
+        ...requestToolkit,
+        setting: async (key, fallback) =>
+          ((await settings.get(key, storeId as never)).value as never) ?? fallback,
+      },
+      storeId as never,
+    );
+    const catalogue = new ProductService(products, toolkitPorts, storeId as never);
+
+    return new SqlStorefrontSubmissions(
+      quotes as never,
+      {
+        byId: async (productId) => {
+          const product = await catalogue.get(productId).catch(() => null);
+          return product
+            ? {
+                id: product.id,
+                title: product.title,
+                priceAmountMinor: product.price ? String(product.price.amountMinor) : null,
+              }
+            : null;
+        },
+      },
+      executor,
+      () => randomUUID(),
+      currency,
+      dialect,
+    );
+  };
+
   const storefront = new StorefrontHandler(
     new SqlStoreResolver(
       executor,
       {
+        submissionsFor: storefrontSubmissionsFor,
         storefrontHost: branding.domains.storefront,
         // Filesystem themes are the development path; object storage is the
         // production one and is not built yet, so a store configured for it

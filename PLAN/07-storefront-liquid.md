@@ -744,6 +744,43 @@ rendered correctly and `{{ form.email }}` came back empty, because themes read
 fields off the form directly and only the drop puts them there. A test caught
 the half-right page.
 
+### Wired to the orders module
+
+A quote request goes through `RequestService` — **create → addLine → submit** —
+rather than writing rows. Writing directly would skip the reference sequence,
+the timeline entry and the `orders.request.submitted` event, and a merchant
+would find a request in their queue that no notification ever mentioned.
+
+**Submitted, not draft.** A draft sits where nobody looks: the customer believes
+they asked for a quote and the merchant never sees one.
+
+**The price comes from the catalogue, never the form.** The quantity is the
+customer's to choose; the price is not. A list price posted from a browser would
+let anyone name their own, and a merchant reading the quote would have no way to
+tell it had been changed.
+
+**A deleted product does not lose the enquiry.** Somebody wants to buy something
+and got as far as asking — a request with a note and no line is one a merchant
+can answer.
+
+Contact messages get their **own entity**, not a `Request` with no lines. A
+contact message is not an order at any stage of its life, and putting one in the
+quote pipeline would fill the RFQ queue with "do you ship to Ireland?" — which is
+how a queue stops being read.
+
+Verified against the live database:
+
+```
+RFQ-1001  submitted  buyer@acme.test  "Need 25 by Friday"  lines=1  subtotal=112500
+line:     Linen Shirt  ×25  @4500          ← 25 × 4500, price from the catalogue
+message:  hello@acme.test  new  "Do you ship to Ireland?"
+```
+
+A live submission found a real bug: the contact insert reused a placeholder for
+both timestamps, giving **seven placeholders and six values**. A positional
+dialect would have caught it; the `?` dialect reported a syntax error near the
+end of the statement. Pinned by a test that counts placeholders against values.
+
 ## SEO — built
 
 All four gaps below are now closed, in `domain/`. Every one is a file or a

@@ -96,6 +96,31 @@ export const storefrontManifest: ModuleManifest = {
         { name: 'createdAt', type: 'datetime', sortable: true },
       ],
     },
+    {
+      /**
+       * A message somebody sent through the storefront's contact form.
+       *
+       * Its own entity rather than a Request with no lines. A contact message is
+       * not an order at any stage of its life, and putting one in the quote
+       * pipeline would fill a merchant's RFQ queue with "do you ship to
+       * Ireland?" — which is how a queue stops being read.
+       */
+      name: 'ContactMessage',
+      tableName: 'contact_messages',
+      toolkit: { ...STOREFRONT_TOOLKIT, timeline: true, audit: false },
+      fields: [
+        { name: 'email', type: 'string', required: true, filterable: true, searchable: true },
+        { name: 'name', type: 'string', searchable: true },
+        { name: 'body', type: 'text', required: true, searchable: true },
+        { name: 'status', type: 'enum', values: ['new', 'read', 'replied', 'spam'], filterable: true, indexed: true },
+        /**
+         * Where it came from. Not shown to anyone by default — it is here so a
+         * merchant drowning in spam can see a pattern and we can act on it.
+         */
+        { name: 'sourcePath', type: 'string' },
+        { name: 'createdAt', type: 'datetime', sortable: true },
+      ],
+    },
   ],
 
   permissions: [
@@ -109,6 +134,12 @@ export const storefrontManifest: ModuleManifest = {
       key: 'store.themes.manage',
       label: 'Manage themes',
       description: 'Install, edit and publish themes. Publishing changes what every customer sees.',
+      categories: ['store'],
+    },
+    {
+      key: 'store.messages.read',
+      label: 'Read contact messages',
+      description: 'See what customers sent through the storefront contact form.',
       categories: ['store'],
     },
     {
@@ -154,5 +185,6 @@ export const storefrontManifest: ModuleManifest = {
     { path: '/store/:handle/themes', screen: 'ListScreen', entity: 'Theme', permission: 'store.themes.read' },
     { path: '/store/:handle/themes/:id', screen: 'DetailScreen', entity: 'Theme', permission: 'store.themes.read' },
     { path: '/store/:handle/redirects', screen: 'ListScreen', entity: 'UrlRedirect', permission: 'store.redirects.manage' },
+    { path: '/store/:handle/messages', screen: 'ListScreen', entity: 'ContactMessage', permission: 'store.messages.read' },
   ],
 };

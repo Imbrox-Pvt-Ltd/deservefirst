@@ -15,7 +15,7 @@
 
 import type { QueryExecutor } from '../../core/list-engine';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
-import type { ResolvedStore, StoreResolver } from '../api/storefront-ports';
+import type { ResolvedStore, StorefrontSubmissions, StoreResolver } from '../api/storefront-ports';
 import type { ThemeSource } from '../domain';
 import { FilesystemThemeSource } from './filesystem-theme-source';
 import { SqlStorefrontData } from './sql-storefront-data';
@@ -25,6 +25,14 @@ export interface StoreResolverOptions {
   readonly storefrontHost: string;
   /** Where filesystem-backed themes are rooted, in development. */
   readonly themeRoot: string;
+  /**
+   * Builds what carries out a form submission for one store.
+   *
+   * A factory rather than an instance: the quote service is store-scoped, and a
+   * single one shared across every storefront request would serve whichever
+   * store happened to construct it.
+   */
+  readonly submissionsFor?: (storeId: string, currency: string) => StorefrontSubmissions;
 }
 
 interface Row extends Record<string, unknown> {}
@@ -70,7 +78,8 @@ export class SqlStoreResolver implements StoreResolver {
     if (handle === null) return null;
 
     const rows = await this.executor.query<Row>(
-      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('type')}, ${this.q('status')}
+      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('type')}, ${this.q('status')},
+              ${this.q('base_currency')}
          FROM ${this.q('stores')}
         WHERE ${this.q('handle')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
         LIMIT 1`,
@@ -100,6 +109,16 @@ export class SqlStoreResolver implements StoreResolver {
       theme,
       closed: status === 'paused' || String(row.type) === 'password_protected',
       data: new SqlStorefrontData(this.executor, this.options.storefrontHost, this.dialect),
+      /**
+       * Absent when the platform cannot yet take submissions.
+       *
+       * The handler says so plainly rather than pretending a form worked, which
+       * would lose a customer's enquiry silently.
+       */
+      submissions: this.options.submissionsFor?.(
+        storeId,
+        String(row.base_currency ?? 'USD'),
+      ),
     };
   }
 
