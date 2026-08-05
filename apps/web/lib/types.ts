@@ -560,3 +560,23 @@ export interface BlogPostDto {
   readonly publishedAt: string | null;
   readonly version: number;
 }
+
+export interface AppHealthDto {
+  readonly days: number;
+  readonly total: number;
+  readonly clientErrors: number;
+  readonly serverErrors: number;
+  readonly deprecatedCalls: number;
+  readonly headline: string | null;
+  readonly slowest: readonly { path: string; averageMs: number; calls: number }[];
+  readonly deprecations: readonly { deprecation: string; calls: number }[];
+  readonly recent: readonly {
+    readonly type: string;
+    readonly method: string;
+    readonly path: string;
+    readonly status: number;
+    readonly durationMs: number;
+    readonly deprecation: string | null;
+    readonly at: string;
+  }[];
+}

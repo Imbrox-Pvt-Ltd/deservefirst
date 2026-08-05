@@ -141,6 +141,15 @@ export function PartnerApps({ partnerId, apps, scopes }: PartnerAppsProps) {
                     </Text>
                   </BlockStack>
 
+                  <InlineStack gap="200">
+                    <Button
+                      variant="plain"
+                      onClick={() =>
+                        router.push(`/partners/${partnerId}/apps/${entry.id}/monitoring/api_health`)
+                      }
+                    >
+                      API health
+                    </Button>
                   {entry.status === 'draft' ? (
                     <Button
                       disabled={pending}
@@ -160,6 +169,7 @@ export function PartnerApps({ partnerId, apps, scopes }: PartnerAppsProps) {
                       Publish
                     </Button>
                   ) : null}
+                  </InlineStack>
                 </InlineStack>
               ))}
             </BlockStack>

@@ -28,6 +28,7 @@ import {
   type SessionIdentity,
 } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
+import type { RequestContext } from '@deservefirst/contracts';
 import { requireStoreContext, withRequestContext } from './core/tenant-context';
 import {
   CacheService,
@@ -61,6 +62,7 @@ import { StoreProvisioningService } from './auth/application/store-provisioning'
 import { SqlPartnerRepository } from './auth/infrastructure/partner.repository';
 import { partnerController } from './auth/api/partner.controller';
 import {
+  AppRequestLogger,
   AppReviewService,
   AppService,
   AppSuspensionService,
@@ -156,6 +158,8 @@ export interface Platform {
   readonly appSuspension: AppSuspensionService;
   /** Direct registry reads for the operator's list. */
   readonly appRegistry: SqlAppRepository;
+  /** Buffered request logging for apps — see the note on the hot path. */
+  readonly appRequestLogger: AppRequestLogger;
   /** Every app scope the installed modules declare (§23.2). */
   scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
@@ -189,6 +193,35 @@ export interface Platform {
   readonly controllers: readonly ModuleController[];
   readonly routes: ReturnType<typeof buildRouteRegistry>;
   shutdown(): Promise<void>;
+}
+
+/**
+ * A context for background work that legitimately spans tenants.
+ *
+ * The tenant guard defines this escape hatch and it was being written out
+ * longhand at each use, which is how one of them ends up subtly different from
+ * the others.
+ */
+function platformContext(): RequestContext {
+  return {
+    requestId: randomUUID(),
+    correlationId: randomUUID(),
+    actorType: 'system',
+    userId: null,
+    organizationId: null,
+    businessEntityId: null,
+    storeId: null,
+    partnerId: null,
+    appId: null,
+    accessType: 'platform',
+    roleKeys: [],
+    permissions: [],
+    supportSessionId: null,
+    entitlementsHash: null,
+    locale: 'en-US',
+    timeZone: 'UTC',
+    shardKey: null,
+  };
 }
 
 export async function bootstrap(): Promise<Platform> {
@@ -329,6 +362,16 @@ export async function bootstrap(): Promise<Platform> {
     );
 
   const appRecords = new SqlAppRepository(executor, dialect);
+  const appRequestLogger = new AppRequestLogger({
+    write: (logs) =>
+      // Platform-scoped: the log spans every store, and the rows carry the
+      // store they belong to rather than being read through one.
+      withRequestContext(platformContext(), () => appRecords.writeLogs(logs)),
+    onError: (error) => {
+      // eslint-disable-next-line no-console
+      console.error('[app-logs] flush failed', error);
+    },
+  });
   const appService = new AppService({
     apps: appRecords,
     scopeCatalog,
@@ -538,28 +581,7 @@ export async function bootstrap(): Promise<Platform> {
    * rule intact and makes the one place that crosses stores visible.
    */
   const drainWebhooks = (limit?: number) =>
-    withRequestContext(
-      {
-        requestId: randomUUID(),
-        correlationId: randomUUID(),
-        actorType: 'system',
-        userId: null,
-        organizationId: null,
-        businessEntityId: null,
-        storeId: null,
-        partnerId: null,
-        appId: null,
-        accessType: 'platform',
-        roleKeys: [],
-        permissions: [],
-        supportSessionId: null,
-        entitlementsHash: null,
-        locale: 'en-US',
-        timeZone: 'UTC',
-        shardKey: null,
-      },
-      () => webhooks.drain(limit),
-    );
+    withRequestContext(platformContext(), () => webhooks.drain(limit));
 
   return {
     registry,
@@ -590,6 +612,7 @@ export async function bootstrap(): Promise<Platform> {
     partners: partnerService,
     apps: appService,
     appRegistry: appRecords,
+    appRequestLogger,
     appReview: new AppReviewService({
       apps: appRecords,
       scopeCatalog,

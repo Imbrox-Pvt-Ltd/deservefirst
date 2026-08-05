@@ -208,6 +208,19 @@ async function partnerDestinations(apiUrl, cookie) {
       paths.push(`/partners/${partner.id}`);
       paths.push(`/partners/${partner.id}/stores`);
       paths.push(`/partners/${partner.id}/apps`);
+      // One app's health page, if they have an app. The id is data rather than
+      // manifest, so it is resolved rather than guessed.
+      try {
+        const apps = await fetch(`${apiUrl}/2026-01/partners/${partner.id}/apps`, {
+          headers: { cookie },
+        }).then((response) => response.json());
+        const first = apps.data?.[0];
+        if (first) {
+          paths.push(`/partners/${partner.id}/apps/${first.id}/monitoring/api_health`);
+        }
+      } catch {
+        // No apps, or the endpoint is down. The rest of the walk still runs.
+      }
       // Only an owner is shown Team, and only an owner may open it.
       if (partner.role === 'owner') paths.push(`/partners/${partner.id}/team`);
     }

@@ -120,6 +120,27 @@ export const appsManifest: ModuleManifest = {
     },
 
     {
+      name: 'AppRequestLog',
+      tableName: 'app_request_logs',
+      scope: 'platform',
+      // No timeline and no soft delete: a log IS the history, and a deleted-at
+      // column on one only creates rows that are present but invisible.
+      toolkit: { ...APP_TOOLKIT, timeline: false, softDelete: false, audit: false },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        { name: 'storeId', type: 'reference', references: 'Store', indexed: true, filterable: true },
+        { name: 'type', type: 'string', indexed: true, filterable: true },
+        { name: 'method', type: 'string', filterable: true },
+        { name: 'path', type: 'string', filterable: true },
+        { name: 'status', type: 'integer', filterable: true, sortable: true },
+        { name: 'durationMs', type: 'integer', sortable: true },
+        { name: 'apiVersion', type: 'string', filterable: true },
+        // Null unless the call used something scheduled for removal.
+        { name: 'deprecation', type: 'text' },
+        { name: 'at', type: 'datetime', indexed: true, sortable: true, filterable: true },
+      ],
+    },
+    {
       name: 'AppScopeApproval',
       tableName: 'app_scope_approvals',
       scope: 'platform',

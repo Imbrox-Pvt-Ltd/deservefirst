@@ -22,6 +22,8 @@ import {
   withRequestContext,
 } from './core';
 import { AccessDeniedError } from './auth/application';
+import { logTypeFor } from './apps/application';
+import { headline, summarise } from './apps/domain';
 import type { ErrorCode } from './core/http/response-envelope';
 import { ProductInvariantError } from './modules/catalog/domain';
 // Aliased: `Request` would collide with the transport's own Request type.
@@ -83,6 +85,24 @@ class InvalidTokenError extends Error {
     );
     this.name = 'InvalidTokenError';
   }
+}
+
+/**
+ * Endpoints scheduled for removal, and what to do instead.
+ *
+ * A map rather than a flag on the route declaration, because a deprecation has
+ * a REPLACEMENT and a date, and the useful thing to tell an app author is not
+ * "this is deprecated" but "use that instead, before then". Empty today, which
+ * is honest: nothing has been deprecated yet, and the machinery exists so that
+ * the first thing to be does not also require building the machinery.
+ */
+const DEPRECATIONS: ReadonlyMap<string, string> = new Map();
+
+function deprecationFor(pathname: string): string | null {
+  for (const [prefix, notice] of DEPRECATIONS) {
+    if (pathname.startsWith(prefix)) return notice;
+  }
+  return null;
 }
 
 /** Dated API version (§13.6). */
@@ -209,7 +229,7 @@ async function start(): Promise<void> {
       // the wrong end entirely.
       if (!caller.ok) throw new InvalidTokenError(caller.reason);
 
-      return {
+      const appContext: RequestContext = {
         ...base,
         actorType: 'app',
         appId: caller.appId,
@@ -221,6 +241,11 @@ async function start(): Promise<void> {
         roleKeys: [],
         permissions: [...caller.permissions],
       };
+
+      // Stashed for the onResponse hook, which runs after the handler and would
+      // otherwise have to repeat the token lookup to write one log line.
+      (request as { deserveContext?: RequestContext }).deserveContext = appContext;
+      return appContext;
     }
 
     const sessionId = openSessionCookie(sessionSecret, cookieFrom(header('cookie')));
@@ -242,6 +267,39 @@ async function start(): Promise<void> {
       accessType: identity.accessType,
     };
   };
+
+  /**
+   * Records every app request, once it is finished.
+   *
+   * An `onResponse` hook rather than something in the route handlers: there are
+   * two ways into the data and I have already been caught once putting a
+   * cross-cutting concern on only one of them. A hook sees whatever the
+   * transport served, including the routes nobody remembered to instrument.
+   *
+   * The context is stashed on the request during resolution, because this hook
+   * runs after the handler and re-resolving it would mean a second session or
+   * token lookup per request purely to write a log line.
+   */
+  app.addHook('onResponse', async (request, reply) => {
+    const context = (request as { deserveContext?: RequestContext }).deserveContext;
+    if (!context || context.actorType !== 'app' || !context.appId || !context.storeId) return;
+
+    const url = new URL(request.url, 'http://internal');
+    platform.appRequestLogger.record({
+      appId: context.appId,
+      storeId: context.storeId,
+      type: logTypeFor(url.pathname),
+      method: request.method,
+      // The path without the query: a health page groups by endpoint, and
+      // keeping the query would make every filtered list its own row.
+      path: url.pathname,
+      status: reply.statusCode,
+      durationMs: Math.round(reply.elapsedTime),
+      apiVersion: API_VERSION,
+      deprecation: deprecationFor(url.pathname),
+      at: new Date(),
+    });
+  });
 
   app.addHook('onSend', async (_request, reply) => {
     // Correlation ids propagate end to end so a log line can be traced to a
@@ -860,6 +918,59 @@ async function start(): Promise<void> {
         },
         { requestId: context.requestId },
       ),
+    );
+  });
+
+  /**
+   * One app's API health, for the partner who owns it.
+   *
+   * Behind the partner seat rather than a platform permission: this is the
+   * app author's own data, and making them ask an operator to see whether their
+   * own integration is failing would be absurd.
+   */
+  app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/health`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const owned = await platform.apps.appsForPartner(partnerId);
+    if (!owned.some((entry) => entry.id === appId)) {
+      // Same answer as a missing app: a partner should not learn other app ids
+      // exist by probing this.
+      return reply.status(404).send(
+        failure([apiError('not_found', 'Not found', 'No such app.')], {
+          requestId: context.requestId,
+        }),
+      );
+    }
+
+    const days = Number((request.query as { days?: string }).days ?? 7);
+    const since = new Date(Date.now() - days * 86_400_000);
+    // Flushed first, so an author who just made a call sees it. Without this
+    // the page is up to a minute behind and reads as broken.
+    await platform.appRequestLogger.flush();
+
+    const logs = await platform.appRegistry.logsFor(appId, since);
+    const summary = summarise(logs);
+
+    return success(
+      {
+        days,
+        ...summary,
+        headline: headline(summary),
+        recent: logs.slice(0, 50).map((log) => ({
+          type: log.type,
+          method: log.method,
+          path: log.path,
+          status: log.status,
+          durationMs: log.durationMs,
+          deprecation: log.deprecation,
+          at: log.at.toISOString(),
+        })),
+      },
+      { requestId: context.requestId },
     );
   });
 
@@ -1663,6 +1774,9 @@ async function start(): Promise<void> {
    * duplicate deliveries reach production.
    */
   const drainTimer = setInterval(() => {
+    void platform.appRequestLogger.flush().catch(() => {
+      // Already reported by the logger's own error hook.
+    });
     void platform.drainWebhooks().catch((error: unknown) => {
       // eslint-disable-next-line no-console
       console.error('[webhooks] drain failed', error);
@@ -1671,6 +1785,10 @@ async function start(): Promise<void> {
   drainTimer.unref();
 
   const shutdown = async () => {
+    // Buffered log lines get one last chance at disk. Losing a few seconds of
+    // observability is survivable; losing them on every deliberate restart is
+    // just a gap in the record at exactly the times somebody looks.
+    await platform.appRequestLogger.flush().catch(() => {});
     clearInterval(drainTimer);
     await app.close();
     await platform.shutdown();

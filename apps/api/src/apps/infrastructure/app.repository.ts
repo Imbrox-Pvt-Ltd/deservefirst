@@ -413,6 +413,53 @@ export class SqlAppRepository {
     return rows[0] ? toToken(rows[0]) : null;
   }
 
+  // --- request logs ----------------------------------------------------------
+
+  /** Batched insert: one statement per flush, not one per request. */
+  async writeLogs(logs: readonly import('../domain/monitoring').AppRequestLog[]): Promise<void> {
+    if (logs.length === 0) return;
+
+    const columns = [
+      'id', 'app_id', 'store_id', 'type', 'method', 'path', 'status',
+      'duration_ms', 'api_version', 'deprecation', 'at',
+    ];
+    const rowSql = `(${columns.map(() => '?').join(', ')})`;
+    const parameters = logs.flatMap((log) => [
+      log.id, log.appId, log.storeId, log.type, log.method, log.path, log.status,
+      log.durationMs, log.apiVersion, log.deprecation, log.at,
+    ]);
+
+    await this.executor.query(
+      `INSERT INTO ${this.q('app_request_logs')} (${columns.map((c) => this.q(c)).join(', ')})
+       VALUES ${logs.map(() => rowSql).join(', ')}`,
+      parameters,
+    );
+  }
+
+  /** One app's calls in a window, for its health page. */
+  async logsFor(appId: string, since: Date, limit = 5000) {
+    const rows = await this.executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${this.q('app_request_logs')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('at')} >= ${this.p(2)}
+        ORDER BY ${this.q('at')} DESC
+        LIMIT ${this.p(3)}`,
+      [appId, since, limit],
+    );
+    return rows.map((row) => ({
+      id: String(row.id),
+      appId: String(row.app_id),
+      storeId: String(row.store_id),
+      type: String(row.type) as import('../domain/monitoring').LogType,
+      method: String(row.method),
+      path: String(row.path),
+      status: Number(row.status),
+      durationMs: Number(row.duration_ms),
+      apiVersion: String(row.api_version),
+      deprecation: (row.deprecation as string | null) ?? null,
+      at: row.at as Date,
+    }));
+  }
+
   // --- scope approvals -------------------------------------------------------
 
   /** The scopes an operator has approved for this app. */
