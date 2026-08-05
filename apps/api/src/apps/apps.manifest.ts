@@ -122,6 +122,24 @@ export const appsManifest: ModuleManifest = {
     },
 
     {
+      name: 'AppAutomationToken',
+      tableName: 'app_automation_tokens',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        { name: 'partnerId', type: 'reference', references: 'Partner', indexed: true, filterable: true },
+        { name: 'name', type: 'string', required: true, searchable: true },
+        // Hashed like every other credential: the database is not a place to
+        // keep something that grants access on sight.
+        { name: 'tokenHash', type: 'string', indexed: true, visibility: 'internal' },
+        { name: 'capabilities', type: 'json' },
+        { name: 'lastUsedAt', type: 'datetime', sortable: true },
+        { name: 'expiresAt', type: 'datetime', filterable: true },
+        { name: 'revokedAt', type: 'datetime', filterable: true },
+      ],
+    },
+    {
       name: 'AppVersion',
       tableName: 'app_versions',
       scope: 'platform',

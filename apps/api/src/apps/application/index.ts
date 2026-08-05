@@ -7,3 +7,4 @@
 export * from './app-service';
 export * from './request-log';
 export * from './version-service';
+export * from './automation-service';

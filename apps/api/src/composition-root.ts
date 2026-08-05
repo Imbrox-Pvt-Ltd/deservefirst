@@ -72,6 +72,7 @@ import {
   AppRequestLogger,
   AppReviewService,
   AppVersionService,
+  AutomationService,
   AppService,
   AppSuspensionService,
   type ScopeCatalogEntry,
@@ -171,6 +172,8 @@ export interface Platform {
   readonly appRequestLogger: AppRequestLogger;
   /** Drafting and releasing app versions. */
   readonly appVersions: AppVersionService;
+  /** CI tokens: deploy-only, and never able to read store data. */
+  readonly automation: AutomationService;
   /** How apps charge merchants. */
   readonly billing: BillingService;
   /** Deployed WebAssembly, and the tier that runs it (§22.3). */
@@ -666,6 +669,7 @@ export async function bootstrap(): Promise<Platform> {
     appRegistry: appRecords,
     appRequestLogger,
     appVersions: new AppVersionService(appRecords),
+    automation: new AutomationService(appRecords),
     billing: billingService,
     functions: functionRegistry,
     appReview: new AppReviewService({

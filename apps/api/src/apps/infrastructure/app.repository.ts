@@ -18,6 +18,7 @@ import type { QueryExecutor } from '../../core/list-engine';
 import { type SqlDialect, postgresDialect } from '../../core/list-engine/dialect';
 import type { App, AppInstallation, AppToken, AuthorizationCode } from '../domain/app';
 import type { AppVersion } from '../domain/version';
+import type { AutomationToken } from '../domain/automation-token';
 
 /**
  * Secrets and tokens are stored as a SHA-256 digest.
@@ -417,6 +418,73 @@ export class SqlAppRepository {
       [hash],
     );
     return rows[0] ? toToken(rows[0]) : null;
+  }
+
+  // --- automation tokens -----------------------------------------------------
+
+  async insertAutomationToken(token: AutomationToken): Promise<void> {
+    const columns = [
+      'id', 'handle', 'app_id', 'partner_id', 'name', 'token_hash',
+      'capabilities', 'last_used_at', 'expires_at', 'revoked_at',
+    ];
+    await this.executor.query(
+      `INSERT INTO ${this.q('app_automation_tokens')} (${columns.map((c) => this.q(c)).join(', ')})
+       VALUES (${columns.map((_, index) => this.p(index + 1)).join(', ')})`,
+      [
+        token.id, token.id, token.appId, token.partnerId, token.name, token.tokenHash,
+        JSON.stringify(token.capabilities), token.lastUsedAt, token.expiresAt, token.revokedAt,
+      ],
+    );
+  }
+
+  async findAutomationTokenByHash(hash: string): Promise<AutomationToken | null> {
+    const rows = await this.executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${this.q('app_automation_tokens')}
+        WHERE ${this.q('token_hash')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL LIMIT 1`,
+      [hash],
+    );
+    return rows[0] ? this.toAutomationToken(rows[0]) : null;
+  }
+
+  async automationTokensFor(appId: string): Promise<readonly AutomationToken[]> {
+    const rows = await this.executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${this.q('app_automation_tokens')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('created_at')} DESC`,
+      [appId],
+    );
+    return rows.map((row) => this.toAutomationToken(row));
+  }
+
+  async revokeAutomationToken(id: string, at: Date): Promise<void> {
+    await this.runWrite(
+      `UPDATE ${this.q('app_automation_tokens')} SET ${this.q('revoked_at')} = ${this.p(1)}
+        WHERE ${this.q('id')} = ${this.p(2)}`,
+      [at, id],
+    );
+  }
+
+  /** Recorded so a leaked token that is being used shows up as being used. */
+  async touchAutomationToken(id: string, at: Date): Promise<void> {
+    await this.runWrite(
+      `UPDATE ${this.q('app_automation_tokens')} SET ${this.q('last_used_at')} = ${this.p(1)}
+        WHERE ${this.q('id')} = ${this.p(2)}`,
+      [at, id],
+    );
+  }
+
+  private toAutomationToken(row: Record<string, unknown>): AutomationToken {
+    return {
+      id: String(row.id),
+      appId: String(row.app_id),
+      partnerId: String(row.partner_id),
+      name: String(row.name),
+      tokenHash: String(row.token_hash),
+      capabilities: toList(row.capabilities) as AutomationToken['capabilities'],
+      lastUsedAt: (row.last_used_at as Date | null) ?? null,
+      expiresAt: (row.expires_at as Date | null) ?? null,
+      revokedAt: (row.revoked_at as Date | null) ?? null,
+    };
   }
 
   // --- versions --------------------------------------------------------------

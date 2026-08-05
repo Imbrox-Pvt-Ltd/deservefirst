@@ -23,7 +23,8 @@ import {
 } from './core';
 import { AccessDeniedError } from './auth/application';
 import { logTypeFor } from './apps/application';
-import { headline, summarise } from './apps/domain';
+import { AppRuleError } from './apps/domain';
+import { headline, pathIsAutomatable, summarise } from './apps/domain';
 import type { ErrorCode } from './core/http/response-envelope';
 import { ProductInvariantError } from './modules/catalog/domain';
 // Aliased: `Request` would collide with the transport's own Request type.
@@ -104,6 +105,15 @@ function deprecationFor(pathname: string): string | null {
   }
   return null;
 }
+
+/**
+ * How an automation token is recognised before anything is looked up.
+ *
+ * A prefix rather than a database probe, so a leaked token is greppable in a
+ * CI log and a scanner can spot one in a repository — the same reason every
+ * other platform prefixes theirs.
+ */
+const AUTOMATION_PREFIX = 'dfa_';
 
 /** Dated API version (§13.6). */
 const API_VERSION = '2026-01';
@@ -220,6 +230,39 @@ async function start(): Promise<void> {
      * the same check it always was.
      */
     const bearer = /^Bearer\s+(.+)$/i.exec(header('authorization') ?? '')?.[1]?.trim();
+
+    /**
+     * A CI token, recognised by its prefix.
+     *
+     * Resolved before the app-token path and returned as an ANONYMOUS context
+     * with a partner id and nothing else: no store, no permissions, no user. So
+     * every store-scoped route refuses it by the checks that already exist,
+     * rather than by a new rule somebody has to remember to add.
+     *
+     * A build server's token lives in CI environment variables and gets printed
+     * by a careless `env`. The design assumes it will leak, and makes the leak
+     * worth as little as possible.
+     */
+    if (bearer?.startsWith(AUTOMATION_PREFIX)) {
+      const automation = await platform.automation.resolve(bearer);
+      if (!automation) throw new InvalidTokenError('This automation token is not valid.');
+
+      return {
+        ...base,
+        actorType: 'system',
+        userId: null,
+        organizationId: null,
+        storeId: null,
+        partnerId: automation.partnerId as never,
+        appId: automation.appId,
+        accessType: 'partner',
+        roleKeys: [],
+        // Deliberately empty. Automation deploys; it does not read store data,
+        // and there is no permission that would let it.
+        permissions: [],
+      };
+    }
+
     if (bearer) {
       const caller = await platform.apps.resolveToken(bearer);
       // Not a fall-through to anonymous. A token that does not resolve is
@@ -450,6 +493,33 @@ async function start(): Promise<void> {
     reply: FastifyReply,
   ): Promise<RequestContext | null> => {
     const context = await contextFor(request as never);
+
+    /**
+     * A CI token is allowed here, but only on paths automation may touch.
+     *
+     * The path check is coarse on purpose and sits in front of the capability
+     * check: a route added later is refused by default rather than reachable
+     * because nobody thought about it.
+     */
+    if (context.actorType === 'system' && context.partnerId) {
+      const url = new URL(request.url, 'http://internal');
+      if (pathIsAutomatable(url.pathname)) return context;
+
+      reply.status(403).send(
+        failure(
+          [
+            apiError(
+              'forbidden',
+              'Not available to automation',
+              'An automation token can deploy versions and functions. It cannot read store ' +
+                'data, and there is no capability that would let it.',
+            ),
+          ],
+          { requestId: context.requestId },
+        ),
+      );
+      return null;
+    }
 
     if (context.actorType === 'app') {
       reply.status(403).send(
@@ -935,6 +1005,67 @@ async function start(): Promise<void> {
    * decision is offerable the day it declares one — and a point the form offers
    * that nothing calls is a function an author waits forever to see run.
    */
+  app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/automation-tokens`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const tokens = await platform.automation.listFor(appId, partnerId);
+    return success(
+      tokens.map((token) => ({
+        id: token.id,
+        name: token.name,
+        capabilities: token.capabilities,
+        lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+        expiresAt: token.expiresAt?.toISOString() ?? null,
+        revokedAt: token.revokedAt?.toISOString() ?? null,
+        // The secret is never here. It was shown once, at creation.
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/apps/:appId/automation-tokens`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    const { token, secret } = await platform.automation.issue({
+      appId,
+      partnerId,
+      name: String(body.name ?? ''),
+      capabilities: Array.isArray(body.capabilities)
+        ? (body.capabilities as never)
+        : (['versions.write', 'functions.write'] as never),
+      expiresAt: typeof body.expiresAt === 'string' ? new Date(body.expiresAt) : null,
+    });
+
+    return reply.status(201).send(
+      success(
+        { id: token.id, name: token.name, capabilities: token.capabilities, secret },
+        { requestId: context.requestId },
+      ),
+    );
+  });
+
+  app.delete(`/${API_VERSION}/partners/:partnerId/apps/:appId/automation-tokens/:id`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId, id } = request.params as {
+      partnerId: string; appId: string; id: string;
+    };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    await platform.automation.revoke(id, appId, partnerId);
+    return success({ id, revoked: true }, { requestId: context.requestId });
+  });
+
   app.get(`/${API_VERSION}/functions/points`, async (request, reply) => {
     const context = await requireUser(request, reply);
     if (!context) return reply;
@@ -1080,7 +1211,13 @@ async function start(): Promise<void> {
     if (!context) return reply;
 
     const { partnerId, appId } = request.params as { partnerId: string; appId: string };
-    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+    // Automation is already bound to one partner by its token; a person has to
+    // prove their seat. Two ways in, one of which cannot be spoofed by a URL.
+    if (context.actorType !== 'system') {
+      await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+    } else if (context.partnerId !== partnerId) {
+      throw new AppRuleError('partnerId', 'this token belongs to another partner');
+    }
 
     const body = request.body as Record<string, unknown>;
     const version = await platform.appVersions.draft(appId, partnerId, {
@@ -1282,6 +1419,29 @@ async function start(): Promise<void> {
    * every list endpoint a merchant's data actually lives behind is on the other
    * one. A limit that covers half the API is not a limit.
    */
+  /**
+   * The refusal a CI token gets on any store-scoped route.
+   *
+   * Returned as a body rather than thrown, so both callers can send it. There
+   * are two ways into store data — the controller loop and the generic read
+   * surface — and I have now been caught twice putting a cross-cutting concern
+   * on only one of them.
+   */
+  const automationRefusal = (context: RequestContext) =>
+    context.actorType === 'system' && context.partnerId
+      ? failure(
+          [
+            apiError(
+              'forbidden',
+              'Not available to automation',
+              'An automation token can deploy versions and functions. It cannot read store ' +
+                'data, and there is no capability that would let it.',
+            ),
+          ],
+          { requestId: context.requestId },
+        )
+      : null;
+
   const enforceAppBudget = async (context: RequestContext, moduleId: string) => {
     if (context.actorType !== 'app') return;
     await platform.rateLimiter.enforce(
@@ -1723,6 +1883,13 @@ async function start(): Promise<void> {
 
     const guardStore = async (request: never, reply: { status(code: number): { send(body: unknown): unknown } }) => {
       const context = await contextFor(request);
+
+      const refusedAutomation = automationRefusal(context);
+      if (refusedAutomation) {
+        reply.status(403).send(refusedAutomation);
+        return null;
+      }
+
       if (context.storeId === null) {
         reply
           .status(400)
@@ -1806,6 +1973,17 @@ async function start(): Promise<void> {
 
       const handler = async (request: FastifyRequest, reply: FastifyReply) => {
         const context = await contextFor(request as never);
+
+        /**
+         * Automation is refused here with the real reason.
+         *
+         * It has no store by construction, so it would otherwise fall into the
+         * branch below and be told to "choose a store" — sending somebody
+         * debugging a CI pipeline to look for a setting that does not exist for
+         * them. The same misleading-fallthrough this file had for bad tokens.
+         */
+        const refusedAutomation = automationRefusal(context);
+        if (refusedAutomation) return reply.status(403).send(refusedAutomation);
 
         if (context.storeId === null) {
           return reply.status(400).send(
