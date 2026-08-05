@@ -79,3 +79,33 @@ test('the result limit is small enough to read', () => {
   // merchant searches again rather than reads.
   assert.ok(SEARCH_LIMIT > 0 && SEARCH_LIMIT <= 50, String(SEARCH_LIMIT));
 });
+
+// ------------------------------------------------- the handles a list names
+
+import { parseHandles, RESOLVE_LIMIT } from '../../../dist/storefront/domain/index.js';
+
+test('the order a list asks for is the order it gets back', () => {
+  /**
+   * A list setting's order IS the layout — it is what the row renders left to
+   * right. Returning database order would silently rearrange a merchant's
+   * homepage the next time they opened the panel.
+   */
+  assert.deepEqual(parseHandles('c,a,b'), ['c', 'a', 'b']);
+});
+
+test('duplicates collapse and blanks are ignored', () => {
+  // A list rendering the same product twice is a mistake, not an instruction.
+  assert.deepEqual(parseHandles('a,a,,b, ,a'), ['a', 'b']);
+  assert.deepEqual(parseHandles(''), []);
+  assert.deepEqual(parseHandles(null), []);
+});
+
+test('handles are trimmed, because a list is pasted as often as typed', () => {
+  assert.deepEqual(parseHandles(' a , b '), ['a', 'b']);
+});
+
+test('a crafted request cannot turn one lookup into a table scan', () => {
+  // A featured-products row is six, not six hundred.
+  const many = Array.from({ length: 5000 }, (_, i) => `h${i}`).join(',');
+  assert.equal(parseHandles(many).length, RESOLVE_LIMIT);
+});

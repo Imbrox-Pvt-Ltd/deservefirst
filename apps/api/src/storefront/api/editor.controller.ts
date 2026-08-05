@@ -21,6 +21,7 @@ import { controller, type ModuleController, type RouteRequest } from '../../core
 import {
   EditorError,
   isSearchableType,
+  parseHandles,
   SEARCHABLE_TYPES,
   type EditRequest,
   type ResourceMatch,
@@ -40,6 +41,8 @@ export interface EditorServices {
   publish(storeId: string, themeId: string): Promise<void>;
   /** Records a setting can point at, for the picker. */
   searchResources(type: SearchableType, term: string): Promise<readonly ResourceMatch[]>;
+  /** The records a list setting already names, in the order it names them. */
+  resolveResources(type: SearchableType, handles: readonly string[]): Promise<readonly ResourceMatch[]>;
 }
 
 /** Turns an editor refusal into the status it deserves. */
@@ -166,6 +169,18 @@ export function editorController(services: EditorServices): ModuleController {
             ),
             { status: 422, code: 'validation_failed' },
           );
+        }
+
+        /**
+         * Resolving named handles and searching are the same endpoint.
+         *
+         * They answer the same question — "which records are these" — and a
+         * separate route would duplicate the allow-list check above, which is
+         * the one thing here that must not be duplicated.
+         */
+        const named = request.query.get('handles');
+        if (named !== null) {
+          return { matches: await services.resolveResources(type, parseHandles(named)) };
         }
 
         return { matches: await services.searchResources(type, request.query.get('q') ?? '') };

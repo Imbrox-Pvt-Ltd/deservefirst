@@ -52,3 +52,32 @@ export async function searchThemeResources(
     };
   }
 }
+
+/**
+ * The records a list setting already names.
+ *
+ * One call for the whole list, so a featured-products row of six draws in one
+ * round trip rather than six. The order asked for is the order returned — a
+ * list setting's order is the order it renders in.
+ */
+export async function resolveThemeResources(
+  type: string,
+  handles: readonly string[],
+): Promise<ResourceSearchResult> {
+  if (handles.length === 0) return { ok: true, matches: [] };
+
+  const search = new URLSearchParams({ type, handles: handles.join(',') });
+
+  try {
+    const response = await apiFetch<{ matches: ResourceMatch[] }>(
+      `/storefront/editor/resources?${search.toString()}`,
+    );
+    return { ok: true, matches: response.data.matches };
+  } catch (error) {
+    return {
+      ok: false,
+      matches: [],
+      error: error instanceof Error ? error.message : 'Could not load the chosen records.',
+    };
+  }
+}

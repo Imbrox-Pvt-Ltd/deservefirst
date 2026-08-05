@@ -768,6 +768,11 @@ export async function bootstrap(): Promise<Platform> {
         new SqlEditorResources(executor, dialect).search(type, term),
       ),
 
+    resolveResources: async (type: never, handles: readonly string[]) =>
+      withRequestContext(storefrontContext(requireStoreContext('storefront.editor').storeId), () =>
+        new SqlEditorResources(executor, dialect).resolve(type, handles),
+      ),
+
     publish: async (storeId: string, themeId: string) => {
       await withRequestContext(storefrontContext(storeId), async () => {
         const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());

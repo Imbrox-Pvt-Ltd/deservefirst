@@ -39,6 +39,7 @@ import {
   TextField,
 } from '@deservefirst/ui';
 
+import { isPickableListType, ResourceListPicker } from './ResourceListPicker';
 import { isPickableType, ResourcePicker } from './ResourcePicker';
 
 export interface SettingOption {
@@ -59,6 +60,8 @@ export interface SettingDefinition {
   readonly unit?: string;
   readonly content?: string;
   readonly default?: unknown;
+  /** A list setting's cap, when the theme's schema declares one. */
+  readonly limit?: number;
 }
 
 export interface SettingInputProps {
@@ -268,6 +271,27 @@ export function SettingInput({ setting, value, onChange, disabled }: SettingInpu
         // A monospace field for code, because HTML and Liquid are read by
         // structure and a proportional font hides it.
         monospaced={setting.type === 'liquid' || setting.type === 'html'}
+      />
+    );
+  }
+
+  /**
+   * A list of records the editor can search gets a real picker.
+   *
+   * `metaobject_list` stays a textarea below: there is nothing to search for
+   * it yet, and a picker that could not find anything would be worse than the
+   * field it replaced.
+   */
+  if (isPickableListType(setting.type)) {
+    return (
+      <ResourceListPicker
+        type={setting.type}
+        label={label}
+        helpText={help}
+        value={(Array.isArray(value) ? value : []).map(String)}
+        onChange={onChange}
+        disabled={disabled}
+        limit={typeof setting.limit === 'number' ? setting.limit : undefined}
       />
     );
   }

@@ -70,6 +70,63 @@ export class SqlEditorResources {
     return this.dialect.quoteIdentifier(name);
   }
 
+  /**
+   * The records a list setting already names.
+   *
+   * Its own method rather than a search per handle: a featured-products row of
+   * six would otherwise be six round trips to draw one field, and a merchant
+   * opening a settings panel would watch it fill in.
+   *
+   * Returned in the order asked for, because a list setting's order is the
+   * order it renders in — sorting by title here would silently rearrange the
+   * merchant's row the next time they opened the panel. A handle that no longer
+   * resolves is simply absent, and the caller is what notices.
+   */
+  async resolve(type: SearchableType, handles: readonly string[]): Promise<readonly ResourceMatch[]> {
+    if (handles.length === 0) return [];
+
+    const storeId = requireStoreContext('storefront.editor.resources').storeId;
+    const source = SOURCES[type];
+    const bind = new Binder(this.dialect);
+
+    const sql = `SELECT ${this.q('handle')} AS handle, ${this.q('title')} AS title,
+                        ${this.contextColumn(source)} AS context,
+                        ${this.publishedExpression(source)} AS published
+                   FROM ${this.q(source.table)}
+                  WHERE ${this.q('store_id')} = ${bind.add(storeId)}
+                    AND ${this.q('deleted_at')} IS NULL
+                    AND ${this.q('handle')} IN (${bind.addAll(handles)})`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    const found = new Map(rows.map((row) => [String(row.handle), this.toMatch(row)]));
+    return handles.map((handle) => found.get(handle)).filter((match): match is ResourceMatch => !!match);
+  }
+
+  private contextColumn(source: (typeof SOURCES)[SearchableType]): string {
+    return source.context ? this.q(source.context) : `''`;
+  }
+
+  private publishedExpression(source: (typeof SOURCES)[SearchableType]): string {
+    return source.publishedWhen === 'status'
+      ? `CASE WHEN ${this.q('status')} = 'published' THEN 1 ELSE 0 END`
+      : source.publishedWhen === 'published-at'
+        ? `CASE WHEN ${this.q('published_at')} IS NOT NULL THEN 1 ELSE 0 END`
+        : '1';
+  }
+
+  private toMatch(row: Row): ResourceMatch {
+    return {
+      handle: String(row.handle),
+      title: String(row.title ?? row.handle),
+      subtitle: row.context ? String(row.context) : null,
+      // MySQL answers a CASE with 1/0 and Postgres with a boolean; both are
+      // truthy-correct only after this, and `'0'` is a string that is not.
+      published: row.published === 1 || row.published === true || row.published === '1',
+    };
+  }
+
   async search(type: SearchableType, term: string): Promise<readonly ResourceMatch[]> {
     const storeId = requireStoreContext('storefront.editor.resources').storeId;
     const source = SOURCES[type];
@@ -77,14 +134,8 @@ export class SqlEditorResources {
 
     const bind = new Binder(this.dialect);
 
-    const published =
-      source.publishedWhen === 'status'
-        ? `CASE WHEN ${this.q('status')} = 'published' THEN 1 ELSE 0 END`
-        : source.publishedWhen === 'published-at'
-          ? `CASE WHEN ${this.q('published_at')} IS NOT NULL THEN 1 ELSE 0 END`
-          : '1';
-
-    const context = source.context ? this.q(source.context) : `''`;
+    const published = this.publishedExpression(source);
+    const context = this.contextColumn(source);
 
     /**
      * Bound in the order the placeholders appear in the finished statement.
@@ -130,13 +181,6 @@ export class SqlEditorResources {
     const statement = bind.finish(sql);
     const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
 
-    return rows.map((row) => ({
-      handle: String(row.handle),
-      title: String(row.title ?? row.handle),
-      subtitle: row.context ? String(row.context) : null,
-      // MySQL answers a CASE with 1/0 and Postgres with a boolean; both are
-      // truthy-correct only after this, and `'0'` is a string that is not.
-      published: row.published === 1 || row.published === true || row.published === '1',
-    }));
+    return rows.map((row) => this.toMatch(row));
   }
 }

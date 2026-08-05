@@ -57,6 +57,31 @@ export function isSearchableType(value: unknown): value is SearchableType {
 export const SEARCH_LIMIT = 20;
 
 /**
+ * How many handles one resolve call may name.
+ *
+ * A list setting holds a handful — a featured-products row is six, not six
+ * hundred. The bound is here so a crafted request cannot turn one lookup into
+ * a scan of the whole table by naming every handle in it.
+ */
+export const RESOLVE_LIMIT = 100;
+
+/**
+ * The handles to resolve, from whatever arrived in the query string.
+ *
+ * Order is preserved and duplicates dropped: a list setting's order is the
+ * order it renders in, so the caller gets its own sequence back rather than
+ * whatever the database felt like returning.
+ */
+export function parseHandles(input: unknown): readonly string[] {
+  const raw = String(input ?? '')
+    .split(',')
+    .map((handle) => handle.trim())
+    .filter((handle) => handle !== '');
+
+  return [...new Set(raw)].slice(0, RESOLVE_LIMIT);
+}
+
+/**
  * Cleans a merchant's typing into something to match on.
  *
  * The wildcards are added by the query, not here: a term containing `%` must
