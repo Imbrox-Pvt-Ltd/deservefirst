@@ -83,6 +83,17 @@ export function fontFromHandle(handle: unknown): FontValue | null {
     weight,
     style,
     fallback_families: fallbackFor(family),
+    /**
+     * Whether the family is one every device already has.
+     *
+     * I tried reporting TRUE for everything, reasoning that `system?` asks
+     * "must I load a file for this?" and we host none — which would have saved
+     * three failed `.woff2` preloads per page. It cost every font-family
+     * declaration on the site: the theme takes `system?` as permission to skip
+     * its typography block entirely, so the page went from three real families
+     * to none. Three failed preloads are a far better trade than a site with no
+     * typography, and the measurement is the only reason I know that.
+     */
     system: SYSTEM_FAMILIES.has(family.toLowerCase()),
   };
 }
