@@ -1006,6 +1006,28 @@ async function start(): Promise<void> {
     );
   });
 
+  /** Every app on the platform, for the operator's list. */
+  app.get(`/${API_VERSION}/platform/apps`, async (request, reply) => {
+    const context = await platformGuard(request as never, reply as never, 'platform.apps.suspend');
+    if (!context) return reply;
+
+    const all = await platform.appRegistry.allApps();
+    return success(
+      all.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        handle: entry.handle,
+        status: entry.status,
+        distribution: entry.distribution,
+        partnerId: entry.partnerId,
+        requestedScopes: entry.requestedScopes,
+        suspendedReason: entry.suspendedReason,
+        installCount: entry.installCount,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
   app.get(`/${API_VERSION}/platform/app-reviews`, async (request, reply) => {
     const context = await platformGuard(request as never, reply as never, 'platform.apps.review');
     if (!context) return reply;
@@ -1071,7 +1093,27 @@ async function start(): Promise<void> {
   app.get(`/${API_VERSION}/platform/module-states`, async (request, reply) => {
     const context = await platformGuard(request as never, reply as never, 'platform.modules.manage');
     if (!context) return reply;
-    return success(await platform.moduleState.platformOverview(), { requestId: context.requestId });
+    /**
+     * The manifest's label, joined on.
+     *
+     * The service answers in module ids because that is what it reasons about;
+     * an operator deciding whether to turn something off for every store needs
+     * the name a human wrote. Joined here rather than pushed into the service,
+     * which has no business knowing about labels.
+     */
+    const labels = new Map(
+      platform.registry.all().map((entry) => [entry.manifest.id, entry.manifest.label]),
+    );
+    const overview = await platform.moduleState.platformOverview();
+
+    return success(
+      overview.map((state) => ({
+        ...state,
+        label: labels.get(state.moduleId) ?? state.moduleId,
+        disabledReason: state.reason,
+      })),
+      { requestId: context.requestId },
+    );
   });
 
   app.put(`/${API_VERSION}/platform/module-states/:moduleId`, async (request, reply) => {
@@ -1085,7 +1127,27 @@ async function start(): Promise<void> {
       body.enabled === true,
       body.reason === undefined ? undefined : String(body.reason),
     );
-    return success(await platform.moduleState.platformOverview(), { requestId: context.requestId });
+    /**
+     * The manifest's label, joined on.
+     *
+     * The service answers in module ids because that is what it reasons about;
+     * an operator deciding whether to turn something off for every store needs
+     * the name a human wrote. Joined here rather than pushed into the service,
+     * which has no business knowing about labels.
+     */
+    const labels = new Map(
+      platform.registry.all().map((entry) => [entry.manifest.id, entry.manifest.label]),
+    );
+    const overview = await platform.moduleState.platformOverview();
+
+    return success(
+      overview.map((state) => ({
+        ...state,
+        label: labels.get(state.moduleId) ?? state.moduleId,
+        disabledReason: state.reason,
+      })),
+      { requestId: context.requestId },
+    );
   });
 
   app.put(`/${API_VERSION}/platform/settings/:key`, async (request, reply) => {

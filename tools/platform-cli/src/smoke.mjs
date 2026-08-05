@@ -187,6 +187,18 @@ async function chooseStore(apiUrl, cookie, storeId) {
  * Read from the API rather than guessed, because a partner id is a uuid: there
  * is no manifest to walk and inventing one would test a redirect, not a screen.
  */
+/**
+ * The operator screens, when the operator can sign in.
+ *
+ * Skipped without failing if there is no operator account, because a platform
+ * with no operator seeded is a valid state and a smoke run that fails on it
+ * would train people to ignore the smoke run.
+ */
+async function operatorDestinations(apiUrl, cookie) {
+  if (!cookie) return [];
+  return ['/platform/apps', '/platform/reviews', '/platform/modules'];
+}
+
 async function partnerDestinations(apiUrl, cookie) {
   const paths = ['/partners'];
   try {
@@ -221,8 +233,26 @@ export async function smoke(rootDir, options = {}) {
   );
   await chooseStore(apiUrl, cookie, options.storeId ?? 'seed-store-us');
 
+  // A second identity, because the operator console refuses a merchant by
+  // design. One cookie cannot walk both surfaces.
+  let operatorCookie = null;
+  try {
+    operatorCookie = await signIn(
+      apiUrl,
+      options.operatorEmail ?? 'operator@deservefirst.test',
+      options.operatorPassword ?? 'a-perfectly-fine-passphrase',
+    );
+  } catch {
+    // No operator seeded. The store surface is still walked.
+  }
+
   const destinations = [
     ...navigationDestinations(rootDir, handle),
+    // The operator console. Walked as the OPERATOR, not the merchant — see the
+    // second sign-in below. A merchant is redirected away from these, so
+    // walking them with a merchant's cookie would prove only that the guard
+    // works, which is a different check from "the screens render".
+    ...(await operatorDestinations(apiUrl, operatorCookie)),
     // The partner surface is not a store, so it is not in the store navigation
     // and was walked by nothing. Its ids are data rather than manifest, so they
     // are resolved against the signed-in person's own partner accounts; when
@@ -236,12 +266,15 @@ export async function smoke(rootDir, options = {}) {
   const results = [];
 
   for (const path of destinations) {
+    // Operator screens need the operator's cookie; everything else the
+    // merchant's. Sending the wrong one reports a redirect as a broken screen.
+    const walkCookie = path.startsWith('/platform/') ? operatorCookie : cookie;
     const url = `${baseUrl}${path}`;
     let status = 0;
     let body = '';
 
     try {
-      const response = await fetch(url, { redirect: 'follow', headers: { cookie } });
+      const response = await fetch(url, { redirect: 'follow', headers: { cookie: walkCookie } });
       status = response.status;
       body = await response.text();
 

@@ -490,3 +490,42 @@ export interface AppConsentDto {
   readonly codeChallenge: string | null;
   readonly codeChallengeMethod: string | null;
 }
+
+export interface PlatformAppDto {
+  readonly id: string;
+  readonly name: string;
+  readonly handle: string;
+  readonly status: 'draft' | 'published' | 'suspended';
+  readonly distribution: 'public' | 'custom';
+  readonly partnerId: string;
+  readonly requestedScopes: readonly string[];
+  readonly suspendedReason: string | null;
+  /** Stores currently running it — the blast radius of suspending it. */
+  readonly installCount: number;
+}
+
+export interface ScopeReviewDto {
+  readonly appId: string;
+  readonly name: string;
+  readonly handle: string;
+  readonly status: string;
+  readonly partnerId: string;
+  readonly requested: readonly {
+    readonly key: string;
+    readonly label: string;
+    readonly description: string;
+    readonly restricted: boolean;
+  }[];
+  readonly decisions: readonly {
+    readonly scope: string;
+    readonly status: 'approved' | 'denied';
+    readonly reason: string | null;
+  }[];
+}
+
+export interface PlatformModuleStateDto {
+  readonly moduleId: string;
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly disabledReason?: string | null;
+}

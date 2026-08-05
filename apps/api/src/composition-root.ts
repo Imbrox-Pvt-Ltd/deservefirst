@@ -150,6 +150,8 @@ export interface Platform {
   readonly appReview: AppReviewService;
   /** Stopping an app across every store it is installed on. */
   readonly appSuspension: AppSuspensionService;
+  /** Direct registry reads for the operator's list. */
+  readonly appRegistry: SqlAppRepository;
   /** Every app scope the installed modules declare (§23.2). */
   scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
@@ -573,6 +575,7 @@ export async function bootstrap(): Promise<Platform> {
     identity,
     partners: partnerService,
     apps: appService,
+    appRegistry: appRecords,
     appReview: new AppReviewService({
       apps: appRecords,
       scopeCatalog,

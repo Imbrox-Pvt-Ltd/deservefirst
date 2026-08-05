@@ -479,6 +479,30 @@ export class SqlAppRepository {
     );
   }
 
+  /**
+   * Every app on the platform, with how many stores currently run it.
+   *
+   * The install count is what makes suspension a decision rather than a guess:
+   * stopping an app installed on four hundred stores is a different act from
+   * stopping one installed on none, and an operator should see which before
+   * they click.
+   */
+  async allApps(): Promise<readonly (App & { installCount: number })[]> {
+    const rows = await this.executor.query<AppRow & { install_count: number }>(
+      `SELECT a.*, (
+                SELECT COUNT(*) FROM ${this.q('app_installations')} i
+                 WHERE i.${this.q('app_id')} = a.${this.q('id')}
+                   AND i.${this.q('status')} = 'installed'
+                   AND i.${this.q('deleted_at')} IS NULL
+              ) AS install_count
+         FROM ${this.q('apps')} a
+        WHERE a.${this.q('deleted_at')} IS NULL
+        ORDER BY a.${this.q('created_at')} DESC`,
+      [],
+    );
+    return rows.map((row) => ({ ...toApp(row), installCount: Number(row.install_count ?? 0) }));
+  }
+
   /** Apps with at least one restricted scope and no decision yet. */
   async awaitingReview(restricted: readonly string[]): Promise<readonly App[]> {
     if (restricted.length === 0) return [];
