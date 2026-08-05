@@ -9,3 +9,5 @@ export * from './signing';
 export * from './delivery.service';
 export * from './webhook.repository';
 export * from './webhooks.controller';
+export * from './targets';
+export * from './cloud-transports';
