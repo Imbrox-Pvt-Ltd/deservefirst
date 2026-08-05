@@ -41,6 +41,16 @@ export interface RequestState {
   readonly currency: string;
   /** True while the theme editor is rendering a preview. */
   readonly designMode: boolean;
+  /** Raw query string, without the leading `?`. */
+  readonly queryString?: string;
+  /**
+   * Escaped, read-recording parameters from `readableParams`.
+   *
+   * Typed as a plain record rather than the access object, because a drop
+   * exposes values and the recording is the caller's business.
+   */
+  readonly params?: Readonly<Record<string, string>>;
+  readonly page?: number;
 }
 
 export interface TemplateState {
@@ -118,6 +128,40 @@ export const requestDrop = defineDrop<RequestState>('request', {
   origin: (request) => request.origin,
   page_type: (request) => request.pageType,
   locale: (request) => request.locale,
+
+  /** The full URL, for canonical tags and share links. */
+  url: (request) => `${request.origin}${request.path}${request.queryString ? `?${request.queryString}` : ''}`,
+
+  /**
+   * The query string, escaped like the parameters are.
+   *
+   * Present because themes build "keep my filters" links from it, and building
+   * one by hand from `params` loses any key the theme did not think of.
+   */
+  query_string: (request) =>
+    (request.queryString ?? '')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;'),
+
+  /**
+   * Query parameters, already escaped, with every read recorded.
+   *
+   * The reference product withholds these entirely and it is right to be
+   * careful: Liquid does not escape output, so a raw parameter rendered into a
+   * page is reflected script, and a cached page built from one visitor's URL is
+   * served to the next. `request-params.ts` answers both — the values arrive
+   * safe, and the keys a render touched become the cache key.
+   *
+   * So a theme CAN write `{% if request.params.view == 'grid' %}` and
+   * `{{ request.params.utm_campaign }}`, which is the thing themes have always
+   * needed and worked around with JavaScript.
+   */
+  params: (request) => request.params ?? {},
+
+  /** The page number, which paginate reads rather than trusting the template. */
+  page: (request) => request.page ?? 1,
   /**
    * True only while the editor previews the theme.
    *

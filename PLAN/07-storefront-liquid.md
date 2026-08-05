@@ -389,11 +389,56 @@ would always be truthy and confinement would silently open. A test renders
 `{% render '../../etc/passwd' %}` through that exact path to prove it still
 refuses.
 
+## Routing, and query parameters — a deliberate divergence
+
+`domain/routing.ts` is pure: a URL in, a page type and handle out. The paths are
+the reference product's exactly, because they are not ours to choose — a
+merchant migrating brings ranked links and other people's bookmarks, and
+`/products/{handle}` that became `/product/{handle}` is a store that lost its
+search traffic on launch day.
+
+`canonicalPath` drops the collection prefix and the tag filter, so a product
+reachable through four collections has one canonical URL rather than five
+competing duplicates.
+
+### We expose query parameters. The reference product does not.
+
+This is a considered divergence, requested because themes genuinely need it and
+have always worked around it with JavaScript. The two reasons to withhold them
+are real, and both are answered rather than waved away:
+
+**Reflected injection.** Liquid does not escape output, so `{{ request.params.q }}`
+renders whatever was in the URL — a link sent to a customer becomes script on the
+merchant's domain. So values are escaped **before a theme ever sees them**: safe
+by construction rather than by the theme remembering `| escape`.
+
+`&` is deliberately left alone. With `<`, `>`, `"` and `'` already gone a value
+cannot open a tag or leave an attribute, so escaping the ampersand would only
+turn "shirts & ties" into "shirts &amp; ties" on the page for no security gain.
+
+**Cache correctness.** A storefront caches pages by URL; a theme reading
+`?utm_source` would bake one visitor's value into everyone else's page. So every
+key a render reads is **recorded**, and `cacheKeyFor` builds the key from exactly
+those. A page that reads nothing caches by path alone; a page that reads
+`?variant` caches per variant. Iterating the parameters records all of them.
+
+Also capped: 30 parameters, 256 bytes each — a URL is attacker-controlled input
+that ends up in a page and in memory.
+
+### The hazard testing found
+
+A parameter named **`then`** would make the whole parameter object a *thenable*.
+The engine awaits values it renders, so `?then=x` would have made it await
+itself. `then`, `catch`, `finally`, `next`, `toLiquid`, `valueOf`, `toString`
+and the prototype names are refused outright.
+
+Relatedly, the engine probes every rendered object for `then`, `next` and
+`toLiquid` — recording those put three phantom entries in every cache key. Reads
+are now recorded only for keys that genuinely exist.
+
 ### Still to build
 
-Storefront routing on its own host — turning a URL into a `PageRequest` with the
-right drops loaded — then SEO (redirects, sitemap, robots, JSON-LD, canonicals),
-then the editor.
+SEO — redirects, sitemap, robots, JSON-LD, canonicals — then the editor.
 
 ## The security position
 
