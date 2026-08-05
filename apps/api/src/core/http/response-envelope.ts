@@ -91,6 +91,19 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
+/**
+ * Whether a string is one of the codes above.
+ *
+ * The transport lets an error name its own code, so that a conflict arrives as
+ * `conflict` rather than as a generic validation failure. This is what keeps
+ * that from widening the API: a code nobody documented would appear in
+ * responses without appearing in the reference, and an integrator switching on
+ * it would be depending on something we never promised.
+ */
+export function isErrorCode(value: unknown): value is ErrorCode {
+  return typeof value === 'string' && (Object.values(ERROR_CODES) as string[]).includes(value);
+}
+
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
   unauthenticated: 401,
   forbidden: 403,

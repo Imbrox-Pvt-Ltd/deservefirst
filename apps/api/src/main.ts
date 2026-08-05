@@ -27,7 +27,7 @@ import { AccessDeniedError } from './auth/application';
 import { logTypeFor } from './apps/application';
 import { AppRuleError } from './apps/domain';
 import { headline, pathIsAutomatable, summarise } from './apps/domain';
-import type { ErrorCode } from './core/http/response-envelope';
+import { isErrorCode, type ErrorCode } from './core/http/response-envelope';
 import { ProductInvariantError } from './modules/catalog/domain';
 // Aliased: `Request` would collide with the transport's own Request type.
 import { RequestInvariantError, subtotal, type Request as QuoteRequest } from './modules/orders/domain';
@@ -2309,11 +2309,26 @@ async function start(): Promise<void> {
     // eslint-disable-next-line no-console
     if (status >= 500) console.error('[error]', error);
 
+    /**
+     * An error's own `code`, when it set one.
+     *
+     * Some refusals are not interchangeable to a caller: a conflict means
+     * reload, a validation failure means fix the value. The theme editor
+     * attaches `code: 'conflict'` for exactly that reason and its comment says
+     * the code travels to the client — it did not, because this branch labelled
+     * everything below 500 `validation_failed`. The editor's conflict banner
+     * could never appear.
+     *
+     * Only a client-facing refusal carries its own code. A 500's code stays
+     * `internal_error` whatever the error called itself, because an internal
+     * name is not something to hand out.
+     */
+    const named = (error as { code?: unknown }).code;
+    const code: ErrorCode =
+      status >= 500 ? 'internal_error' : isErrorCode(named) ? named : 'validation_failed';
+
     return reply.status(status).send(
-      failure(
-        [apiError(status >= 500 ? 'internal_error' : 'validation_failed', name, detail)],
-        { requestId },
-      ),
+      failure([apiError(code, name, detail)], { requestId }),
     );
   });
 

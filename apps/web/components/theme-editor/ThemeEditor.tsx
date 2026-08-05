@@ -37,6 +37,11 @@ import {
   Text,
 } from '@deservefirst/ui';
 
+import {
+  applyThemeEdit,
+  discardThemeDraft,
+  publishTheme,
+} from '../../app/actions/theme-editor';
 import { SettingInput, type SettingDefinition } from './SettingInput';
 
 export interface EditorSection {
@@ -104,17 +109,14 @@ export function ThemeEditor(props: ThemeEditorProps) {
     (action: EditAction) => {
       setError(null);
       startTransition(async () => {
-        const response = await fetch(
-          `/api/storefront/themes/${props.themeId}/templates/${encodeURIComponent(props.templatePath)}/edit`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ action, expectedVersion: version }),
-          },
+        const result = await applyThemeEdit(
+          props.themeId,
+          props.templatePath,
+          action,
+          version,
         );
 
-        if (!response.ok) {
-          const body = (await response.json().catch(() => ({}))) as { message?: string; code?: string };
+        if (!result.ok) {
           /**
            * A conflict is not an error to shrug at.
            *
@@ -122,12 +124,12 @@ export function ThemeEditor(props: ThemeEditorProps) {
            * change was made against no longer exists. Reloading is the only
            * honest resolution — merging silently would discard one of them.
            */
-          if (body.code === 'conflict') setConflict(true);
-          setError(body.message ?? 'That change could not be applied.');
+          if (result.code === 'conflict') setConflict(true);
+          setError(result.error ?? 'That change could not be applied.');
           return;
         }
 
-        const next = (await response.json()) as { sections: EditorSection[]; version: number };
+        const next = result.data as { sections: EditorSection[]; version: number };
         setSections(next.sections);
         setVersion(next.version);
         setDirty(true);
@@ -336,11 +338,9 @@ export function ThemeEditor(props: ThemeEditorProps) {
               <Button
                 onClick={() =>
                   startTransition(async () => {
-                    await fetch(
-                      `/api/storefront/themes/${props.themeId}/templates/${encodeURIComponent(props.templatePath)}/draft`,
-                      { method: 'DELETE' },
-                    );
-                    window.location.reload();
+                    const result = await discardThemeDraft(props.themeId, props.templatePath);
+                    if (result.ok) window.location.reload();
+                    else setError(result.error ?? 'Those changes could not be discarded.');
                   })
                 }
               >
@@ -351,12 +351,12 @@ export function ThemeEditor(props: ThemeEditorProps) {
                 loading={pending}
                 onClick={() =>
                   startTransition(async () => {
-                    const response = await fetch(
-                      `/api/storefront/themes/${props.themeId}/publish`,
-                      { method: 'POST' },
-                    );
-                    if (response.ok) window.location.reload();
-                    else setError('Publishing failed. Your changes are still saved as a draft.');
+                    const result = await publishTheme(props.themeId);
+                    if (result.ok) window.location.reload();
+                    else
+                      setError(
+                        result.error ?? 'Publishing failed. Your changes are still saved as a draft.',
+                      );
                   })
                 }
               >

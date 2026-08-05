@@ -47,12 +47,21 @@ const present = (entry: Awaited<ReturnType<DomainService['list']>>[number]) => (
  */
 function asHttp(error: unknown): never {
   if (error instanceof DomainError) {
-    const status = {
-      invalid: 422,
-      taken: 409,
-      not_found: 404,
-      not_verified: 422,
-      last_primary: 422,
+    /**
+     * Status and code together, because they answer different questions.
+     *
+     * The status tells a browser what happened; the code tells an integration
+     * what to DO — `conflict` means somebody else has this name and retrying
+     * will not help, `validation_failed` means fix the value and try again.
+     * Sending a 409 labelled `validation_failed` would invite exactly the retry
+     * loop that cannot succeed.
+     */
+    const { status, code } = {
+      invalid: { status: 422, code: 'validation_failed' },
+      taken: { status: 409, code: 'conflict' },
+      not_found: { status: 404, code: 'not_found' },
+      not_verified: { status: 422, code: 'validation_failed' },
+      last_primary: { status: 422, code: 'validation_failed' },
     }[error.code];
     /**
      * `status`, not `statusCode`.
@@ -63,7 +72,7 @@ function asHttp(error: unknown): never {
      * merchant typing a domain they already own got a server error instead of
      * being told they already own it.
      */
-    throw Object.assign(new Error(error.message), { status });
+    throw Object.assign(new Error(error.message), { status, code });
   }
   throw error;
 }
