@@ -494,15 +494,30 @@ export const dropsExposeNothingPrivate = {
     for (const source of sources) {
       if (!/[/\\]storefront[/\\]domain[/\\]drops[/\\]/.test(source.relativePath)) continue;
 
+      /**
+       * Comments are blanked before matching, keeping the offsets.
+       *
+       * A drop file explains which fields it deliberately does NOT expose, and
+       * naming one in prose is the correct thing to write. The first version of
+       * this rule read the sentence "…about this person. `note` is what staff
+       * wrote" as a property read, because a full stop before a word looks
+       * exactly like a member access. Blanking rather than removing keeps every
+       * reported line number honest.
+       */
+      const code = source.text
+        .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+        .replace(/\/\/[^\n]*/g, (line) => line.replace(/./g, ' '));
+
       for (const [field, where] of forbidden) {
-        // `(row) => row.costPerItem` — a property read off the drop's source.
-        const read = new RegExp(`\\.\\s*${field}\\b`);
-        if (!read.test(source.text)) continue;
+        // `(row) => row.costPerItem` — a property read, with no space before
+        // the name. `foo. bar` is not valid member access anybody writes.
+        const read = new RegExp(`\\.${field}\\b`);
+        if (!read.test(code)) continue;
 
         violations.push(
           violation(
             source.relativePath,
-            lineOf(source.text, read.exec(source.text).index),
+            lineOf(code, read.exec(code).index),
             'drops-expose-nothing-private',
             `reads "${field}", which is ${where}. A drop is read by every theme on ` +
               'the platform — if a storefront genuinely needs this, change the ' +

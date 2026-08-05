@@ -304,3 +304,187 @@ test('every drop is registered and declares at least one property', () => {
     }
   }
 });
+
+// ======================================================= content & commerce
+
+const { articleDrop, blogDrop, cartDrop, customerDrop, orderDrop, pageDrop, sectionDrop, formDrop } =
+  await import('../../../dist/storefront/domain/index.js');
+
+test('a customer never exposes the staff note about them', async () => {
+  /**
+   * `note` is marked private on the customer resource: it is what staff wrote,
+   * and a theme printing it would show a customer the internal comment about
+   * their own dispute. The row carries one so this cannot pass vacuously.
+   */
+  const row = {
+    id: 'c1',
+    firstName: 'Sam',
+    lastName: 'Reed',
+    email: 'sam@example.test',
+    ordersCount: 3,
+    totalSpentMinor: '12500',
+    note: 'chargeback risk — do not offer credit',
+  };
+  const drop = customerDrop(row, context);
+
+  assert.equal(row.note, 'chargeback risk — do not offer credit');
+  assert.equal(await render(`{{ customer.note }}`, { customer: drop }), '');
+  assert.ok(!Object.keys(drop).includes('note'), Object.keys(drop).join(','));
+  assert.equal(await render(`{{ customer.name }}`, { customer: drop }), 'Sam Reed');
+});
+
+test('an order exposes the customer note but never the internal one', async () => {
+  const drop = orderDrop(
+    {
+      id: 'o1',
+      reference: '#1042',
+      status: 'quoted',
+      currency: 'USD',
+      customerNote: 'Please deliver after 5pm',
+      internalNote: 'customer disputed the last invoice',
+      subtotalMinor: '9900',
+    },
+    context,
+  );
+
+  assert.equal(await render(`{{ order.note }}`, { order: drop }), 'Please deliver after 5pm');
+  assert.equal(await render(`{{ order.internal_note }}`, { order: drop }), '');
+  assert.equal(await render(`{{ order.internalNote }}`, { order: drop }), '');
+});
+
+test('a comment never carries the author email', async () => {
+  const article = articleDrop(
+    { id: 'a1', blogId: 'b1', handle: 'news', title: 'News', commentCount: 1 },
+    context,
+  );
+  // The drop declares no email property at all, so there is nothing to leak.
+  const { commentDrop } = await import('../../../dist/storefront/domain/index.js');
+  assert.ok(!commentDrop.properties.includes('email'), commentDrop.properties.join(','));
+  assert.equal(await render(`{{ article.title }}`, { article }), 'News');
+});
+
+test('cart totals are computed, not trusted', async () => {
+  const drop = cartDrop(
+    {
+      currency: 'USD',
+      items: [
+        { id: 'l1', productId: 'p1', variantId: 'v1', title: 'Shirt', quantity: 2, unitPriceMinor: '4500' },
+        { id: 'l2', productId: 'p2', variantId: 'v2', title: 'Hat', quantity: 1, unitPriceMinor: '2000' },
+      ],
+    },
+    context,
+  );
+
+  assert.equal(await render(`{{ cart.item_count }}`, { cart: drop }), '3');
+  assert.equal(await render(`{{ cart.total_price | money }}`, { cart: drop }), '$110.00');
+  assert.equal(await render(`{{ cart.empty }}`, { cart: drop }), 'false');
+});
+
+test('an empty cart renders a price rather than nothing', async () => {
+  const drop = cartDrop({ currency: 'USD', items: [] }, context);
+  assert.equal(await render(`{{ cart.total_price | money }}`, { cart: drop }), '$0.00');
+  assert.equal(await render(`{{ cart.empty }}`, { cart: drop }), 'true');
+});
+
+test("a line item hides the theme's own underscore properties", async () => {
+  const drop = cartDrop(
+    {
+      currency: 'USD',
+      items: [
+        {
+          id: 'l1', productId: 'p1', variantId: 'v1', title: 'Shirt', quantity: 1,
+          unitPriceMinor: '4500',
+          properties: { Engraving: 'Sam', _internal_token: 'abc123' },
+        },
+      ],
+    },
+    context,
+  );
+
+  const out = await render(
+    `{% for line in cart.items %}{% for p in line.properties %}{{ p[0] }}={{ p[1] }} {% endfor %}{% endfor %}`,
+    { cart: drop },
+  );
+  assert.ok(out.includes('Engraving=Sam'), out);
+  assert.ok(!out.includes('_internal_token'), out);
+});
+
+// ============================================================ theme objects
+
+test('section settings fill in every declared default', async () => {
+  const schema = [
+    { type: 'text', id: 'heading', default: 'Featured' },
+    { type: 'range', id: 'columns', min: 1, max: 5, step: 1, default: 3 },
+    { type: 'checkbox', id: 'show_price', default: true },
+  ];
+  const drop = sectionDrop(
+    { id: 's1', type: 'featured', settings: { heading: 'Our picks' }, schema },
+    context,
+  );
+
+  // The merchant set one; the other two come from the schema rather than blank.
+  assert.equal(await render(`{{ section.settings.heading }}`, { section: drop }), 'Our picks');
+  assert.equal(await render(`{{ section.settings.columns }}`, { section: drop }), '3');
+  assert.equal(await render(`{{ section.settings.show_price }}`, { section: drop }), 'true');
+});
+
+test('a stored value for a setting the schema dropped is not readable', async () => {
+  const drop = sectionDrop(
+    {
+      id: 's1',
+      type: 'featured',
+      settings: { heading: 'Hi', removed_setting: 'stale' },
+      schema: [{ type: 'text', id: 'heading' }],
+    },
+    context,
+  );
+  assert.equal(await render(`{{ section.settings.removed_setting }}`, { section: drop }), '');
+});
+
+test('form.errors is nothing when there are none, so {% if %} works', async () => {
+  const clean = formDrop({ type: 'contact' }, context);
+  const failed = formDrop(
+    { type: 'contact', errors: { messages: { email: 'is invalid' } } },
+    context,
+  );
+
+  // An empty object would be truthy in Liquid and show an empty error box.
+  assert.equal(await render(`{% if form.errors %}yes{% else %}no{% endif %}`, { form: clean }), 'no');
+  assert.equal(await render(`{% if form.errors %}yes{% else %}no{% endif %}`, { form: failed }), 'yes');
+});
+
+test('a failed form keeps what the customer already typed', async () => {
+  const drop = formDrop(
+    { type: 'contact', fields: { email: 'sam@example.test', body: 'Hello' } },
+    context,
+  );
+  assert.equal(await render(`{{ form.email }}`, { form: drop }), 'sam@example.test');
+  assert.equal(await render(`{{ form.body }}`, { form: drop }), 'Hello');
+});
+
+test('a page renders its handle-based url', async () => {
+  const drop = pageDrop({ id: 'pg1', handle: 'about-us', title: 'About' }, context);
+  assert.equal(await render(`{{ page.url }}`, { page: drop }), '/pages/about-us');
+});
+
+test('an article falls back from excerpt to content', async () => {
+  const withExcerpt = articleDrop(
+    { id: 'a1', blogId: 'b1', handle: 'x', title: 'X', excerpt: 'Short', body: 'Long body' },
+    context,
+  );
+  const without = articleDrop(
+    { id: 'a2', blogId: 'b1', handle: 'y', title: 'Y', body: 'Long body' },
+    context,
+  );
+
+  assert.equal(await render(`{{ article.excerpt_or_content }}`, { article: withExcerpt }), 'Short');
+  assert.equal(await render(`{{ article.excerpt_or_content }}`, { article: without }), 'Long body');
+});
+
+test('an article summary joins block-level text rather than running it together', async () => {
+  const drop = articleDrop(
+    { id: 'a1', blogId: 'b1', handle: 'x', title: 'X', body: '<p>First.</p><p>Second.</p>' },
+    context,
+  );
+  assert.equal(await render(`{{ article.summary }}`, { article: drop }), 'First. Second.');
+});

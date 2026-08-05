@@ -199,8 +199,15 @@ output, including the real ones.
 `defineDrop(name, spec)` builds a frozen plain object with one enumerable getter
 per declared property, and nothing else is reachable.
 
-Built: `product`, `variant`, `image`, `collection`, `shop`, `request`,
-`template`, `link`, `linklist`, `paginate`.
+**23 drops, 247 properties**, in five files:
+
+| | |
+|---|---|
+| `catalog` | product, variant, image, collection |
+| `global` | shop, request, template, link, linklist, paginate |
+| `content` | page, blog, article, comment |
+| `commerce` | cart, line_item, customer, address, order |
+| `theme` | section, block, form, search |
 
 ### The danger is concrete
 
@@ -239,11 +246,42 @@ page from another's data.
 `dropList` is lazy too — a 500-element list builds zero drops until an element
 is read.
 
+### What the commerce drops deliberately withhold
+
+- **`customer.note`** — private on the customer resource. It is what staff wrote
+  about that person; a theme printing it would show a customer the internal
+  comment about their own dispute.
+- **`order.internalNote`** — staff-facing, while the customer's own `note` on
+  the same order is public and themes render it. One word apart, opposite
+  meanings.
+- **`comment` has no `email` property at all**, so a comment list cannot publish
+  every commenter's address.
+- **`line_item` hides underscore-prefixed properties** — themes use them for
+  their own bookkeeping and do not expect them in an order summary.
+
+`cart` totals are computed from the lines rather than read from a stored total,
+so a stale figure cannot render.
+
+### Two names one word apart
+
+Because `note` is private on one resource and public on another, the rule
+refuses any read named `.note` in a drop. The order projection therefore names
+its row field `customerNote`, which makes the mapping an explicit decision at
+the boundary rather than a read indistinguishable from the one that leaks.
+
+### The rule read prose as code
+
+First version matched a full stop, optional space, then the field name — so it
+found the sentence *"…about this person. `note` is what staff wrote"*, because a
+full stop before a word looks exactly like member access. Comments are now
+blanked before matching (offsets preserved, so line numbers stay honest) and the
+pattern allows no space. Re-verified by planting two leaks afterwards: both
+still caught, on the right lines.
+
 ### Still to build
 
-`cart`, `line_item`, `customer`, `order`, `address`, `article`, `blog`, `page`,
-`search`, `section`, `block`, `form`, `metafield`, `localization`, `media`,
-`settings`. Then the 8 tags, which need these to be useful.
+`metafield`, `localization`, `media`, `settings`, `filter`/`filter_value`,
+`discount_application`. Then the 8 tags, which need these to be useful.
 
 ## The security position
 
