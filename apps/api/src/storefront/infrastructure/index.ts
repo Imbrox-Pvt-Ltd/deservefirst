@@ -13,3 +13,7 @@ export * from './sql-store-resolver';
 export * from './storefront-submissions';
 
 export * from './message-status';
+
+export * from './theme-versions';
+
+export * from './sql-draft-store';

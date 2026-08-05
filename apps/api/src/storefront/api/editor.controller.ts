@@ -81,8 +81,18 @@ export function editorController(services: EditorServices): ModuleController {
           themeId,
         );
 
+        /**
+         * The homepage by default, not whatever sorts first.
+         *
+         * Alphabetical order opens the editor on `templates/404.json`, which is
+         * the one page a merchant is least likely to want and the worst first
+         * impression of the editor.
+         */
         const templatePath =
-          request.query.get('template') ?? templates[0] ?? 'templates/index.json';
+          request.query.get('template') ??
+          templates.find((path) => /^templates\/index\.(json|liquid)$/.test(path)) ??
+          templates[0] ??
+          'templates/index.json';
 
         const document = await run(() => services.editor.open(session, templatePath));
         const pending = await services.editor.pendingFiles(session);

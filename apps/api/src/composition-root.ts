@@ -19,8 +19,17 @@ import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
 import { storefrontManifest } from './storefront/storefront.manifest';
-import { SqlMessageStatus, SqlStorefrontSubmissions, SqlStoreResolver } from './storefront/infrastructure';
-import { messagesController, StorefrontHandler } from './storefront/api';
+import {
+  FilesystemThemeSource,
+  FilesystemThemeVersionStore,
+  SqlDraftStore,
+  SqlMessageStatus,
+  SqlStorefrontSubmissions,
+  SqlStoreResolver,
+  SqlThemeRepository,
+} from './storefront/infrastructure';
+import { EditorService, PublishService, ThemeSchemas } from './storefront/application';
+import { editorController, messagesController, StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
 import { SqlDeploymentRepository } from './functions/infrastructure';
@@ -39,7 +48,7 @@ import {
 } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
 import type { RequestContext } from '@deservefirst/contracts';
-import { platformContext, requireStoreContext, withRequestContext } from './core/tenant-context';
+import { platformContext, requireStoreContext, storefrontContext, withRequestContext } from './core/tenant-context';
 import {
   CacheService,
   DashboardService,
@@ -669,11 +678,81 @@ export async function bootstrap(): Promise<Platform> {
     );
   };
 
+  /**
+   * The theme editor, assembled.
+   *
+   * `sessionFor` answers "which theme is this merchant editing, and what does
+   * it declare" — the theme, its parsed schemas, its templates, and where the
+   * preview points. `publish` is the model from `PublishService`: check it
+   * renders, write an immutable version, move the pointer.
+   *
+   * A theme with no versions yet falls back to its `sourceRef` directory, so
+   * the development path of "drop a theme in a folder" keeps working and the
+   * first publish is what starts the version history.
+   */
+  const themeVersions = new FilesystemThemeVersionStore(
+    `${process.env.DF_THEME_ROOT ?? 'theme'}/.versions`,
+  );
+  const drafts = new SqlDraftStore(executor, () => randomUUID(), dialect);
+
+  const editorService = new EditorService(drafts, () => randomUUID().slice(0, 8));
+
+  const themeSourceFor = (theme: { id: string; versionRef: string }) =>
+    /^v_[0-9a-f]{16}$/.test(theme.versionRef)
+      ? themeVersions.sourceFor(theme.id, theme.versionRef)
+      : new FilesystemThemeSource(
+          `${process.env.DF_THEME_ROOT ?? 'theme'}/${theme.versionRef}`,
+        );
+
+  const editorServices = {
+    editor: editorService,
+
+    sessionFor: async (storeId: string, themeId?: string) => {
+      const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());
+      const themes = await withRequestContext(storefrontContext(storeId), () => repository.all());
+
+      const theme = themeId
+        ? themes.find((entry) => entry.id === themeId)
+        : (themes.find((entry) => entry.role === 'main') ?? themes[0]);
+      if (!theme) throw new Error('This store has no theme to edit.');
+
+      const source = themeSourceFor(theme);
+      const schemas = await ThemeSchemas.read(source);
+      const manifest = await source.manifest();
+
+      return {
+        session: { themeId: theme.id, source },
+        schemas,
+        templates: [...manifest].filter((path) => path.startsWith('templates/')).sort(),
+        // The preview renders the DRAFT, which is what makes it honest.
+        previewUrl: (templatePath: string) =>
+          `/store/preview?theme=${theme.id}&template=${encodeURIComponent(templatePath)}`,
+      };
+    },
+
+    publish: async (storeId: string, themeId: string) => {
+      await withRequestContext(storefrontContext(storeId), async () => {
+        const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());
+        const theme = (await repository.all()).find((entry) => entry.id === themeId);
+        if (!theme) throw new Error('That theme no longer exists.');
+
+        const publisher = new PublishService(repository, themeVersions, drafts, async (event) => {
+          await events.emit(event.type, event.payload);
+        });
+
+        await publisher.publish({ themeId: theme.id, source: themeSourceFor(theme) });
+      });
+    },
+  };
+
   const storefront = new StorefrontHandler(
     new SqlStoreResolver(
       executor,
       {
         submissionsFor: storefrontSubmissionsFor,
+        // The same function the editor uses. Two copies of this disagreed the
+        // moment versions existed, and a successful publish 500'd the store.
+        themeSourceFor,
         storefrontHost: branding.domains.storefront,
         // Filesystem themes are the development path; object storage is the
         // production one and is not built yet, so a store configured for it
@@ -882,6 +961,7 @@ export async function bootstrap(): Promise<Platform> {
       // the modules. The partner's own half is not store-scoped and does not.
       appsController({ apps: appService }),
       messagesController(new SqlMessageStatus(executor, dialect) as never),
+      editorController(editorServices as never),
       billingController({ billing: billingService }),
       partnerController({
         partners: partnerService,

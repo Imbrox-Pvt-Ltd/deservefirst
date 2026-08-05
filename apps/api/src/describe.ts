@@ -30,7 +30,7 @@ import { partnerController } from './auth/api/partner.controller';
 import { appsController } from './apps/api/apps.controller';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
-import { messagesController } from './storefront/api';
+import { editorController, messagesController } from './storefront/api';
 import { storefrontManifest } from './storefront/storefront.manifest';
 import { functionsManifest } from './functions/functions.manifest';
 import { billingController } from './billing/api/billing.controller';
@@ -91,6 +91,7 @@ export function describePlatform(): {
       appsController(unused),
       billingController(unused),
       messagesController(unused),
+      editorController(unused),
     ],
   };
 }

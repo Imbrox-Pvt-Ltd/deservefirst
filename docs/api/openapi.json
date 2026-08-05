@@ -9038,6 +9038,216 @@
           }
         }
       }
+    },
+    "/2026-01/storefront/editor": {
+      "get": {
+        "tags": [
+          "storefront"
+        ],
+        "summary": "GET /editor",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.themes.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/storefront/editor/edit": {
+      "post": {
+        "tags": [
+          "storefront"
+        ],
+        "summary": "POST /editor/edit",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.themes.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/storefront/editor/draft": {
+      "delete": {
+        "tags": [
+          "storefront"
+        ],
+        "summary": "DELETE /editor/draft",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.themes.manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/storefront/editor/publish": {
+      "post": {
+        "tags": [
+          "storefront"
+        ],
+        "summary": "POST /editor/publish",
+        "description": "Declared by the module. Writes go through its service, where the invariants and events are.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "store.themes.manage"
+            ]
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "The version last read. Omitting it is not \"no opinion\" — it is a lost update."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record changed since it was read — reload and retry."
+          },
+          "422": {
+            "description": "A domain rule refused this."
+          }
+        }
+      }
     }
   }
 }

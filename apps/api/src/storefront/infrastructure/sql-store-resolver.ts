@@ -33,6 +33,18 @@ export interface StoreResolverOptions {
    * store happened to construct it.
    */
   readonly submissionsFor?: (storeId: string, currency: string) => StorefrontSubmissions;
+  /**
+   * Where a theme's files live, given its id and what it points at.
+   *
+   * Supplied rather than decided here, because the editor needs the same
+   * answer — and when the two worked it out separately they disagreed the
+   * moment versions arrived. Publishing wrote to
+   * `.versions/{themeId}/{ref}` while this looked in `{root}/{ref}`, so a
+   * successful publish returned a 500 to every visitor.
+   */
+  readonly themeSourceFor?: (
+    theme: { id: string; versionRef: string },
+  ) => ThemeSource & { manifest(): Promise<ReadonlySet<string>> };
 }
 
 interface Row extends Record<string, unknown> {}
@@ -152,7 +164,7 @@ export class SqlStoreResolver implements StoreResolver {
     storeId: string,
   ): Promise<(ThemeSource & { manifest(): Promise<ReadonlySet<string>> }) | null> {
     const rows = await this.executor.query<Row>(
-      `SELECT ${this.q('source_kind')}, ${this.q('source_ref')} FROM ${this.q('themes')}
+      `SELECT ${this.q('id')}, ${this.q('source_kind')}, ${this.q('source_ref')} FROM ${this.q('themes')}
         WHERE ${this.q('store_id')} = ${this.p(1)}
           AND ${this.q('role')} = 'main'
           AND ${this.q('deleted_at')} IS NULL
@@ -165,9 +177,20 @@ export class SqlStoreResolver implements StoreResolver {
     if (String(row.source_kind) !== 'filesystem') return null;
 
     const reference = String(row.source_ref);
-    // The reference is merchant-adjacent data that becomes a path, so it is
-    // confined to one directory name under the configured root.
+    // Merchant-adjacent data that becomes a path, so it is constrained before
+    // anything reads it.
     if (!/^[A-Za-z0-9][\w.-]*$/.test(reference)) return null;
+
+    /**
+     * One place decides where a theme's files are.
+     *
+     * The composition root supplies this, and gives the editor the same
+     * function — so a version written by a publish is read by the storefront
+     * without either having to know the layout.
+     */
+    if (this.options.themeSourceFor) {
+      return this.options.themeSourceFor({ id: String(row.id), versionRef: reference });
+    }
 
     return new FilesystemThemeSource(`${this.options.themeRoot}/${reference}`);
   }

@@ -100,6 +100,51 @@ export const storefrontManifest: ModuleManifest = {
     },
     {
       /**
+       * One published state of a theme, kept forever.
+       *
+       * The row is the history; the files live in the version store under a
+       * content-addressed reference. Rolling back is pointing a theme at an
+       * older row, which is why nothing here is ever updated — a version that
+       * could change would make a rollback land somewhere unpredictable.
+       */
+      name: 'ThemeVersion',
+      tableName: 'theme_versions',
+      toolkit: { ...STOREFRONT_TOOLKIT, timeline: false, audit: true },
+      fields: [
+        { name: 'themeId', type: 'reference', references: 'Theme', indexed: true, filterable: true },
+        { name: 'versionRef', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'publishedAt', type: 'datetime', sortable: true, filterable: true },
+        { name: 'publishedBy', type: 'string' },
+        { name: 'createdAt', type: 'datetime', sortable: true },
+      ],
+    },
+    {
+      /**
+       * A merchant's unsaved edits to one template.
+       *
+       * In the database rather than in memory, because an editor that forgets
+       * unsaved work when a server restarts is one people learn not to trust.
+       * Held apart from the theme's own files: a draft written into the theme
+       * would be visible to customers the moment it was saved, which is the one
+       * thing the editor must never do.
+       */
+      name: 'ThemeDraft',
+      tableName: 'theme_drafts',
+      toolkit: { ...STOREFRONT_TOOLKIT, timeline: false, audit: false },
+      fields: [
+        { name: 'themeId', type: 'reference', references: 'Theme', indexed: true, filterable: true },
+        { name: 'templatePath', type: 'string', required: true, indexed: true },
+        /** The whole document, as the editor model holds it. */
+        { name: 'document', type: 'json' },
+        /** The editor's own version, for the conflict check. Not the row's. */
+        { name: 'documentVersion', type: 'integer' },
+        { name: 'updatedBy', type: 'string' },
+        { name: 'createdAt', type: 'datetime', sortable: true },
+        { name: 'updatedAt', type: 'datetime', sortable: true },
+      ],
+    },
+    {
+      /**
        * A message somebody sent through the storefront's contact form.
        *
        * Its own entity rather than a Request with no lines. A contact message is

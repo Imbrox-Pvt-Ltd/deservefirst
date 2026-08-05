@@ -18,3 +18,7 @@ out/
 # up in this repository — the conformance tests skip when it is absent, so a
 # clone without it still passes CI.
 theme/
+
+# Theme versions written by a publish. Content-addressed and reproducible;
+# a working copy is not a build artefact worth committing.
+theme/.versions/
