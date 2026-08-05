@@ -111,3 +111,11 @@ export {
   type FilterValueRow,
   type SortOptionRow,
 } from './faceting';
+
+export {
+  createLookupBudget,
+  lookupDrop,
+  MAX_LOOKUPS_PER_RENDER,
+  type LookupBudget,
+  type LookupOptions,
+} from './lookup';

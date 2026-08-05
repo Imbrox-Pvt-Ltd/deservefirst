@@ -12,4 +12,5 @@ export * from './theme-source';
 export * from './template-resolution';
 export * from './routing';
 export * from './request-params';
+export * from './handles';
 export * from './drops';

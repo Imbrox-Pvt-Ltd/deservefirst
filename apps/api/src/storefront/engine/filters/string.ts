@@ -2,15 +2,16 @@
  * Storefront · engine/filters/string.ts
  * String filters the reference product has and liquidjs does not.
  *
- * Small, but `handle` is not optional: it is how a theme turns a title into the
- * URL segment the router will later look up, so our handleize and the one that
- * generated the stored handle have to agree exactly. They do, because both go
- * through `handleize` here.
+ * `handle` is re-exported rather than defined here. It moved to
+ * `domain/handles.ts` when the by-handle lookup started depending on it: the
+ * filter that builds a link and the lookup that resolves one must normalise
+ * identically, or a theme links somewhere it cannot then load.
  * Layer: engine.
  */
 
 import { createHash, createHmac } from 'node:crypto';
 
+import { handleize } from '../../domain/handles';
 import { arg, stringify, type FilterArgs, type FilterGroup } from '../types';
 
 /** Keyed hash, where the key is the filter's first argument. */
@@ -20,22 +21,6 @@ function hmac(algorithm: string, value: unknown, args: FilterArgs): string {
     .digest('hex');
 }
 
-/**
- * A title as a URL segment.
- *
- * Accents are decomposed and stripped rather than transliterated, matching the
- * reference product: "Café" becomes "cafe", not "cafe-" or "caf". Anything that
- * is not a letter, digit or underscore becomes a hyphen, runs collapse, and the
- * ends are trimmed — so "  Hello, World!  " is "hello-world".
- */
-export function handleize(input: string): string {
-  return input
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
 
 export const stringFilters: FilterGroup = {
   name: 'string',
@@ -136,3 +121,5 @@ function camelize(input: string): string {
     .replace(/[^a-zA-Z0-9]+(.)/g, (_match, char: string) => char.toUpperCase())
     .replace(/^(.)/, (_match, char: string) => char.toUpperCase());
 }
+
+export { handleize };

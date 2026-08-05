@@ -436,6 +436,35 @@ Relatedly, the engine probes every rendered object for `then`, `next` and
 `toLiquid` — recording those put three phantom entries in every cache key. Reads
 are now recorded only for keys that genuinely exist.
 
+### Dynamic lookup: `all_products[handle]`
+
+A parameter is only useful if it can drive something. `lookup.ts` gives themes
+by-handle access, which is the one genuinely dangerous thing a theme can be
+handed — so the guards ARE the feature:
+
+- **Published only.** A by-handle lookup is a handle oracle: guess or scrape a
+  name and ask. A loader returning drafts would let anyone read an unreleased
+  catalogue. The `publishedOnly: true` flag has no `false` — it exists so a
+  loader wired without the filter is a visible lie at the call site.
+- **A budget of 20 distinct lookups per render.** One lookup is a query; a
+  lookup inside `{% for i in (1..1000) %}` is a thousand from one request.
+  Repeats are free. Over budget yields nil, so a theme renders an incomplete
+  page rather than a failed one.
+- **Normalised keys.** Everything is handleized before reaching a loader, so
+  `../../etc/passwd` and `' OR 1=1 --` become inert handles that find nothing.
+- **Not enumerable.** `{% for p in all_products %}` yields nothing; it must
+  never become a request to load the whole catalogue.
+
+#### Three proxy traps, learned the hard way
+
+liquidjs does not read properties with `get`. It resolves them through
+**`getOwnPropertyDescriptor`** — a proxy implementing only `get` returned
+nothing for every lookup and ran no queries, silently. And `has` is consulted
+*before* the read, so returning `false` to block enumeration blocked reads too;
+enumeration is `ownKeys`'s job alone. Finally the target must be **extensible** —
+a proxy over a frozen target may not report a property the target lacks, which
+threw on every miss. Writes are refused by the `set` trap instead.
+
 ### Still to build
 
 SEO — redirects, sitemap, robots, JSON-LD, canonicals — then the editor.
