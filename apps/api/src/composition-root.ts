@@ -64,11 +64,13 @@ import { partnerController } from './auth/api/partner.controller';
 import {
   AppRequestLogger,
   AppReviewService,
+  AppVersionService,
   AppService,
   AppSuspensionService,
   type ScopeCatalogEntry,
 } from './apps/application';
 import { SqlAppRepository } from './apps/infrastructure';
+import { currentVersion } from './apps/domain';
 import { appsController } from './apps/api';
 import { catalogController } from './modules/catalog/api/catalog.controller';
 import { catalogMetrics } from './modules/catalog/api/catalog.metrics';
@@ -160,6 +162,8 @@ export interface Platform {
   readonly appRegistry: SqlAppRepository;
   /** Buffered request logging for apps — see the note on the hot path. */
   readonly appRequestLogger: AppRequestLogger;
+  /** Drafting and releasing app versions. */
+  readonly appVersions: AppVersionService;
   /** Every app scope the installed modules declare (§23.2). */
   scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
@@ -382,6 +386,7 @@ export async function bootstrap(): Promise<Platform> {
     // review workflow did not exist, which failed closed correctly and also
     // meant no app could ever be published asking for a restricted scope.
     approvedScopesFor: (appId) => appRecords.approvedScopesFor(appId),
+    currentVersion: async (appId) => currentVersion(await appRecords.versionsFor(appId)),
     ensureAppSubscription: async ({ appId, storeId, url, secret, eventTypes }) => {
       const existing = await webhookSubscriptions.forApp(storeId, appId);
       for (const eventType of eventTypes) {
@@ -613,6 +618,7 @@ export async function bootstrap(): Promise<Platform> {
     apps: appService,
     appRegistry: appRecords,
     appRequestLogger,
+    appVersions: new AppVersionService(appRecords),
     appReview: new AppReviewService({
       apps: appRecords,
       scopeCatalog,
@@ -620,6 +626,7 @@ export async function bootstrap(): Promise<Platform> {
         await events.emit(event.type, event.payload);
       },
       approvedScopesFor: (appId) => appRecords.approvedScopesFor(appId),
+      currentVersion: async (appId) => currentVersion(await appRecords.versionsFor(appId)),
       ensureAppSubscription: async () => {
         // Review never installs anything; the port exists on the shared shape.
       },
@@ -631,6 +638,7 @@ export async function bootstrap(): Promise<Platform> {
         await events.emit(event.type, event.payload);
       },
       approvedScopesFor: (appId) => appRecords.approvedScopesFor(appId),
+      currentVersion: async (appId) => currentVersion(await appRecords.versionsFor(appId)),
       ensureAppSubscription: async () => {
         // Suspending installs nothing; the port exists on the shared shape.
       },

@@ -74,6 +74,8 @@ export const appsManifest: ModuleManifest = {
         // The merchant's answer, frozen at consent — not read back off the app,
         // which can change what it asks for at any time.
         { name: 'grantedScopes', type: 'json' },
+        // Which release they said yes to. Null for installs predating versions.
+        { name: 'versionId', type: 'string', indexed: true, filterable: true },
         { name: 'installedAt', type: 'datetime', sortable: true },
         { name: 'uninstalledAt', type: 'datetime', sortable: true },
       ],
@@ -119,6 +121,24 @@ export const appsManifest: ModuleManifest = {
       ],
     },
 
+    {
+      name: 'AppVersion',
+      tableName: 'app_versions',
+      scope: 'platform',
+      toolkit: { ...APP_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'appId', type: 'reference', references: 'App', indexed: true, filterable: true },
+        { name: 'name', type: 'string', required: true, filterable: true, sortable: true },
+        { name: 'message', type: 'text' },
+        { name: 'status', type: 'enum', values: ['draft', 'released'], filterable: true },
+        // The snapshot. Immutable once released — see `assertEditable`.
+        { name: 'scopes', type: 'json' },
+        { name: 'redirectUris', type: 'json' },
+        { name: 'appUrl', type: 'string' },
+        { name: 'webhookApiVersion', type: 'string', filterable: true },
+        { name: 'releasedAt', type: 'datetime', sortable: true, filterable: true },
+      ],
+    },
     {
       name: 'AppRequestLog',
       tableName: 'app_request_logs',

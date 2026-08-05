@@ -928,6 +928,86 @@ async function start(): Promise<void> {
    * app author's own data, and making them ask an operator to see whether their
    * own integration is failing would be absurd.
    */
+  app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/versions`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const versions = await platform.appVersions.list(appId, partnerId);
+    return success(
+      versions.map((version) => ({
+        id: version.id,
+        name: version.name,
+        message: version.message,
+        status: version.status,
+        scopes: version.scopes,
+        redirectUris: version.redirectUris,
+        appUrl: version.appUrl,
+        webhookApiVersion: version.webhookApiVersion,
+        releasedAt: version.releasedAt?.toISOString() ?? null,
+        createdAt: version.createdAt?.toISOString() ?? null,
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/apps/:appId/versions`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    const version = await platform.appVersions.draft(appId, partnerId, {
+      name: String(body.name ?? ''),
+      message: typeof body.message === 'string' ? body.message : null,
+    });
+
+    return reply.status(201).send(
+      success({ id: version.id, name: version.name, status: version.status }, {
+        requestId: context.requestId,
+      }),
+    );
+  });
+
+  app.patch(`/${API_VERSION}/partners/:partnerId/versions/:versionId`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, versionId } = request.params as { partnerId: string; versionId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    const version = await platform.appVersions.update(versionId, partnerId, {
+      name: typeof body.name === 'string' ? body.name : undefined,
+      message: body.message === undefined ? undefined : (body.message as string | null),
+      scopes: Array.isArray(body.scopes) ? (body.scopes as string[]) : undefined,
+      redirectUris: Array.isArray(body.redirectUris) ? (body.redirectUris as string[]) : undefined,
+      appUrl: body.appUrl === undefined ? undefined : (body.appUrl as string | null),
+      webhookApiVersion:
+        typeof body.webhookApiVersion === 'string' ? body.webhookApiVersion : undefined,
+    });
+
+    return success({ id: version.id, status: version.status }, { requestId: context.requestId });
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/versions/:versionId/release`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, versionId } = request.params as { partnerId: string; versionId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const released = await platform.appVersions.release(versionId, partnerId);
+    return success(
+      { id: released.id, status: released.status, releasedAt: released.releasedAt?.toISOString() },
+      { requestId: context.requestId },
+    );
+  });
+
   app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/health`, async (request, reply) => {
     const context = await requireUser(request, reply);
     if (!context) return reply;

@@ -17,6 +17,7 @@ import type { StoreId } from '@deservefirst/contracts';
 import type { QueryExecutor } from '../../core/list-engine';
 import { type SqlDialect, postgresDialect } from '../../core/list-engine/dialect';
 import type { App, AppInstallation, AppToken, AuthorizationCode } from '../domain/app';
+import type { AppVersion } from '../domain/version';
 
 /**
  * Secrets and tokens are stored as a SHA-256 digest.
@@ -54,6 +55,7 @@ interface InstallationRow extends Record<string, unknown> {
   store_id: string;
   status: string;
   granted_scopes: unknown;
+  version_id: string | null;
   installed_at: Date;
   uninstalled_at: Date | null;
 }
@@ -126,6 +128,7 @@ function toInstallation(row: InstallationRow): AppInstallation {
     storeId: row.store_id as StoreId,
     status: row.status as AppInstallation['status'],
     grantedScopes: toList(row.granted_scopes),
+    versionId: row.version_id,
     installedAt: row.installed_at,
     uninstalledAt: row.uninstalled_at,
   };
@@ -311,15 +314,16 @@ export class SqlAppRepository {
 
   async insertInstallation(installation: AppInstallation): Promise<void> {
     const columns = [
-      'id', 'app_id', 'store_id', 'status', 'granted_scopes', 'installed_at', 'uninstalled_at',
+      'id', 'app_id', 'store_id', 'status', 'granted_scopes', 'version_id',
+      'installed_at', 'uninstalled_at',
     ];
     await this.executor.query(
       `INSERT INTO ${this.q('app_installations')} (${columns.map((c) => this.q(c)).join(', ')})
        VALUES (${columns.map((_, index) => this.p(index + 1)).join(', ')})`,
       [
         installation.id, installation.appId, installation.storeId, installation.status,
-        JSON.stringify(installation.grantedScopes), installation.installedAt,
-        installation.uninstalledAt,
+        JSON.stringify(installation.grantedScopes), installation.versionId,
+        installation.installedAt, installation.uninstalledAt,
       ],
     );
   }
@@ -329,12 +333,14 @@ export class SqlAppRepository {
       `UPDATE ${this.q('app_installations')} SET
          ${this.q('status')} = ${this.p(1)},
          ${this.q('granted_scopes')} = ${this.p(2)},
-         ${this.q('installed_at')} = ${this.p(3)},
-         ${this.q('uninstalled_at')} = ${this.p(4)}
-       WHERE ${this.q('id')} = ${this.p(5)}`,
+         ${this.q('version_id')} = ${this.p(3)},
+         ${this.q('installed_at')} = ${this.p(4)},
+         ${this.q('uninstalled_at')} = ${this.p(5)}
+       WHERE ${this.q('id')} = ${this.p(6)}`,
       [
         installation.status,
         JSON.stringify(installation.grantedScopes),
+        installation.versionId,
         installation.installedAt,
         installation.uninstalledAt,
         installation.id,
@@ -411,6 +417,78 @@ export class SqlAppRepository {
       [hash],
     );
     return rows[0] ? toToken(rows[0]) : null;
+  }
+
+  // --- versions --------------------------------------------------------------
+
+  async versionsFor(appId: string): Promise<readonly AppVersion[]> {
+    const rows = await this.executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${this.q('app_versions')}
+        WHERE ${this.q('app_id')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('created_at')} DESC`,
+      [appId],
+    );
+    return rows.map((row) => this.toVersion(row));
+  }
+
+  async findVersion(id: string): Promise<AppVersion | null> {
+    const rows = await this.executor.query<Record<string, unknown>>(
+      `SELECT * FROM ${this.q('app_versions')} WHERE ${this.q('id')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL LIMIT 1`,
+      [id],
+    );
+    return rows[0] ? this.toVersion(rows[0]) : null;
+  }
+
+  private toVersion(row: Record<string, unknown>): AppVersion {
+    return {
+      id: String(row.id),
+      appId: String(row.app_id),
+      name: String(row.name),
+      message: (row.message as string | null) ?? null,
+      status: String(row.status) as AppVersion['status'],
+      scopes: toList(row.scopes),
+      redirectUris: toList(row.redirect_uris),
+      appUrl: (row.app_url as string | null) ?? null,
+      webhookApiVersion: String(row.webhook_api_version),
+      createdAt: row.created_at as Date,
+      releasedAt: (row.released_at as Date | null) ?? null,
+    };
+  }
+
+  async insertVersion(version: AppVersion): Promise<void> {
+    const columns = [
+      'id', 'handle', 'app_id', 'name', 'message', 'status', 'scopes',
+      'redirect_uris', 'app_url', 'webhook_api_version', 'released_at',
+    ];
+    await this.executor.query(
+      `INSERT INTO ${this.q('app_versions')} (${columns.map((c) => this.q(c)).join(', ')})
+       VALUES (${columns.map((_, index) => this.p(index + 1)).join(', ')})`,
+      [
+        version.id, version.id, version.appId, version.name, version.message, version.status,
+        JSON.stringify(version.scopes), JSON.stringify(version.redirectUris),
+        version.appUrl, version.webhookApiVersion, version.releasedAt,
+      ],
+    );
+  }
+
+  async saveVersion(version: AppVersion): Promise<void> {
+    await this.runWrite(
+      `UPDATE ${this.q('app_versions')} SET
+         ${this.q('name')} = ${this.p(1)},
+         ${this.q('message')} = ${this.p(2)},
+         ${this.q('status')} = ${this.p(3)},
+         ${this.q('scopes')} = ${this.p(4)},
+         ${this.q('redirect_uris')} = ${this.p(5)},
+         ${this.q('app_url')} = ${this.p(6)},
+         ${this.q('webhook_api_version')} = ${this.p(7)},
+         ${this.q('released_at')} = ${this.p(8)}
+       WHERE ${this.q('id')} = ${this.p(9)}`,
+      [
+        version.name, version.message, version.status,
+        JSON.stringify(version.scopes), JSON.stringify(version.redirectUris),
+        version.appUrl, version.webhookApiVersion, version.releasedAt, version.id,
+      ],
+    );
   }
 
   // --- request logs ----------------------------------------------------------

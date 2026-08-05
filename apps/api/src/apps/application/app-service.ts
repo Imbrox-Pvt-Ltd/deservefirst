@@ -38,6 +38,7 @@ import {
   type AppToken,
   type TokenType,
 } from '../domain/app';
+import type { AppVersion } from '../domain/version';
 import { digestOf, type SqlAppRepository } from '../infrastructure/app.repository';
 
 export interface ScopeCatalogEntry {
@@ -65,6 +66,14 @@ export interface AppServicePorts {
    * one can be published.
    */
   readonly approvedScopesFor: (appId: string) => Promise<readonly string[]>;
+  /**
+   * The newest released version, or null for an app that has never released.
+   *
+   * Injected rather than read directly so an app with no versions still
+   * installs — the ones registered before versions existed have none, and
+   * refusing them would break every install made this week.
+   */
+  readonly currentVersion: (appId: string) => Promise<AppVersion | null>;
   /**
    * Makes sure the app's own endpoint is registered on this store.
    *
@@ -245,7 +254,9 @@ export class AppService {
       );
     }
 
-    const wanted = scopesToConsent(app, input.scopes);
+    const current = await this.ports.currentVersion(app.id);
+    const offered = current ? current.scopes : app.requestedScopes;
+    const wanted = scopesToConsent({ ...app, requestedScopes: offered }, input.scopes);
     const installation = await this.ports.apps.findInstallation(app.id, input.storeId);
 
     return {
@@ -282,7 +293,16 @@ export class AppService {
       throw new OAuthError('invalid_redirect_uri', 'That redirect URL is not registered for this app.');
     }
 
-    const granted = scopesToConsent(app, input.scopes);
+    /**
+     * The scopes come from the released VERSION when there is one.
+     *
+     * An app's own scope list is its working copy — editable, and therefore not
+     * something a merchant can meaningfully consent to. The released version is
+     * the thing that was reviewed and does not move.
+     */
+    const current = await this.ports.currentVersion(app.id);
+    const offered = current ? current.scopes : app.requestedScopes;
+    const granted = scopesToConsent({ ...app, requestedScopes: offered }, input.scopes);
     const at = this.now();
 
     const existing = await this.ports.apps.findInstallation(app.id, input.storeId);
@@ -292,6 +312,7 @@ export class AppService {
         ...existing,
         status: 'installed',
         grantedScopes: granted,
+        versionId: current?.id ?? existing.versionId,
         installedAt: existing.status === 'installed' ? existing.installedAt : at,
         uninstalledAt: null,
       });
@@ -306,6 +327,9 @@ export class AppService {
         storeId: input.storeId,
         status: 'installed',
         grantedScopes: granted,
+        // Which release they said yes to, so "what is this merchant running"
+        // is answerable without inferring it from their scope list.
+        versionId: current?.id ?? null,
         installedAt: at,
         uninstalledAt: null,
       });

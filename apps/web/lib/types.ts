@@ -580,3 +580,16 @@ export interface AppHealthDto {
     readonly at: string;
   }[];
 }
+
+export interface AppVersionDto {
+  readonly id: string;
+  readonly name: string;
+  readonly message: string | null;
+  readonly status: 'draft' | 'released';
+  readonly scopes: readonly string[];
+  readonly redirectUris: readonly string[];
+  readonly appUrl: string | null;
+  readonly webhookApiVersion: string;
+  readonly releasedAt: string | null;
+  readonly createdAt: string | null;
+}

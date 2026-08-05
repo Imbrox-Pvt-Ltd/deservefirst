@@ -6,3 +6,4 @@
 
 export * from './app-service';
 export * from './request-log';
+export * from './version-service';

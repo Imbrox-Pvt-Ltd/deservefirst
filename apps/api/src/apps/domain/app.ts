@@ -107,6 +107,15 @@ export interface AppInstallation {
    * install. A wider request produces a re-consent, not a bigger token.
    */
   readonly grantedScopes: readonly string[];
+  /**
+   * The version this merchant said yes to.
+   *
+   * Null for installs that predate versions. Recorded so "what is this merchant
+   * running" is answerable without inferring it from their granted scope list,
+   * which cannot distinguish a narrow version from a wide one they declined
+   * most of.
+   */
+  readonly versionId: string | null;
   readonly installedAt: Date;
   readonly uninstalledAt: Date | null;
 }

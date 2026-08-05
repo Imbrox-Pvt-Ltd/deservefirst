@@ -150,6 +150,12 @@ export function PartnerApps({ partnerId, apps, scopes }: PartnerAppsProps) {
                     >
                       API health
                     </Button>
+                    <Button
+                      variant="plain"
+                      onClick={() => router.push(`/partners/${partnerId}/apps/${entry.id}/versions`)}
+                    >
+                      Versions
+                    </Button>
                   {entry.status === 'draft' ? (
                     <Button
                       disabled={pending}
