@@ -284,6 +284,23 @@ export class SqlIdentityRepository implements IdentityRepository {
     return entity;
   }
 
+  /**
+   * Whether a store handle is already in use, across the whole platform.
+   *
+   * Not scoped to the organization: a handle is the store's address, and two
+   * stores answering the same URL is not something one organization's view of
+   * the world can rule out.
+   */
+  async takenStoreHandles(handle: string): Promise<readonly string[]> {
+    const [p1] = this.args(1);
+    const rows = await this.executor.query<{ handle: string }>(
+      `SELECT ${this.q('handle')} FROM ${this.q('stores')}
+        WHERE ${this.q('handle')} = ${p1} AND ${this.q('deleted_at')} IS NULL`,
+      [handle],
+    );
+    return rows.map((row) => row.handle);
+  }
+
   async createStore(store: Store): Promise<Store> {
     const columns = [
       'id', 'organization_id', 'handle', 'name', 'business_entity_id', 'type', 'status',

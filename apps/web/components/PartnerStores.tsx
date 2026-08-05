@@ -29,7 +29,7 @@ import {
   TextField,
 } from '@deservefirst/ui';
 
-import { requestStoreAccess } from '../app/actions/partners';
+import { createDevStore, requestStoreAccess, transferStore } from '../app/actions/partners';
 import type { PartnerStoreDto } from '../lib/types';
 
 const TONE = { active: 'success', pending: 'attention', revoked: 'critical' } as const;
@@ -48,6 +48,9 @@ export function PartnerStores({ partnerId, stores, canRequest }: PartnerStoresPr
   const [level, setLevel] = useState<'full' | 'limited'>('limited');
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [devName, setDevName] = useState('');
+  const [devHandle, setDevHandle] = useState('');
+  const [transferring, setTransferring] = useState<string | null>(null);
 
   const ask = () =>
     startTransition(async () => {
@@ -140,20 +143,115 @@ export function PartnerStores({ partnerId, stores, canRequest }: PartnerStoresPr
                   </Text>
                 </IndexTable.Cell>
                 <IndexTable.Cell>
-                  {entry.status === 'active' && entry.storeHandle ? (
-                    <Button
-                      variant="plain"
-                      onClick={() => router.push(`/store/${entry.storeHandle}`)}
-                    >
-                      Open
-                    </Button>
-                  ) : null}
+                  <InlineStack gap="200">
+                    {entry.status === 'active' && entry.storeHandle ? (
+                      <Button
+                        variant="plain"
+                        onClick={() => router.push(`/store/${entry.storeHandle}`)}
+                      >
+                        Open
+                      </Button>
+                    ) : null}
+                    {entry.createdByPartner && canRequest ? (
+                      <Button variant="plain" onClick={() => setTransferring(entry.storeId)}>
+                        Hand to client
+                      </Button>
+                    ) : null}
+                  </InlineStack>
                 </IndexTable.Cell>
               </IndexTable.Row>
             ))}
           </IndexTable>
         )}
       </Card>
+
+      {transferring ? (
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">
+              Hand this store to your client
+            </Text>
+            {/*
+              * Said before the click. This is the one action on the screen a
+              * partner cannot undo on their own — after it, they are waiting on
+              * the client like any other agency.
+              */}
+            <Banner tone="warning" title="You lose standing access">
+              <Text as="p">
+                The store stops being yours. You keep working in it only if the new owner grants
+                you access, exactly as they would for any agency they had not worked with.
+              </Text>
+            </Banner>
+            <InlineStack gap="200">
+              <Button
+                variant="primary"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    setError(null);
+                    const result = await transferStore(partnerId, transferring);
+                    if (!result.ok) {
+                      setError(result.error ?? 'Could not transfer the store');
+                      return;
+                    }
+                    setTransferring(null);
+                    router.refresh();
+                  })
+                }
+              >
+                Hand it over
+              </Button>
+              <Button variant="plain" disabled={pending} onClick={() => setTransferring(null)}>
+                Cancel
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      ) : null}
+
+      {canRequest ? (
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">
+              Build a development store
+            </Text>
+            <Text as="p" tone="subdued">
+              Yours to work in without asking anybody. Hand it to the client when it is ready.
+            </Text>
+            <TextField label="Store name" value={devName} onChange={setDevName} autoComplete="off" />
+            <TextField
+              label="Address"
+              value={devHandle}
+              onChange={setDevHandle}
+              autoComplete="off"
+              helpText="Lowercase letters, digits and hyphens. This is the store's URL."
+            />
+            <InlineStack>
+              <Button
+                disabled={pending || !devName.trim() || !devHandle.trim()}
+                onClick={() =>
+                  startTransition(async () => {
+                    setError(null);
+                    const result = await createDevStore(partnerId, {
+                      name: devName.trim(),
+                      handle: devHandle.trim().toLowerCase(),
+                    });
+                    if (!result.ok) {
+                      setError(result.error ?? 'Could not create the store');
+                      return;
+                    }
+                    setDevName('');
+                    setDevHandle('');
+                    router.refresh();
+                  })
+                }
+              >
+                Create development store
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      ) : null}
 
       {canRequest ? (
         <Card>

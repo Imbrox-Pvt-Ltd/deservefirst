@@ -121,3 +121,52 @@ export async function removeStaff(partnerId: string, staffId: string): Promise<P
     };
   }
 }
+
+/**
+ * Creates a development store the partner owns outright.
+ *
+ * Development rather than live, always. A partner building for a client works
+ * in a store nobody is shopping in, and the moment it becomes the client's is
+ * the transfer below — not the creation.
+ */
+export async function createDevStore(
+  partnerId: string,
+  input: { handle: string; name: string },
+): Promise<PartnerActionResult & { id?: string }> {
+  try {
+    const response = await apiFetch<{ id: string }>('/stores', {
+      method: 'POST',
+      body: JSON.stringify({ ...input, type: 'development', partnerId }),
+    });
+    revalidatePath(`/partners/${partnerId}/stores`);
+    return { ok: true, id: response.data.id };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'The request failed',
+    };
+  }
+}
+
+/**
+ * Hands a store to its client.
+ *
+ * Ends the partner's standing access rather than keeping it — see
+ * `afterTransfer`. The screen says so before the click, because it is the one
+ * action here that a partner cannot undo on their own.
+ */
+export async function transferStore(
+  partnerId: string,
+  storeId: string,
+): Promise<PartnerActionResult> {
+  try {
+    await apiFetch(`/partners/${partnerId}/stores/${storeId}/transfer`, { method: 'POST' });
+    revalidatePath(`/partners/${partnerId}/stores`);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'The request failed',
+    };
+  }
+}

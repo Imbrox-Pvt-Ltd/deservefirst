@@ -8,3 +8,4 @@
 
 export * from './access-evaluator';
 export * from './auth-service';
+export * from './store-provisioning';

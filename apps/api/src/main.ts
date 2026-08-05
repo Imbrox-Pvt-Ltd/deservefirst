@@ -421,6 +421,72 @@ async function start(): Promise<void> {
     return context;
   };
 
+  /**
+   * Creating a store.
+   *
+   * The endpoint `stores.create` has always described and nothing provided —
+   * every store on this platform came from the seed, which is why the partner
+   * flow could never be finished.
+   *
+   * A partner passes their id and gets a development store that is theirs to
+   * work in without asking anybody; the seat is checked first, so naming
+   * somebody else's partner does not make it theirs.
+   */
+  app.post(`/${API_VERSION}/stores`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const body = request.body as Record<string, unknown>;
+    const partnerId = typeof body.partnerId === 'string' ? body.partnerId : null;
+
+    if (partnerId) {
+      // Proves the caller works at this partner before the store is theirs.
+      await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+    } else {
+      await platform.access.assert({
+        context,
+        permission: 'stores.create',
+        moduleId: 'auth',
+      });
+    }
+
+    const organizationId =
+      context.organizationId ?? ((body.organizationId as OrganizationId | undefined) ?? null);
+    if (!organizationId) {
+      return reply.status(400).send(
+        failure(
+          [apiError('validation_failed', 'No organization', 'A store belongs to an organization.')],
+          { requestId: context.requestId },
+        ),
+      );
+    }
+
+    const store = await withRequestContext(context, () =>
+      platform.storeProvisioning.create({
+        organizationId,
+        createdByUserId: context.userId as UserId,
+        handle: String(body.handle ?? ''),
+        name: String(body.name ?? ''),
+        type: body.type === 'development' ? 'development' : 'live',
+        baseCurrency: typeof body.baseCurrency === 'string' ? body.baseCurrency : undefined,
+        partnerId,
+      }),
+    );
+
+    return reply.status(201).send(
+      success(
+        {
+          id: store.id,
+          handle: store.handle,
+          name: store.name,
+          type: store.type,
+          status: store.status,
+        },
+        { requestId: context.requestId },
+      ),
+    );
+  });
+
   app.get(`/${API_VERSION}/partners`, async (request, reply) => {
     const context = await requireUser(request, reply);
     if (!context) return reply;

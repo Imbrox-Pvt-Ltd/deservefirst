@@ -57,6 +57,7 @@ import {
   type SqlDialect,
 } from './core';
 import { PartnerService } from './auth/application/partner-service';
+import { StoreProvisioningService } from './auth/application/store-provisioning';
 import { SqlPartnerRepository } from './auth/infrastructure/partner.repository';
 import { partnerController } from './auth/api/partner.controller';
 import {
@@ -143,6 +144,8 @@ export interface Platform {
   readonly webhookSubscriptions: SqlWebhookSubscriptionRepository;
   readonly webhookDeliveries: SqlWebhookDeliveryRepository;
   readonly identity: SqlIdentityRepository;
+  /** Making a store — the thing `stores.create` has always described. */
+  readonly storeProvisioning: StoreProvisioningService;
   /** Partners, their staff, and their grants into client stores. */
   readonly partners: PartnerService;
   /** Third-party apps: registry, install lifecycle and token resolution. */
@@ -575,6 +578,15 @@ export async function bootstrap(): Promise<Platform> {
     webhookSubscriptions,
     webhookDeliveries,
     identity,
+    storeProvisioning: new StoreProvisioningService({
+      identity,
+      recordPartnerStore: async (partnerId, storeId) => {
+        await partnerService.recordCreatedStore(partnerId as never, storeId);
+      },
+      publish: async (event) => {
+        await events.emit(event.type, event.payload);
+      },
+    }),
     partners: partnerService,
     apps: appService,
     appRegistry: appRecords,
