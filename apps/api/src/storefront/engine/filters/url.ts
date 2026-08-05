@@ -14,6 +14,8 @@
  * Layer: engine.
  */
 
+import { branding } from '@deservefirst/config';
+
 import { escapeHtml, safeUrl } from '../markup';
 import { arg, numberArg, stringify, type FilterGroup } from '../types';
 import { handleize } from './string';
@@ -98,9 +100,17 @@ export const urlFilters: FilterGroup = {
         }),
     },
 
-    /** A platform-provided script or stylesheet, not one of the theme's. */
+    /**
+     * A platform-provided script or stylesheet, not one of the theme's.
+     *
+     * The name carries our brand and is built from `branding.slug`, so renaming
+     * the platform renames the filter — §33.1 applies to the theme vocabulary
+     * exactly as it applies to anything else a theme author reads. Themes
+     * written for another platform name this differently and must be ported;
+     * there is no alias, by decision.
+     */
     {
-      name: 'platform_asset_url',
+      name: `${branding.slug}_asset_url`,
       apply: (context, value) => join(context.platformAssetBaseUrl, stringify(value)),
     },
 

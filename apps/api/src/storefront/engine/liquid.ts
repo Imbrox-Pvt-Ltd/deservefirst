@@ -64,13 +64,35 @@ function splitArgs(impl: FilterCallSite, values: readonly unknown[]): FilterArgs
   values.forEach((value, index) => {
     const isKeyword = Array.isArray(tokens[index]) && Array.isArray(value) && value.length === 2;
     if (isKeyword) {
-      named[String((value as unknown[])[0])] = (value as unknown[])[1];
+      named[String((value as unknown[])[0])] = fromEngine((value as unknown[])[1]);
       return;
     }
-    positional.push(value);
+    positional.push(fromEngine(value));
   });
 
   return { positional, named };
+}
+
+/**
+ * Turns liquidjs's own sentinels into plain JavaScript values.
+ *
+ * `{{ nil | array }}` does not hand a filter `null` — it hands over a `NullDrop`
+ * instance, which is an object and therefore truthy. A filter checking
+ * `value == null` sees a value and wraps it, so `nil | array` produced a
+ * one-element array containing the sentinel. Found by a test, not by reading.
+ *
+ * Normalising here rather than in each filter is the entire argument for this
+ * layer: it is a liquidjs representation detail, so it stops at the boundary
+ * and forty-nine filters get to be ordinary functions of ordinary values.
+ */
+function fromEngine(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+
+  // The sentinels expose themselves through valueOf; a real drop returning null
+  // from valueOf is saying the same thing and is treated the same way.
+  const unwrapped = (value as { valueOf?: () => unknown }).valueOf?.();
+  return unwrapped === null || unwrapped === undefined ? null : value;
 }
 
 class LiquidThemeEngine implements ThemeEngine {
@@ -120,7 +142,7 @@ class LiquidThemeEngine implements ThemeEngine {
       // metadata to `this`, and that is where the argument tokens live.
       const self = this;
       this.liquid.registerFilter(filter.name, function (this: FilterCallSite, value: unknown, ...rest: unknown[]) {
-        return filter.apply(self.context, value, splitArgs(this, rest));
+        return filter.apply(self.context, fromEngine(value), splitArgs(this, rest));
       });
     }
   }

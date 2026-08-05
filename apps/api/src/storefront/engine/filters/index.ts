@@ -10,8 +10,8 @@
  */
 
 import type { FilterDefinition, FilterGroup } from '../types';
+import { arrayFilters } from './array';
 import { colorFilters } from './color';
-import { aliasFilters } from './compatibility';
 import { commerceFilters } from './commerce';
 import { fontFilters } from './font';
 import { htmlFilters } from './html';
@@ -23,6 +23,7 @@ import { urlFilters } from './url';
 export const FILTER_GROUPS: readonly FilterGroup[] = [
   moneyFilters,
   stringFilters,
+  arrayFilters,
   colorFilters,
   fontFilters,
   urlFilters,
@@ -34,8 +35,7 @@ export const FILTER_GROUPS: readonly FilterGroup[] = [
 export function allFilters(): readonly FilterDefinition[] {
   const filters = FILTER_GROUPS.flatMap((group) => group.filters);
   assertNoDuplicates(filters);
-  // Aliases are derived from the real filters, so they cannot drift from them.
-  return [...filters, ...aliasFilters(filters)];
+  return filters;
 }
 
 function assertNoDuplicates(filters: readonly FilterDefinition[]): void {

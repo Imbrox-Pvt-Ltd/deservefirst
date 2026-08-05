@@ -91,12 +91,72 @@ cart yet (see below). They *exist* because `strictFilters` is on: an absent
 filter fails the whole page, so a missing buy button degrades to a page without
 one rather than to no page. They gain bodies when checkout does.
 
-### Compatibility aliases
+### No foreign filter names — decided
 
-`engine/filters/compatibility.ts` is the one file permitted to name a foreign
-filter (`shopify_asset_url`, used 4× by the theme), exempted by `competitor-names`
-on the same grounds as `branding.ts`: a compatibility contract with third-party
-files, not branding. Aliases delegate rather than duplicate, so they cannot drift.
+There is **no alias table**. The platform-asset filter is
+`deservefirst_asset_url`, and its name is built from `branding.slug` so renaming
+the platform renames the filter — §33.1 governs the theme vocabulary exactly as
+it governs anything else a person reads.
+
+The cost is explicit: a theme written for another platform names this filter
+differently and **must be ported**. That is four call sites in the reference
+theme, already done locally. Porting is the price of not carrying someone else's
+brand in our vocabulary, and it was chosen deliberately.
+
+`competitor-names` was strengthened while doing this. Its patterns used `\b`
+word boundaries, which do **not** match `shopify_asset_url` — an underscore is a
+word character, so there is no boundary after the name. The rule missed the name
+in exactly the form that matters most: an identifier.
+
+## Arrays in Liquid, and the lint that explains them
+
+Liquid has no array literal. `{% assign a = [1, 2, 3] %}` does not error — it
+assigns **nothing**, so the loop under it runs zero times and a section silently
+disappears. Measured: it renders empty with `size` 0.
+
+Two halves to the fix.
+
+**Filters** (`engine/filters/array.ts`) — `array` builds one (`nil | array` for
+an empty accumulator, `'a' | array: 'b', 'c'` for a full one), plus `index_of`
+and `without`. Accumulating across a loop now reads plainly:
+
+```liquid
+{% assign list = nil | array %}
+{% for b in section.blocks %}{% assign list = list | push: b.id %}{% endfor %}
+```
+
+**A linter** (`domain/template-lint.ts`) that reports at upload, beside the
+schema checks, for the same reason: an error found when a theme is installed is
+a message to the person who can fix it; the same error at render is a broken
+storefront. Rules: `no-array-literal`, `no-hash-literal`, `increment-prints`,
+`forloop-outside-loop`, `append-without-separator`. Each finding carries the fix.
+
+### Checked, so we don't have to guess
+
+- **No array filter mutates its input.** `sort`, `reverse`, `push`, `uniq`,
+  `concat` and the rest all copy in liquidjs — verified across the family. This
+  matters because a drop can hand a theme an array the platform also holds; an
+  in-place sort would let one render reorder data for every render after it. A
+  test pins it so an upgrade cannot change it quietly.
+- **`nil` is not `null`.** liquidjs passes a `NullDrop` *object*, which is
+  truthy — so `nil | array` produced a one-element array containing the
+  sentinel. Normalised at the boundary in `liquid.ts`, which is the layer
+  earning its keep: one engine quirk, contained in one file, 49 filters
+  unaffected.
+
+### The linter's own false-positive lesson
+
+First version: **158 findings on the reference theme, 0 real.** `forloop` was
+flagged without tracking block nesting, so every correct use inside a loop was
+reported; `append` was flagged without checking whether the value was ever
+split, so building a class list looked like a bug.
+
+After tracking `for` depth and requiring a matching `| split:` — **3 findings,
+all genuine**: `sections/section-product.liquid` passes `forloop.index` to
+`{% render %}` with no enclosing loop, so `index:` arrives empty.
+
+A rule that cries wolf is worse than no rule; it teaches people to skim past the
+output, including the real ones.
 
 ## The security position
 

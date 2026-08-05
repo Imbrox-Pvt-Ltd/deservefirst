@@ -33,7 +33,7 @@ export interface RenderContext {
   readonly assetBaseUrl: string;
   /** Where uploaded images live, for `image_url` and friends. */
   readonly cdnBaseUrl: string;
-  /** Platform-owned assets, for `shopify_asset_url`'s equivalent. */
+  /** Platform-owned assets, served by the branded asset filter. */
   readonly platformAssetBaseUrl: string;
 
   readonly currency: CurrencyCode;

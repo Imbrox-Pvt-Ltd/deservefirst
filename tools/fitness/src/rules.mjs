@@ -165,23 +165,20 @@ export const competitorNames = {
   description: 'No third-party platform names in shipped code (§33.3)',
   run(sources) {
     const violations = [];
-    const names = [/\bshopify\b/i, /\bmagento\b/i, /\bwordpress\b/i, /\bwoocommerce\b/i];
+    /**
+     * No word boundaries, deliberately.
+     *
+     * `\bshopify\b` does not match `shopify_asset_url` — an underscore is a word
+     * character, so there is no boundary after "shopify". That is precisely the
+     * form the name takes when it matters most: an identifier, a filter name, a
+     * config key. The rule passed a whole release with one in the tree.
+     */
+    const names = [/shopify/i, /magento/i, /wordpress/i, /woocommerce/i];
 
     for (const source of sources) {
       // The aliases table is where these names are *defined*; exempt it.
       if (source.relativePath === 'packages/config/src/branding.ts') continue;
 
-      /**
-       * The theme filter-alias table, exempt for the same reason.
-       *
-       * A theme is a third-party file written against a vocabulary its author
-       * already knows, and `strictFilters` turns an unregistered name into a
-       * page that does not render. These are names we answer to, not names we
-       * show anyone — and confining them to one file is what this rule is for.
-       */
-      if (source.relativePath === 'apps/api/src/storefront/engine/filters/compatibility.ts') {
-        continue;
-      }
 
       // A dependency's package name is not branding — we cannot rename an npm
       // package, and the design system is a decided dependency. What §33.3

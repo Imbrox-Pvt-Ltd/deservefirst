@@ -6,3 +6,4 @@
 
 export * from './settings-schema';
 export * from './section-schema';
+export * from './template-lint';

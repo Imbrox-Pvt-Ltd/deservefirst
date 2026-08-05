@@ -1,6 +1,6 @@
 /**
  * Storefront · tests/conformance.test.mjs
- * The schema model, checked against a real commercial Shopify theme.
+ * The schema model, checked against a real commercial theme.
  *
  * "Does a real theme load unmodified?" is a better test of this than anything
  * invented here, and it has already earned its place twice — it caught two
