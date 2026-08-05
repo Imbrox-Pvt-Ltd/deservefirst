@@ -333,10 +333,67 @@ it resolves to the generator object and renders nothing. The symptom was precise
 and quiet: `{% style %}` emitted `<style></style>` with the body missing, and
 `{% form %}` produced a form with no fields. Nothing threw.
 
+## Layout and template resolution — a page renders
+
+**The reference theme renders its homepage: 86 KB, 25 sections, zero failures,
+zero unrendered Liquid.** A real commercial theme, unmodified apart from the
+four ported filter names, through our engine, filters, drops, tags and template
+resolution.
+
+Three pieces:
+
+- **`ThemeSource`** — an interface, not a filesystem, because a theme lives on
+  disk in development, in object storage in production, and in an unsaved buffer
+  while the editor is open. `FilesystemThemeSource` and `InMemoryThemeSource`
+  implement it; the renderer does not know which.
+- **`template-resolution.ts`** — pure. Which file renders this page, and what a
+  JSON template means.
+- **`PageRenderer`** — resolve, render each section, join into
+  `content_for_layout`, wrap in the layout.
+
+### Path confinement is one function
+
+A theme names its own files, so every `{% render %}` is attacker-controlled
+input to a file read. `confinePath` **refuses** rather than sanitises — stripping
+`../` from `....//` leaves `../`, so a cleaner has to be right about every
+encoding while a rejection only has to know what a legitimate path looks like:
+`<known directory>/<name>`, decoded first, no nesting.
+
+It is wired into liquidjs's own `contains` hook, so the engine refuses the
+lookup rather than the source noticing afterwards. `FilesystemThemeSource` adds
+`realpath`, because `snippets/card.liquid` can be a symlink to `/etc/passwd`.
+
+### A broken section does not take the page down
+
+A section is the unit a merchant added, and a theme is untrusted code. One that
+throws renders as nothing and the other nine still ship — a storefront missing
+its testimonials is a bug report; a storefront serving a 500 is lost revenue.
+Failures are returned alongside the html rather than swallowed, and explain
+themselves in the markup only when `explainFailures` is on: a Liquid error is
+exactly what a developer needs and exactly what a customer must never see.
+
+### Two things measurement corrected
+
+**liquidjs passes `.` as the directory** when no root is set, so every lookup
+became `./layout/theme.liquid` — three segments, refused by `confinePath`, every
+render failing. The directory is now discarded: a theme path is relative to the
+theme root, never to the including file.
+
+**`{% render 'card' %}` is bare.** Themes name snippets without their directory,
+so a bare name resolves to `snippets/`. Missing this would have broken every
+snippet in every theme.
+
+**`contains` had to become async** to satisfy the engine's type — which is worth
+noting because if liquidjs truthiness-checked it instead of awaiting, a promise
+would always be truthy and confinement would silently open. A test renders
+`{% render '../../etc/passwd' %}` through that exact path to prove it still
+refuses.
+
 ### Still to build
 
-Layout and template resolution — `layout/theme.liquid`, `templates/*.json`,
-section groups — which is what stands between this and a rendered page.
+Storefront routing on its own host — turning a URL into a `PageRequest` with the
+right drops loaded — then SEO (redirects, sitemap, robots, JSON-LD, canonicals),
+then the editor.
 
 ## The security position
 

@@ -8,4 +8,6 @@ export * from './settings-schema';
 export * from './section-schema';
 export * from './template-lint';
 export * from './theme-compat';
+export * from './theme-source';
+export * from './template-resolution';
 export * from './drops';

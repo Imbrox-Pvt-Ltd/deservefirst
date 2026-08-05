@@ -4,3 +4,5 @@
  */
 
 export {};
+
+export * from './filesystem-theme-source';

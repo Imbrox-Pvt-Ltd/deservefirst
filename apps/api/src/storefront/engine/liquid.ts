@@ -17,6 +17,7 @@
 
 import { Liquid } from 'liquidjs';
 
+import { isThemePath, type ThemeSource } from '../domain/theme-source';
 import type { RenderContext } from './context';
 import { aliasFilters } from './compat';
 import { allFilters } from './filters';
@@ -68,6 +69,13 @@ export interface EngineOptions {
    * or one a merchant has no ability to edit.
    */
   readonly compatibility?: boolean;
+  /**
+   * Where theme files are read from.
+   *
+   * Without one, `{% render %}` and `renderFile` have nothing to resolve
+   * against — which is correct for the many tests that render a string.
+   */
+  readonly source?: ThemeSource;
 }
 
 /**
@@ -127,8 +135,62 @@ class LiquidThemeEngine implements ThemeEngine {
     options: EngineOptions = {},
   ) {
     this.liquid = new Liquid({
-      root: options.root as string | string[] | undefined,
+      root: options.source ? '' : (options.root as string | string[] | undefined),
       extname: '.liquid',
+
+      /**
+       * Theme file lookup, routed through the source rather than the disk.
+       *
+       * This is what makes `{% render %}`, `{% section %}` and `renderFile`
+       * read a theme wherever it lives — a directory in development, object
+       * storage in production, an unsaved buffer in the editor.
+       *
+       * It is also the confinement point. `contains` is the engine's own hook
+       * for "is this path inside the root", and answering it from
+       * `isThemePath` means a theme naming `../../etc/passwd` is refused by the
+       * lookup rather than by the source having to notice later.
+       */
+      ...(options.source
+        ? {
+            fs: {
+              sep: '/',
+              /**
+               * Theme-relative resolution, ignoring the engine's own directory.
+               *
+               * The directory is discarded deliberately. liquidjs passes `.`
+               * when no root is configured, which turned every lookup into
+               * `./layout/theme.liquid` — three segments, refused by
+               * `confinePath`, and every render failed with a lookup error. A
+               * theme path is always relative to the theme root, never to the
+               * file doing the including, so there is nothing the directory
+               * could correctly contribute.
+               *
+               * A bare name means a snippet: themes write `{% render 'card' %}`
+               * rather than `{% render 'snippets/card' %}`, and that is the
+               * convention their authors already have.
+               */
+              resolve: (_dir: string, file: string, ext: string) => {
+                const cleaned = file.replace(/^\.?\/+/, '');
+                const path = cleaned.includes('/') ? cleaned : `snippets/${cleaned}`;
+                return path.endsWith(ext) ? path : `${path}${ext}`;
+              },
+              /**
+               * Declared async because the engine's type says so — and that is
+               * worth a second look rather than a shrug. If liquidjs merely
+               * truthiness-checked this instead of awaiting it, a promise would
+               * always be truthy and the confinement would silently open.
+               * A test renders `{% render '../../etc/passwd' %}` through this
+               * exact path to prove it still refuses.
+               */
+              contains: async (_root: string, file: string) => isThemePath(file),
+              exists: (path: string) => options.source!.exists(path),
+              existsSync: () => false,
+              readFile: async (path: string) => (await options.source!.read(path)) ?? '',
+              readFileSync: () => '',
+              dirname: (path: string) => path.split('/').slice(0, -1).join('/'),
+            },
+          }
+        : {}),
 
       /**
        * A missing filter or variable is an error, not a silent pass-through.
