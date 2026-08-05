@@ -451,8 +451,74 @@ export const noDirectLiquid = {
   },
 };
 
+/**
+ * A drop never exposes a field the platform marked non-public.
+ *
+ * Drops are the storefront's security boundary: a theme is untrusted
+ * third-party code that sees precisely what a drop exposes. Our own resources
+ * already say which fields are not for publication — `costPerItem` is a
+ * merchant's margin, `internalNotes` is what staff wrote about a product,
+ * `passwordHash` and `webhookSecret` are credentials — and this rule holds the
+ * drops to that declaration rather than to a list kept beside them.
+ *
+ * Cross-checked against the manifests, so marking a NEW field private
+ * automatically protects it. A list maintained here would drift the first time
+ * somebody added a private field without thinking about themes, which is
+ * exactly the person this rule is for.
+ */
+export const dropsExposeNothingPrivate = {
+  name: 'drops-expose-nothing-private',
+  description: 'No drop exposes a field marked private or internal',
+  run(sources) {
+    const violations = [];
+
+    // Every field any resource marked non-public, by name.
+    const forbidden = new Map();
+    for (const source of sources) {
+      const pattern = /\{\s*name:\s*'(\w+)'[^}]*visibility:\s*'(private|internal)'[^}]*\}/g;
+      let match;
+      while ((match = pattern.exec(source.text)) !== null) {
+        forbidden.set(match[1], `${match[2]} in ${source.relativePath}`);
+      }
+    }
+    if (forbidden.size === 0) return violations;
+
+    /**
+     * A drop property is only a leak if it READS the forbidden field.
+     *
+     * Matching the property name would be wrong in both directions: a drop may
+     * legitimately call something `note` while reading a different column, and
+     * a drop exposing `costPerItem` under the name `price` is the actual
+     * disaster. So the source expression is what gets checked.
+     */
+    for (const source of sources) {
+      if (!/[/\\]storefront[/\\]domain[/\\]drops[/\\]/.test(source.relativePath)) continue;
+
+      for (const [field, where] of forbidden) {
+        // `(row) => row.costPerItem` — a property read off the drop's source.
+        const read = new RegExp(`\\.\\s*${field}\\b`);
+        if (!read.test(source.text)) continue;
+
+        violations.push(
+          violation(
+            source.relativePath,
+            lineOf(source.text, read.exec(source.text).index),
+            'drops-expose-nothing-private',
+            `reads "${field}", which is ${where}. A drop is read by every theme on ` +
+              'the platform — if a storefront genuinely needs this, change the ' +
+              'field\'s visibility deliberately rather than reaching around it.',
+          ),
+        );
+      }
+    }
+
+    return violations;
+  },
+};
+
 export const allRules = [
   platformPermissionsAreOperatorOnly,
+  dropsExposeNothingPrivate,
   noDirectLiquid,
   fileHeaders,
   moduleBoundaries,

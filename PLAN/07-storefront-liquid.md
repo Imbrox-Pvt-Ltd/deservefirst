@@ -193,6 +193,58 @@ all genuine**: `sections/section-product.liquid` passes `forloop.index` to
 A rule that cries wolf is worse than no rule; it teaches people to skim past the
 output, including the real ones.
 
+## Drops — the machinery and the first nine
+
+`domain/drops/`. A drop is a **declared allow-list**, not an object handed over:
+`defineDrop(name, spec)` builds a frozen plain object with one enumerable getter
+per declared property, and nothing else is reachable.
+
+Built: `product`, `variant`, `image`, `collection`, `shop`, `request`,
+`template`, `link`, `linklist`, `paginate`.
+
+### The danger is concrete
+
+Our own resources already mark `costPerItem` private and `internalNotes`
+internal; `passwordHash`, `mfaSecret` and `webhookSecret` are internal too. A
+drop built by spreading an entity would put a merchant's margin — or a
+credential — into every theme on the platform.
+
+So `drops-expose-nothing-private` (fitness rule #24) cross-checks the drop files
+against **the manifests**, not against a list kept beside them. Marking a new
+field private automatically protects it. Verified by planting a leak: the rule
+named the file, the line, the field, and where its visibility was declared.
+
+### Three mechanics, each measured against liquidjs
+
+| | |
+|---|---|
+| **Plain objects with enumerable getters** | Class getters are *invisible* to the engine — a drop written as a class silently exposes nothing. |
+| **Getters may return promises** | The engine awaits them in output, in `{% for %}`, and through filters. So drops are lazy by default. |
+| **`constructor` / `__proto__` / `toString`** | Already refused by the engine, so prototype walking is not a hole we have to close. |
+
+### Laziness, and the bug it exposed
+
+Reading `product.title` costs no variant query. Reading `price_min` loads them
+once.
+
+That second part was wrong at first. Per-property memoisation is not enough:
+`price_min`, `price_max`, `price_varies` and `variants` are four properties, each
+memoised, each calling the variant loader — **four queries for one answer**, and
+on a collection page that multiplies by the number of products. Caching moved to
+the *loader* (`createDropContext`), which also covers the case per-property
+memoisation never could: the same product appearing twice on one page. The cache
+lives exactly one render, because a longer-lived one would serve one shopper's
+page from another's data.
+
+`dropList` is lazy too — a 500-element list builds zero drops until an element
+is read.
+
+### Still to build
+
+`cart`, `line_item`, `customer`, `order`, `address`, `article`, `blog`, `page`,
+`search`, `section`, `block`, `form`, `metafield`, `localization`, `media`,
+`settings`. Then the 8 tags, which need these to be useful.
+
 ## The security position
 
 A theme is untrusted third-party code, exactly like an app or a Function.
