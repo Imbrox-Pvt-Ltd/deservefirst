@@ -12,3 +12,5 @@ export * from './content-for-header';
 export * from './platform-page';
 
 export * from './editor-service';
+
+export * from './publish-service';

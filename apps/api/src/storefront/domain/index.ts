@@ -18,4 +18,5 @@ export * from './sitemap';
 export * from './robots';
 export * from './structured-data';
 export * from './editor';
+export * from './publishing';
 export * from './drops';

@@ -545,14 +545,57 @@ discard one of two people's afternoon.
 things block it, and both are real rather than fiddly:
 
 - `sessionFor` needs theme lookup, schema parsing and a preview URL per store.
-- **`publish` needs `ThemeSource.write`, which does not exist.** The interface is
-  read-only by design, and publishing means writing template JSON back to the
-  theme. That is a deliberate gap to close with a decision, not an oversight to
-  patch — writing to a live theme is the one operation that changes what every
-  customer sees.
+- `publish` is now built — see below.
 
-Until then the editor page renders against the API shape it expects, and the
-model and service beneath it are fully tested.
+## The publish model: immutable versions, one pointer
+
+The design question was atomicity. Theme files live in object storage, which is
+**not transactional with the database**, so "write the files, then update the
+row" has a window where a store is half-published.
+
+So: a publish writes a **new immutable version** and then moves a pointer. The
+only transactional step is a row update, which the database already guarantees,
+and nothing a customer can reach is ever partially written.
+
+That one choice answers three questions:
+
+| | |
+|---|---|
+| **Atomic?** | Yes — the swap is a single row update. |
+| **Recoverable?** | Free. The previous version still exists; rollback moves the pointer back. |
+| **Duplicated?** | No. A version reference is a content hash, so republishing identical bytes writes nothing. |
+
+`planPublish` handles the case that matters most: publishing the theme that is
+**already live** demotes nothing. Treating it as a swap would briefly leave the
+store with no main theme — a storefront that answers nothing.
+
+`planRollback` targets the previous **version of the live theme**, not the
+previously-live theme. Those differ whenever a merchant published edits to the
+theme that was already live, which is the usual case — rolling back should undo
+the edit, not swap to a theme abandoned months ago.
+
+### Preflight: a broken theme cannot be published
+
+A publish renders the affected templates **before** writing anything. A publish
+that wrote first would already have broken the store by the time it noticed.
+
+Getting the threshold right was the hard part, and it is wrong in both
+directions:
+
+- The check renders with **no products or collections**, because one that needed
+  real data could never let a new store publish. So a section reaching for
+  `product.title` fails here and works perfectly for a customer — blocking on
+  that would make most real themes unpublishable.
+- But a **missing filter or unclosed tag fails for every visitor**, regardless of
+  data. That is not an artefact of checking; it is a page a customer will never
+  see rendered.
+
+So `isThemeBug` decides: theme bugs block, data-shaped failures become warnings.
+The first draft of this treated *all* section failures as non-blocking, which was
+rationalising — a test caught it.
+
+Verified: a theme with `no_such_filter` is refused, and **nothing** is written,
+no pointer moves, and the draft is still there.
 
 ## The security position
 
