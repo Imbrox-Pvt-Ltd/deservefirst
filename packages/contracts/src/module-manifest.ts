@@ -83,6 +83,33 @@ export interface ApiScopeDeclaration {
   readonly restricted?: boolean;
 }
 
+/**
+ * A place in a module where a third party's Function may run (§22.3).
+ *
+ * Declared by the module that owns the decision, because only it knows what
+ * the function is being asked and what a useful answer looks like.
+ */
+export interface FunctionPointDeclaration {
+  /** e.g. `orders.quote.validate`. */
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  /**
+   * What happens when a deployed function traps, times out, or answers with
+   * nonsense.
+   *
+   * The most important field here, and the one nobody thinks about until it
+   * happens. `allow` means a broken third-party function does not stop the
+   * merchant working; `deny` means the decision is too important to make
+   * without the answer. A module choosing `deny` is choosing to let somebody
+   * else's bug halt part of the store, which is sometimes right and never
+   * accidental.
+   */
+  readonly onFailure: 'allow' | 'deny';
+  /** Shown to an author so they can see the shape without deploying. */
+  readonly inputExample: string;
+}
+
 /** A UI route contributed by the module. Screens map to §8.3 templates. */
 export interface RouteDeclaration {
   readonly path: string;
@@ -290,6 +317,8 @@ export interface ModuleManifest {
   readonly permissions?: readonly PermissionDeclaration[];
   /** Scopes third-party apps may request against this module (§23.2). */
   readonly apiScopes?: readonly ApiScopeDeclaration[];
+  /** Places a third party's Function may run (§22.3). */
+  readonly functionPoints?: readonly FunctionPointDeclaration[];
   readonly events?: readonly EventDeclaration[];
   readonly webhooks?: readonly WebhookDeclaration[];
   readonly jobs?: readonly JobDeclaration[];

@@ -6,7 +6,13 @@
  * Layer: application.
  */
 
-import { type Connection, type ListQuery, type Money, type StoreId } from '@deservefirst/contracts';
+import {
+  toDecimalString,
+  type Connection,
+  type ListQuery,
+  type Money,
+  type StoreId,
+} from '@deservefirst/contracts';
 
 import {
   assertRequestValid,
@@ -14,12 +20,12 @@ import {
   buildReference,
   canAccept,
   canSendQuote,
+  subtotal,
   isQuoteExpired,
   isTerminal,
   type Request,
   RequestInvariantError,
   type RequestLine,
-  subtotal,
 } from '../domain';
 import { ORDER_EVENTS } from '../events';
 
@@ -42,6 +48,17 @@ export interface RequestPorts {
   }): Promise<void>;
   /** Store settings, read through Core rather than a local copy. */
   setting<T>(key: string, fallback: T): Promise<T>;
+  /**
+   * Runs whatever third parties deployed at an extension point (§22.3).
+   *
+   * Optional so the module works with no Functions tier wired up — a module
+   * that could not be constructed without one would be a module whose tests all
+   * need a WebAssembly runtime.
+   */
+  runFunctionPoint?(
+    point: string,
+    input: unknown,
+  ): Promise<{ allowed: boolean; reasons: readonly string[] }>;
 }
 
 export interface AddLineInput {
@@ -218,6 +235,30 @@ export class RequestService {
     const request = await this.get(id);
     const verdict = canSendQuote(request);
     if (!verdict.ok) throw new RequestInvariantError('status', verdict.reason);
+
+    /**
+     * Whatever the merchant's installed apps deployed at this point.
+     *
+     * After the module's own rules, not before: a request that this platform
+     * would refuse anyway should never reach a third party's code, and running
+     * it first would leak the shape of invalid requests to every installed app.
+     *
+     * The point is declared `onFailure: 'allow'`, so a function that traps or
+     * times out does not stop the merchant quoting. That decision lives on the
+     * declaration in the manifest rather than here.
+     */
+    const extensions = await this.ports.runFunctionPoint?.('orders.quote.validate', {
+      requestId: request.id,
+      subtotal: {
+        amount: toDecimalString(subtotal(request)),
+        currency: subtotal(request).currency,
+      },
+      lines: request.lines.length,
+    });
+
+    if (extensions && !extensions.allowed) {
+      throw new RequestInvariantError('quote', extensions.reasons.join(' '));
+    }
 
     const validityDays = await this.ports.setting('quoteValidityDays', 14);
     const expiresAt = new Date(this.ports.now().getTime() + validityDays * 24 * 60 * 60 * 1000);

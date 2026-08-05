@@ -176,6 +176,25 @@ export const ordersManifest: ModuleManifest = {
     },
   ],
 
+  functionPoints: [
+    {
+      key: 'orders.quote.validate',
+      label: 'Validate a quote before it is sent',
+      description:
+        'Runs when a merchant sends a quote. Can refuse it with a reason the merchant sees.',
+      /**
+       * A broken function must not stop a merchant quoting.
+       *
+       * This is the decision that matters most about an extension point, and it
+       * is `allow` because the alternative is a store that cannot send quotes
+       * because a third party shipped a bug on a Friday. A module choosing
+       * `deny` is choosing to let somebody else's code halt part of the store.
+       */
+      onFailure: 'allow',
+      inputExample: '{"requestId":"req-1","subtotal":{"amount":"120.00","currency":"USD"},"lines":2}',
+    },
+  ],
+
   events: [
     { type: 'orders.request.submitted', version: 1, label: 'Request submitted', description: 'A buyer submitted a request for quote.', direction: 'emits' },
     { type: 'orders.request.quoted', version: 1, label: 'Request quoted', description: 'A merchant sent a quote.', direction: 'emits' },

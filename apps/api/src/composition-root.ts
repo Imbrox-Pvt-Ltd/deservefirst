@@ -18,6 +18,9 @@ import { loadPlatformConfig } from '@deservefirst/config';
 import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
+import { functionsManifest } from './functions/functions.manifest';
+import { FunctionRegistry } from './functions/application';
+import { SqlDeploymentRepository } from './functions/infrastructure';
 import { BillingService } from './billing/application';
 import { SqlChargeRepository } from './billing/infrastructure';
 import { billingController } from './billing/api';
@@ -170,6 +173,8 @@ export interface Platform {
   readonly appVersions: AppVersionService;
   /** How apps charge merchants. */
   readonly billing: BillingService;
+  /** Deployed WebAssembly, and the tier that runs it (§22.3). */
+  readonly functions: FunctionRegistry;
   /** Every app scope the installed modules declare (§23.2). */
   scopeCatalog(): readonly ScopeCatalogEntry[];
   readonly auth: AuthService;
@@ -251,6 +256,7 @@ export async function bootstrap(): Promise<Platform> {
   registry.register(inventoryManifest);
   registry.register(appsManifest);
   registry.register(billingManifest);
+  registry.register(functionsManifest);
   registry.seal();
 
   // 2. Database. The dialect follows the URL scheme, so moving to Postgres is a
@@ -373,6 +379,33 @@ export async function bootstrap(): Promise<Platform> {
     );
 
   const appRecords = new SqlAppRepository(executor, dialect);
+  const functionRegistry = new FunctionRegistry({
+    deployments: new SqlDeploymentRepository(executor, dialect),
+    installedAppIds: async (storeId) =>
+      (await appRecords.installationsForStore(storeId))
+        .filter((entry) => entry.installation.status === 'installed')
+        .map((entry) => entry.installation.appId),
+    /**
+     * Read off the manifest that declared the point.
+     *
+     * Only the module owning the decision knows whether a broken function
+     * should stop it, so the answer lives with the declaration rather than in a
+     * table here that would drift from it.
+     */
+    failureModeFor: (point) => {
+      for (const entry of registry.all()) {
+        const declared = (entry.manifest.functionPoints ?? []).find((p) => p.key === point);
+        if (declared) return declared.onFailure;
+      }
+      // An undeclared point runs nothing, but if it somehow did, refusing to
+      // block is the safer default for a decision nobody documented.
+      return 'allow';
+    },
+    publish: async (event) => {
+      await events.emit(event.type, event.payload);
+    },
+  });
+
   const billingService = new BillingService({
     charges: new SqlChargeRepository(executor, dialect),
     publish: async (event) => {
@@ -634,6 +667,7 @@ export async function bootstrap(): Promise<Platform> {
     appRequestLogger,
     appVersions: new AppVersionService(appRecords),
     billing: billingService,
+    functions: functionRegistry,
     appReview: new AppReviewService({
       apps: appRecords,
       scopeCatalog,
@@ -764,6 +798,10 @@ export async function bootstrap(): Promise<Platform> {
               ...requestToolkit,
               setting: async (key, fallback) =>
                 ((await settings.get(key, storeId as never)).value as never) ?? fallback,
+              // Third-party validation, after the module's own rules — see the
+              // note in `sendQuote`.
+              runFunctionPoint: (point, input) =>
+                functionRegistry.runPoint(point, storeId as never, input),
             },
             storeId as never,
           ),
