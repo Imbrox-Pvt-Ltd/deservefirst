@@ -4,3 +4,6 @@
  */
 
 export {};
+
+export * from './storefront-ports';
+export * from './storefront.controller';

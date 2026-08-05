@@ -505,6 +505,65 @@ Phase-1 commerce request-only. So the first storefront renders a catalogue with
 a "request a quote" action — no cart, no checkout. That is coherent for B2B RFQ
 and it is not a buyable store. Said here so it is not a surprise at a demo.
 
+## The storefront HTTP layer — it serves
+
+`api/storefront.controller.ts`. A URL on the storefront host becomes a response,
+and the real theme now serves through the whole pipeline:
+
+| | | |
+|---|---|---|
+| homepage | 200 | 86 KB |
+| product | 200 | 38 KB |
+| missing product | **404** | theme's own 404 template |
+| renamed handle | **301** | `→ /products/linen-shirt?utm_source=email` |
+| robots.txt | 200 | with sitemap line |
+| sitemap.xml | 200 | index |
+| another host | 404 | nothing |
+
+### The order is load-bearing
+
+1. **resolve the store** — everything after inherits this tenant decision
+2. **robots/sitemap** — machine files, before any theme work
+3. **redirects** — *before* routing, or a renamed handle 404s on the way past
+4. match route, load record
+5. render with that page's drops
+6. status, headers, cache key
+
+### The tenant boundary is a Host header
+
+A storefront visitor is anonymous. There is no permission check to catch a
+mistake, so the Host header — attacker-controlled — is the only thing deciding
+whose data renders. It is **looked up, never parsed**: a store id derived from a
+substring of a header is a tenant boundary made of string manipulation.
+
+Tests wire up two stores and prove one host cannot reach the other's products,
+that the second store genuinely serves them on its own host (so the test is not
+vacuous), and that an unknown host reveals nothing about which hosts exist.
+
+### Status codes are SEO
+
+A missing product returns a **real 404** carrying the theme's own 404 template.
+A "not found" page served with 200 is a soft 404 — search engines index it as a
+real page, and the merchant ends up with results pointing at nothing.
+
+### The cache key is finally wired
+
+`cacheKeyFor` was built two steps ago and unused. Now: a page reading no
+parameters caches under `/`; one reading `?variant` caches under
+`/?variant=42`; a 404 is never cached. Verified end to end.
+
+### Two headers, stated rather than shipped
+
+`X-Frame-Options` is **deliberately absent** — the theme editor previews a store
+in an iframe, and a blanket DENY would break the product's own editor. Framing
+belongs in `frame-ancestors`, which can name the admin host.
+
+There is **no CSP yet**, and that is an admission. Themes emit inline
+`<script>` and `<style>` through `{% javascript %}` and `{% style %}`, so a
+policy worth having needs per-render nonces threaded through those tags.
+Shipping a policy every theme violates would teach everyone to ignore the
+console.
+
 ## SEO — built
 
 All four gaps below are now closed, in `domain/`. Every one is a file or a

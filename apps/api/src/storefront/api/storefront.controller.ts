@@ -1,0 +1,405 @@
+/**
+ * Storefront · api/storefront.controller.ts
+ * A URL on the storefront host becomes a response.
+ *
+ * The order of the pipeline is load-bearing and each step is here because
+ * putting it later would be wrong:
+ *
+ *   1. resolve the store — everything after inherits this tenant decision
+ *   2. robots.txt and sitemap.xml — machine files, before any theme work
+ *   3. redirects — before routing, or a renamed handle 404s on the way past
+ *   4. match the route, load the record
+ *   5. render, with the drops that page needs
+ *   6. status, headers, cache key
+ *
+ * This is transport: it decides what to call and what to send back, and holds
+ * no storefront logic of its own. Routing, redirects, sitemaps and rendering
+ * are all domain or application code that is unit-tested without a socket.
+ * Layer: api.
+ */
+
+import {
+  cacheKeyFor,
+  canonicalPath,
+  collectionDrop,
+  compileRedirects,
+  createDropContext,
+  createLookupBudget,
+  DEFAULT_PRIORITY,
+  lookupDrop,
+  matchRoute,
+  pageDrop,
+  paginateDrop,
+  productDrop,
+  articleDrop,
+  blogDrop,
+  readableParams,
+  redirectFor,
+  renderRobots,
+  renderSitemap,
+  renderSitemapIndex,
+  requestDrop,
+  shopDrop,
+  templateDrop,
+  type PageType,
+  type RouteMatch,
+} from '../domain';
+import { PageRenderer } from '../application';
+import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
+import type { ResolvedStore, StorefrontData, StoreResolver } from './storefront-ports';
+
+export interface StorefrontResponse {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
+  /** What this response should be cached under, or null if it must not be. */
+  readonly cacheKey: string | null;
+}
+
+export interface StorefrontRequestInput {
+  readonly host: string;
+  readonly path: string;
+  readonly query: string;
+  readonly method: string;
+  /** True when the theme editor is previewing. */
+  readonly designMode?: boolean;
+}
+
+export interface StorefrontOptions {
+  /** Section failures explain themselves in the markup. Never in production. */
+  readonly explainFailures?: boolean;
+}
+
+/**
+ * Headers every storefront response carries.
+ *
+ * `X-Frame-Options` is deliberately absent. The theme editor previews a store
+ * in an iframe, and a blanket DENY would break the product's own editor —
+ * framing is controlled by `frame-ancestors` in the CSP instead, which can name
+ * the admin host.
+ *
+ * There is no `Content-Security-Policy` here yet, and that is an admission
+ * rather than an oversight: themes emit inline `<script>` and `<style>` through
+ * `{% javascript %}` and `{% style %}`, so any CSP worth having needs per-render
+ * nonces threaded through those tags. Shipping a policy that themes violate
+ * would teach everyone to ignore the console.
+ */
+const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  // A storefront has no business being asked for these.
+  'permissions-policy': 'geolocation=(), microphone=(), camera=()',
+};
+
+export class StorefrontController {
+  constructor(
+    private readonly resolver: StoreResolver,
+    private readonly options: StorefrontOptions = {},
+  ) {}
+
+  async handle(input: StorefrontRequestInput): Promise<StorefrontResponse> {
+    if (input.method !== 'GET' && input.method !== 'HEAD') {
+      return text(405, 'Method not allowed', { allow: 'GET, HEAD' });
+    }
+
+    /**
+     * The Host header decides the tenant, so it is looked up rather than
+     * parsed. A store id derived from a substring of an attacker-controlled
+     * header is a tenant boundary made of string manipulation.
+     */
+    const store = await this.resolver.resolve(normaliseHost(input.host));
+    if (!store) {
+      // Not a host we serve. No store's content, and nothing that reveals
+      // which hosts do exist.
+      return text(404, 'Not found');
+    }
+
+    const path = input.path.split('?')[0] ?? '/';
+
+    if (path === '/robots.txt') return this.robots(store, input.host);
+    if (path === '/sitemap.xml') return this.sitemapIndex(store, input.host);
+    if (path.startsWith('/sitemap_')) return this.sitemap(store, path);
+
+    /**
+     * Redirects run before routing.
+     *
+     * After it, a renamed handle would 404 on the way past — the redirect
+     * exists precisely because the route no longer resolves.
+     */
+    const rules = await store.data.redirects();
+    const { table } = compileRedirects(rules);
+    const destination = redirectFor(table, path, input.query);
+    if (destination !== null) {
+      return {
+        status: 301,
+        headers: { ...SECURITY_HEADERS, location: destination },
+        body: '',
+        // A permanent redirect is cacheable; the destination decides its own.
+        cacheKey: path,
+      };
+    }
+
+    return this.renderPage(store, input, path);
+  }
+
+  private async renderPage(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+    path: string,
+  ): Promise<StorefrontResponse> {
+    const match = store.closed ? ({ pageType: 'password' } as RouteMatch) : matchRoute(path);
+
+    // An account path is served by the platform, not by a theme template.
+    if (match.account) return text(404, 'Not found');
+
+    const shop = await store.data.shop();
+    const access = readableParams(input.query);
+    const budget = createLookupBudget();
+
+    const engineContext: RenderContext = defaultContext({
+      currency: shop.currency as never,
+      assetBaseUrl: `https://${shop.domain}/assets`,
+      cdnBaseUrl: `https://${shop.domain}/files`,
+      platformAssetBaseUrl: `https://${shop.domain}/platform`,
+    });
+
+    const engine = createThemeEngine(engineContext, { source: store.theme });
+    const renderer = new PageRenderer(engine, store.theme, {
+      explainFailures: this.options.explainFailures ?? false,
+    });
+
+    const drops = createDropContext({
+      currency: shop.currency,
+      locale: 'en',
+      baseUrl: `https://${shop.domain}`,
+      load: loadersFor(store.data),
+    });
+
+    const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access);
+
+    // A handle that resolves to nothing renders the theme's own 404 page, with
+    // a 404 status — a soft 404 that returns 200 is indexed as a real page.
+    const pageType: PageType = found ? (match.pageType as PageType) : '404';
+
+    const page = await renderer.render({ pageType, scope });
+
+    if (!page.templatePath) {
+      // The theme has no template for this page type at all.
+      return text(found ? 500 : 404, found ? 'This theme is incomplete' : 'Not found');
+    }
+
+    const status = found ? 200 : 404;
+    const canonical = `https://${shop.domain}${canonicalPath(match)}`;
+
+    return {
+      status,
+      headers: {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/html; charset=utf-8',
+        link: `<${canonical}>; rel="canonical"`,
+        'cache-control': status === 200 ? 'public, max-age=0, s-maxage=60' : 'no-store',
+      },
+      body: page.html,
+      /**
+       * The key includes exactly the parameters this render read.
+       *
+       * A page that read nothing caches by path; one that read `?variant`
+       * caches per variant. Without this the first visitor's parameters would
+       * be served to everyone after them.
+       */
+      cacheKey: status === 200 ? cacheKeyFor(path, input.query, access.readKeys()) : null,
+    };
+  }
+
+  /** The drops a given page type needs, and whether its record exists. */
+  private async scopeFor(
+    store: ResolvedStore,
+    match: RouteMatch,
+    drops: ReturnType<typeof createDropContext>,
+    budget: ReturnType<typeof createLookupBudget>,
+    shop: Awaited<ReturnType<StorefrontData['shop']>>,
+    input: StorefrontRequestInput,
+    access: ReturnType<typeof readableParams>,
+  ): Promise<{ scope: Record<string, unknown>; found: boolean }> {
+    const data = store.data;
+
+    /**
+     * The page number comes from the URL, once, and everything uses this value.
+     *
+     * `paginate` and `request.page` disagreeing would show page three's
+     * products under page two's pagination controls.
+     */
+    const requested = Number(new URLSearchParams(input.query).get('page') ?? 1);
+    const page = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 1;
+
+    const base: Record<string, unknown> = {
+      shop: shopDrop(shop, drops),
+      settings: await data.settings(),
+      template: templateDrop({ name: match.pageType }, drops),
+      request: requestDrop(
+        {
+          path: input.path,
+          host: input.host,
+          origin: `https://${shop.domain}`,
+          pageType: match.pageType,
+          locale: 'en',
+          currency: shop.currency,
+          designMode: input.designMode ?? false,
+          queryString: input.query,
+          params: access.params,
+          page,
+        },
+        drops,
+      ),
+      /**
+       * By-handle lookup, so a theme can render a product named by a query
+       * parameter. Published-only and budgeted — see `domain/drops/lookup.ts`.
+       */
+      all_products: lookupDrop(
+        {
+          load: (handle) => syncOf(data.productByHandle(handle)),
+          factory: productDrop,
+          budget,
+          publishedOnly: true,
+        },
+        drops,
+      ),
+    };
+
+    switch (match.pageType) {
+      case 'product': {
+        const row = await data.productByHandle(match.handle ?? '');
+        if (!row) return { scope: base, found: false };
+        return { scope: { ...base, product: productDrop(row, drops) }, found: true };
+      }
+      case 'collection': {
+        const row = await data.collectionByHandle(match.handle ?? '');
+        if (!row) return { scope: base, found: false };
+        const collection = collectionDrop(row, drops);
+        return {
+          scope: {
+            ...base,
+            collection,
+            paginate: paginateDrop(
+              {
+                currentPage: page,
+                currentOffset: 0,
+                items: data.productCountOfCollection(row.id),
+                pageSize: 24,
+                basePath: input.path,
+              },
+              drops,
+            ),
+          },
+          found: true,
+        };
+      }
+      case 'page': {
+        const row = await data.pageByHandle(match.handle ?? '');
+        if (!row) return { scope: base, found: false };
+        return { scope: { ...base, page: pageDrop(row, drops) }, found: true };
+      }
+      case 'blog': {
+        const row = await data.blogByHandle(match.handle ?? '');
+        if (!row) return { scope: base, found: false };
+        return { scope: { ...base, blog: blogDrop(row, drops) }, found: true };
+      }
+      case 'article': {
+        const row = await data.articleByHandle(match.parentHandle ?? '', match.handle ?? '');
+        if (!row) return { scope: base, found: false };
+        return { scope: { ...base, article: articleDrop(row, drops) }, found: true };
+      }
+      case '404':
+        return { scope: base, found: false };
+      default:
+        return { scope: base, found: true };
+    }
+  }
+
+  private async robots(store: ResolvedStore, host: string): Promise<StorefrontResponse> {
+    const body = renderRobots({
+      closed: store.closed ?? false,
+      sitemaps: [`https://${normaliseHost(host)}/sitemap.xml`],
+    });
+    return text(200, body, { 'content-type': 'text/plain; charset=utf-8' }, '/robots.txt');
+  }
+
+  private async sitemapIndex(store: ResolvedStore, host: string): Promise<StorefrontResponse> {
+    const origin = `https://${normaliseHost(host)}`;
+    const kinds = Object.keys(DEFAULT_PRIORITY).filter((kind) => kind !== 'policy');
+
+    const body = renderSitemapIndex(
+      kinds.map((kind) => ({ loc: `${origin}/sitemap_${kind}_1.xml` })),
+    );
+    return text(200, body, { 'content-type': 'application/xml; charset=utf-8' }, '/sitemap.xml');
+  }
+
+  private async sitemap(store: ResolvedStore, path: string): Promise<StorefrontResponse> {
+    // `/sitemap_products_1.xml` — the kind is what decides the query.
+    const kind = /^\/sitemap_([a-z-]+)_\d+\.xml$/.exec(path)?.[1];
+    if (!kind) return text(404, 'Not found');
+
+    const entries = await store.data.sitemapEntries(kind);
+    return text(
+      200,
+      renderSitemap(entries),
+      { 'content-type': 'application/xml; charset=utf-8' },
+      path,
+    );
+  }
+}
+
+/**
+ * The Host header, reduced to a hostname.
+ *
+ * The port is dropped and the value lowercased, so `Shop.Test:8080` and
+ * `shop.test` resolve to one store rather than to none.
+ */
+function normaliseHost(host: string): string {
+  return String(host ?? '')
+    .split(',')[0]!
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, '');
+}
+
+/**
+ * Bridges a promise-returning lookup into the synchronous one drops expect.
+ *
+ * Drops are read during rendering and the engine awaits promise values, so a
+ * promise flows through correctly — but the lookup budget needs a decision now.
+ * Returning the promise is right: `lookupDrop` hands it to the drop factory,
+ * which the engine resolves.
+ */
+function syncOf<T>(value: Promise<T>): T {
+  return value as unknown as T;
+}
+
+/** The loaders the drop context needs, all already store-scoped. */
+function loadersFor(data: StorefrontData): Record<string, (...args: never[]) => unknown> {
+  return {
+    variantsOfProduct: ((id: string) => data.variantsOfProduct(id)) as never,
+    imagesOfProduct: ((id: string) => data.imagesOfProduct(id)) as never,
+    productsOfCollection: ((id: string) => data.productsOfCollection(id)) as never,
+    productCountOfCollection: ((id: string) => data.productCountOfCollection(id)) as never,
+    image: ((id: string) => data.image(id)) as never,
+  };
+}
+
+function text(
+  status: number,
+  body: string,
+  headers: Readonly<Record<string, string>> = {},
+  cacheKey: string | null = null,
+): StorefrontResponse {
+  return {
+    status,
+    headers: {
+      ...SECURITY_HEADERS,
+      'content-type': 'text/plain; charset=utf-8',
+      ...headers,
+    },
+    body,
+    cacheKey: status === 200 ? cacheKey : null,
+  };
+}
