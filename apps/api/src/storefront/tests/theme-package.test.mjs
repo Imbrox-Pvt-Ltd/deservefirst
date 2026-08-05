@@ -175,3 +175,47 @@ test('an archive with no folder gets a name the merchant can change', () => {
   assert.equal(themeNameFrom(null), 'Uploaded theme');
   assert.equal(themeNameFrom(''), 'Uploaded theme');
 });
+
+// ------------------------------------------------------------ binary files
+
+import { versionRefFor } from '../../../dist/storefront/domain/index.js';
+
+test('a theme file may hold bytes, not only text', () => {
+  /**
+   * The bug this pins. Every entry used to be decoded as UTF-8 before it was
+   * stored, and invalid byte sequences all map to the same replacement
+   * character — an 88-byte PNG came back as 118 bytes of U+FFFD, and the live
+   * storefront served it. Found by comparing the stored file against the
+   * original, because nothing failed.
+   */
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe]);
+  const result = readThemePackage(minimal([{ path: 'assets/logo.png', contents: png }]));
+
+  assert.equal(result.ok, true, JSON.stringify(result.problems));
+  const stored = result.files.find((entry) => entry.path === 'assets/logo.png');
+  assert.ok(Buffer.isBuffer(stored.contents), 'it is still a Buffer');
+  assert.deepEqual(stored.contents, png, 'byte for byte');
+});
+
+test('two different images do not share a version reference', () => {
+  /**
+   * They would have. Interpolating a Buffer into a template literal decodes it
+   * as UTF-8 first, so any two images made of invalid sequences hashed the
+   * same — and a reference that cannot tell them apart is one a rollback lands
+   * on the wrong side of.
+   */
+  const a = [{ path: 'assets/x.png', contents: Buffer.from([0xff, 0xfe, 0x01]) }];
+  const b = [{ path: 'assets/x.png', contents: Buffer.from([0xff, 0xfe, 0x02]) }];
+
+  assert.notEqual(versionRefFor(a), versionRefFor(b));
+});
+
+test('identical content still yields the same reference', () => {
+  // The property the whole version store rests on: installing the same archive
+  // twice must not write a second copy of the same bytes.
+  const files = () => [
+    { path: 'layout/theme.liquid', contents: 'hello' },
+    { path: 'assets/x.png', contents: Buffer.from([1, 2, 3]) },
+  ];
+  assert.equal(versionRefFor(files()), versionRefFor(files()));
+});

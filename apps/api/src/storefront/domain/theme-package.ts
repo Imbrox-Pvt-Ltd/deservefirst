@@ -24,12 +24,17 @@
  * Layer: domain (pure).
  */
 
+import type { ThemeFile } from './publishing';
 import { isThemePath } from './theme-source';
 
-export interface PackagedFile {
-  readonly path: string;
-  readonly contents: string;
-}
+/**
+ * Re-exported rather than redeclared.
+ *
+ * A packaged file and a version file are the same thing at different moments,
+ * and two definitions of it would drift the first time one of them learned
+ * about binary contents — which is exactly what happened.
+ */
+export type { ThemeFile as PackagedFile } from './publishing';
 
 export interface PackageProblem {
   readonly path: string | null;
@@ -40,7 +45,7 @@ export interface PackageProblem {
 
 export interface PackageResult {
   readonly ok: boolean;
-  readonly files: readonly PackagedFile[];
+  readonly files: readonly ThemeFile[];
   readonly problems: readonly PackageProblem[];
   /** The folder stripped from the front, when the archive had one. */
   readonly strippedRoot: string | null;
@@ -112,9 +117,7 @@ export function stripCommonRoot(paths: readonly string[]): string | null {
  * a theme wants the list, not a conversation where each fix reveals the next
  * complaint.
  */
-export function readThemePackage(
-  entries: readonly PackagedFile[],
-): PackageResult {
+export function readThemePackage(entries: readonly ThemeFile[]): PackageResult {
   const problems: PackageProblem[] = [];
 
   const root = stripCommonRoot(entries.map((entry) => entry.path));
@@ -123,7 +126,7 @@ export function readThemePackage(
     contents: entry.contents,
   }));
 
-  const files: PackagedFile[] = [];
+  const files: ThemeFile[] = [];
 
   for (const file of rebased) {
     /**

@@ -27,6 +27,7 @@ import {
   versionRefFor,
   type PreflightResult,
   type RoleChange,
+  type ThemeFile,
   type ThemeRecord,
   type ThemeSource,
 } from '../domain';
@@ -44,7 +45,7 @@ import { withDrafts, type DraftStore, type EditorSession } from './editor-servic
  * pointer move rather than a restore.
  */
 export interface ThemeVersionStore {
-  write(themeId: string, versionRef: string, files: readonly { path: string; contents: string }[]): Promise<void>;
+  write(themeId: string, versionRef: string, files: readonly ThemeFile[]): Promise<void>;
   /** Whether this exact content is already stored. */
   has(themeId: string, versionRef: string): Promise<boolean>;
   /** A source reading one version, for rendering a check or serving a store. */

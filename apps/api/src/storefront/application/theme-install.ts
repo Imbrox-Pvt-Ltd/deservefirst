@@ -122,17 +122,24 @@ export class ThemeInstallService {
     }
 
     /**
-     * Decoded as UTF-8 including the binary files, which is deliberate.
+     * Text is decoded; everything else keeps its bytes.
      *
-     * The version store is a text store — it is what a publish writes and what
-     * a render reads. Images and fonts survive a round trip through it only
-     * because nothing re-encodes them, and that is a real limitation rather
-     * than a subtlety: binary assets belong in object storage, which is the
-     * same missing piece the object-store theme source is waiting on. Named
-     * here so the next person does not have to discover it from a corrupt
-     * favicon.
+     * The first version decoded EVERY entry as UTF-8, and that is not a
+     * rounding error — invalid byte sequences all map to the same replacement
+     * character, so an 88-byte PNG came back as 118 bytes of U+FFFD. The
+     * reference theme's three images were installed corrupt and the live
+     * storefront served them, which is how this was found: by comparing the
+     * stored file against the original rather than by anything failing.
+     *
+     * Decided by extension rather than by sniffing the contents. A theme's file
+     * types are a closed set we already enforce, and guessing from the bytes
+     * would mean a `.liquid` file that happens to start with unusual characters
+     * is stored as binary and never renders.
      */
-    return raw.map((entry) => ({ path: entry.path, contents: entry.contents.toString('utf8') }));
+    return raw.map((entry) => ({
+      path: entry.path,
+      contents: isTextFile(entry.path) ? entry.contents.toString('utf8') : entry.contents,
+    }));
   }
 
   /**
@@ -170,7 +177,17 @@ export class ThemeInstallService {
    * theme over a heuristic is worse than the mistake.
    */
   private check(files: readonly PackagedFile[]): readonly TemplateFinding[] {
-    const liquid = files.filter((file) => file.path.endsWith('.liquid'));
+    /**
+      * Only `.liquid` files, and their contents are known text.
+      *
+      * `isTextFile` decoded them, so the cast states what the filter already
+      * guarantees rather than hoping. A Buffer reaching a linter would be
+      * stringified as "[object Object]" and match nothing — a check that
+      * silently passes everything.
+      */
+    const liquid = files
+      .filter((file) => file.path.endsWith('.liquid'))
+      .map((file) => ({ path: file.path, contents: String(file.contents) }));
 
     const foreign = liquid.flatMap((file) =>
       findForeignNames(file.path, file.contents, this.compat).map((found) => ({
@@ -209,4 +226,16 @@ export class ThemeInstallService {
 
     return findings;
   }
+}
+
+/**
+ * Whether a theme file is text.
+ *
+ * The renderer reads templates as strings and serves everything else as bytes,
+ * so this is the line between the two. Anything not named here is treated as
+ * binary, which is the safe default: storing text as bytes round-trips
+ * perfectly, and storing bytes as text does not.
+ */
+function isTextFile(path: string): boolean {
+  return /\.(liquid|json|js|mjs|css|scss|md|txt|map|svg)$/i.test(path);
 }

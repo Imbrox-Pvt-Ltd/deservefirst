@@ -224,7 +224,9 @@ export class InMemoryDraftStore implements DraftStore {
   private readonly documents = new Map<string, TemplateDocument>();
 
   private key(themeId: string, templatePath: string): string {
-    return `${themeId} ${templatePath}`;
+    // NUL as the separator, written as an escape — it cannot appear in a
+    // theme id or a template path, so two keys cannot collide.
+    return `${themeId}\u0000${templatePath}`;
   }
 
   async read(themeId: string, templatePath: string): Promise<TemplateDocument | null> {
@@ -240,7 +242,7 @@ export class InMemoryDraftStore implements DraftStore {
   }
 
   async pending(themeId: string): Promise<readonly string[]> {
-    const prefix = `${themeId} `;
+    const prefix = `${themeId}\u0000`;
     return [...this.documents.keys()]
       .filter((key) => key.startsWith(prefix))
       .map((key) => key.slice(prefix.length))

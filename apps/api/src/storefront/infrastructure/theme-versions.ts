@@ -22,7 +22,7 @@ import type { QueryExecutor } from '../../core/list-engine';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
 import type { ThemeRepository, ThemeVersionStore } from '../application';
-import type { RoleChange, ThemeRecord, ThemeSource } from '../domain';
+import type { RoleChange, ThemeFile, ThemeRecord, ThemeSource } from '../domain';
 import { confinePath } from '../domain';
 import { FilesystemThemeSource } from './filesystem-theme-source';
 
@@ -52,7 +52,7 @@ export class FilesystemThemeVersionStore implements ThemeVersionStore {
   async write(
     themeId: string,
     versionRef: string,
-    files: readonly { path: string; contents: string }[],
+    files: readonly ThemeFile[],
   ): Promise<void> {
     const base = this.directory(themeId, versionRef);
 
@@ -65,7 +65,20 @@ export class FilesystemThemeVersionStore implements ThemeVersionStore {
         throw new Error(`"${file.path}" would be written outside its version`);
       }
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, file.contents, 'utf8');
+
+      /**
+       * A Buffer is written as bytes; only a string gets an encoding.
+       *
+       * Passing `'utf8'` alongside a Buffer is harmless, but the mistake this
+       * guards against happened one layer up: the installer decoded every entry
+       * as UTF-8 before it got here, so an 88-byte PNG became 118 bytes of
+       * replacement characters and the storefront served it.
+       */
+      if (typeof file.contents === 'string') {
+        await writeFile(target, file.contents, 'utf8');
+      } else {
+        await writeFile(target, file.contents);
+      }
     }
   }
 
