@@ -13,14 +13,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm's version comes from `packageManager` in package.json, so it is
+      # pinned in one place rather than two that can disagree.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
+      # Read from .nvmrc rather than written here. `node-version: 22` floated to
+      # whatever 22.x was newest, so CI and a developer's machine could differ
+      # by a minor version with nothing saying so — which is exactly the class
+      # of difference that produces "works on my machine".
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
+
+      - name: the runtime is the one we pinned
+        run: |
+          echo "node    $(node --version)"
+          echo "pnpm    $(pnpm --version)"
+          echo "pinned  v$(cat .nvmrc)"
+          test "$(node --version)" = "v$(cat .nvmrc)"
 
       - run: pnpm install --frozen-lockfile
 

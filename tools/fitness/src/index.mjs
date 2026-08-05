@@ -9,11 +9,11 @@
 import { loadSources } from './context.mjs';
 import { routeRules } from './routes.mjs';
 import { allRules } from './rules.mjs';
-import { moduleSkeleton } from './structure.mjs';
+import { moduleSkeleton, runtimeIsPinned } from './structure.mjs';
 import { webRules } from './web.mjs';
 import { docsRules } from './docs.mjs';
 
-const RULES = [...allRules, moduleSkeleton, ...routeRules, ...webRules, ...docsRules];
+const RULES = [...allRules, moduleSkeleton, runtimeIsPinned, ...routeRules, ...webRules, ...docsRules];
 
 export function runFitness(rootDir, options = {}) {
   const only = options.only ? new Set(options.only) : null;
