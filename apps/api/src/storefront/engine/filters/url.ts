@@ -82,7 +82,21 @@ export const urlFilters: FilterGroup = {
   name: 'url',
   filters: [
     /** A file in this theme's `assets/` directory. */
-    { name: 'asset_url', apply: (context, value) => join(context.assetBaseUrl, stringify(value)) },
+    /**
+     * A theme's own file, with the theme's version attached.
+     *
+     * The version is what makes the URL change when the theme does, so the
+     * response may be cached immutably. An unversioned URL still resolves —
+     * `assetVersion` is absent in tests and in the editor preview — and is
+     * served with a short, revalidating cache instead.
+     */
+    {
+      name: 'asset_url',
+      apply: (context, value) => {
+        const url = join(context.assetBaseUrl, stringify(value));
+        return context.assetVersion ? `${url}?v=${encodeURIComponent(context.assetVersion)}` : url;
+      },
+    },
 
     /**
      * A file the merchant uploaded, rather than one the theme ships.

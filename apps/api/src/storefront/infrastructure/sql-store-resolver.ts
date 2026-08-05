@@ -119,8 +119,9 @@ export class SqlStoreResolver implements StoreResolver {
 
     return {
       storeId,
-      theme,
+      theme: theme.source,
       primaryHost: await this.primaryHostFor(storeId),
+      themeVersion: theme.versionRef,
       closed: status === 'paused' || String(row.type) === 'password_protected',
       data: new SqlStorefrontData(this.executor, this.options.storefrontHost, this.dialect),
       /**
@@ -219,9 +220,11 @@ export class SqlStoreResolver implements StoreResolver {
    * there resolves to nothing rather than to a half-rendered page — an empty
    * storefront is a clearer failure than one missing every section.
    */
-  private async themeFor(
-    storeId: string,
-  ): Promise<(ThemeSource & { manifest(): Promise<ReadonlySet<string>> }) | null> {
+  private async themeFor(storeId: string): Promise<{
+    source: ThemeSource & { manifest(): Promise<ReadonlySet<string>> };
+    /** The version reference, which becomes part of every asset URL. */
+    versionRef: string;
+  } | null> {
     const rows = await this.executor.query<Row>(
       `SELECT ${this.q('id')}, ${this.q('source_kind')}, ${this.q('source_ref')} FROM ${this.q('themes')}
         WHERE ${this.q('store_id')} = ${this.p(1)}
@@ -247,11 +250,11 @@ export class SqlStoreResolver implements StoreResolver {
      * function — so a version written by a publish is read by the storefront
      * without either having to know the layout.
      */
-    if (this.options.themeSourceFor) {
-      return this.options.themeSourceFor({ id: String(row.id), versionRef: reference });
-    }
+    const source = this.options.themeSourceFor
+      ? this.options.themeSourceFor({ id: String(row.id), versionRef: reference })
+      : new FilesystemThemeSource(`${this.options.themeRoot}/${reference}`);
 
-    return new FilesystemThemeSource(`${this.options.themeRoot}/${reference}`);
+    return { source, versionRef: reference };
   }
 
   /** Drops a cached resolution, for when a theme is published. */

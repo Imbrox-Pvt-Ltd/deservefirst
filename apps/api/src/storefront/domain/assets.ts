@@ -96,15 +96,26 @@ const TYPES: Readonly<Record<string, { type: string; inline: boolean }>> = {
  */
 export const ASSET_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 
+/**
+ * How long a VERSIONED asset may be kept.
+ *
+ * A year, and immutable. Safe only because the URL carries the theme's version:
+ * publishing a change produces a different URL, so nothing can be stale. The
+ * moment that stops being true this becomes wrong rather than merely
+ * aggressive.
+ */
+export const VERSIONED_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 /** Decides how to serve a file, or refuses to serve it as itself. */
-export function assetResponseFor(path: string): AssetResponse {
+export function assetResponseFor(path: string, versioned = false): AssetResponse {
+  const cacheControl = versioned ? VERSIONED_CACHE_CONTROL : ASSET_CACHE_CONTROL;
   const name = path.split('/').pop() ?? '';
   const at = name.lastIndexOf('.');
   const extension = at <= 0 ? '' : name.slice(at).toLowerCase();
 
   const known = TYPES[extension];
   if (known) {
-    return { contentType: known.type, cacheControl: ASSET_CACHE_CONTROL, inline: known.inline };
+    return { contentType: known.type, cacheControl, inline: known.inline };
   }
 
   /**
@@ -115,11 +126,7 @@ export function assetResponseFor(path: string): AssetResponse {
    * but a theme that reached the store some other way must not be able to serve
    * HTML from the merchant's domain by naming a file `.htm`.
    */
-  return {
-    contentType: 'application/octet-stream',
-    cacheControl: ASSET_CACHE_CONTROL,
-    inline: false,
-  };
+  return { contentType: 'application/octet-stream', cacheControl, inline: false };
 }
 
 /**

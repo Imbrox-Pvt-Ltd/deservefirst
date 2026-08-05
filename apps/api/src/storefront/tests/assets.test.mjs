@@ -17,6 +17,7 @@ import {
   assetPathFor,
   assetResponseFor,
   ASSET_CACHE_CONTROL,
+  VERSIONED_CACHE_CONTROL,
 } from '../../../dist/storefront/domain/index.js';
 import { StorefrontHandler } from '../../../dist/storefront/api/index.js';
 import { InMemoryThemeSource } from '../../../dist/storefront/infrastructure/index.js';
@@ -79,14 +80,24 @@ test('an unknown type is sent as bytes nobody will interpret', () => {
   assert.equal(decided.inline, false, 'and downloaded rather than rendered');
 });
 
-test('caching is aggressive but revalidates', () => {
+test('an unversioned URL revalidates; a versioned one is immutable', () => {
   /**
-   * NOT immutable: these URLs are not content-addressed, so `theme.css` is the
-   * same URL after a merchant publishes a change. A year-long immutable cache
-   * would leave visitors on the old stylesheet with no way to correct it.
+   * The distinction the whole scheme rests on. `asset_url` appends the theme's
+   * version, so publishing a change produces different URLs and nothing can be
+   * stale — which is what makes a year safe. A URL WITHOUT the version is the
+   * same URL before and after a publish, so it gets minutes and revalidation.
+   *
+   * Getting this backwards would leave every visitor on an old stylesheet for a
+   * year with no way to correct it.
    */
   assert.match(ASSET_CACHE_CONTROL, /must-revalidate/);
   assert.ok(!/immutable/.test(ASSET_CACHE_CONTROL));
+  assert.match(VERSIONED_CACHE_CONTROL, /immutable/);
+
+  assert.equal(assetResponseFor('assets/theme.css').cacheControl, ASSET_CACHE_CONTROL);
+  assert.equal(assetResponseFor('assets/theme.css', true).cacheControl, VERSIONED_CACHE_CONTROL);
+  // The type is unaffected by how long it may be kept.
+  assert.equal(assetResponseFor('assets/x.htm', true).contentType, 'application/octet-stream');
 });
 
 // ------------------------------------------------------ through a response
@@ -164,4 +175,23 @@ test('a source that cannot read bytes serves nothing rather than something corru
     host: 'shop.test', path: '/assets/theme.css', query: '', method: 'GET',
   });
   assert.equal(response.status, 404);
+});
+
+test('a versioned request is served immutably through the handler', async () => {
+  const response = await handler.handle({
+    host: 'shop.test', path: '/assets/theme.css', query: 'v=v_abc123', method: 'GET',
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['cache-control'], VERSIONED_CACHE_CONTROL);
+  assert.equal(String(response.body), '.a{color:red}');
+});
+
+test('the version is not part of the file it names', async () => {
+  // A different version of the same URL still serves the file. The version
+  // exists to change the URL, not to be looked up.
+  const response = await handler.handle({
+    host: 'shop.test', path: '/assets/theme.css', query: 'v=anything-at-all', method: 'GET',
+  });
+  assert.equal(response.status, 200);
 });

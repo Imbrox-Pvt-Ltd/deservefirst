@@ -78,6 +78,14 @@ export interface ResolvedStore {
    * is when its platform subdomain IS the canonical name.
    */
   readonly primaryHost?: string | null;
+  /**
+   * The published version of the theme being served.
+   *
+   * Travels with the resolution so `asset_url` can put it in every asset URL —
+   * which is what lets those responses be cached for a year instead of five
+   * minutes, because publishing a change produces different URLs.
+   */
+  readonly themeVersion?: string | null;
 }
 
 /**

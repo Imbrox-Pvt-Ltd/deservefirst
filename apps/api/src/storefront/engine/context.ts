@@ -31,6 +31,16 @@ export interface MoneyFormats {
 export interface RenderContext {
   /** Where `asset_url` points — the theme's own files. */
   readonly assetBaseUrl: string;
+  /**
+   * The published version of the theme these assets belong to.
+   *
+   * Appended to every `asset_url` so the URL changes when the theme does. That
+   * is what lets an asset be cached for a year instead of five minutes: without
+   * it, `theme.css` is the same URL before and after a merchant publishes a
+   * change, and an immutable cache would leave visitors on the old stylesheet
+   * with no way to correct it.
+   */
+  readonly assetVersion?: string;
   /** Where uploaded images live, for `image_url` and friends. */
   readonly cdnBaseUrl: string;
   /** Platform-owned assets, served by the branded asset filter. */

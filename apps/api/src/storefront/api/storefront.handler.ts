@@ -395,7 +395,11 @@ export class StorefrontHandler {
      * lookup deciding that `/assets/theme.css` is not a product.
      */
     const assetPath = assetPathFor(path);
-    if (assetPath !== null) return this.asset(store, assetPath);
+    if (assetPath !== null) {
+      // A `v=` in the query means the URL identifies one version of the file,
+      // which is what makes an immutable cache safe.
+      return this.asset(store, assetPath, new URLSearchParams(input.query).has('v'));
+    }
 
     if (path === '/robots.txt') return this.robots(store, input.host);
     if (path === '/sitemap.xml') return this.sitemapIndex(store, input.host);
@@ -633,6 +637,7 @@ export class StorefrontHandler {
       assetBaseUrl: `https://${shop.domain}/assets`,
       cdnBaseUrl: `https://${shop.domain}/files`,
       platformAssetBaseUrl: `https://${shop.domain}/platform`,
+      assetVersion: store.themeVersion ?? undefined,
       nonce,
     });
 
@@ -894,7 +899,11 @@ export class StorefrontHandler {
    * what is on disk. A source that cannot do that serves nothing rather than
    * serving something corrupt.
    */
-  private async asset(store: ResolvedStore, themePath: string): Promise<StorefrontResponse> {
+  private async asset(
+    store: ResolvedStore,
+    themePath: string,
+    versioned = false,
+  ): Promise<StorefrontResponse> {
     const source = store.theme;
     if (!source.readBytes) {
       return text(404, 'Not found');
@@ -911,7 +920,7 @@ export class StorefrontHandler {
 
     if (bytes === null) return text(404, 'Not found');
 
-    const decided = assetResponseFor(themePath);
+    const decided = assetResponseFor(themePath, versioned);
 
     return {
       status: 200,
