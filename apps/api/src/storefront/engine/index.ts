@@ -13,3 +13,4 @@ export { defaultContext, type MoneyFormats, type RenderContext } from './context
 export type { FilterArgs, FilterDefinition, FilterGroup, ThemeEngine } from './types';
 export { FILTER_GROUPS, allFilters, handleize } from './filters';
 export { attributes, escapeHtml, isSafeAttribute, safeUrl } from './markup';
+export { ColorValue, resolveColorSettings } from './color-value';

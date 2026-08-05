@@ -213,3 +213,52 @@ test('structured data carries the decimal price, not the minor units', async () 
   assert.equal(data.offers.priceCurrency, 'USD');
   assert.equal(data.offers.availability, 'https://schema.org/InStock');
 });
+
+// ------------------------------------------- section context inside a render
+
+import { InMemoryThemeSource } from '../../../dist/storefront/infrastructure/index.js';
+import { PageRenderer } from '../../../dist/storefront/application/index.js';
+
+test('a snippet a section delegates to still sees `section`', async () => {
+  /**
+   * `{% render %}` isolates its scope, and the reference theme's hero section
+   * is one line — `{% render 'hero' %}` — whose snippet then reads
+   * `section.settings`, `section.blocks` and `section.id`. Passed as scope the
+   * snippet saw none of it: the section rendered `id="Hero--"` with an empty
+   * block loop, which looks exactly like a section that ran and produced
+   * nothing. The page grew 28 KB when this was fixed.
+   */
+  const theme = new InMemoryThemeSource({
+    'layout/theme.liquid': '<html><body>{{ content_for_layout }}</body></html>',
+    'templates/index.json': JSON.stringify({
+      sections: {
+        hero: {
+          type: 'hero',
+          settings: { heading: 'Recycled Materials' },
+          blocks: { b1: { type: 'text', settings: { text: 'Inner block' } } },
+          block_order: ['b1'],
+        },
+      },
+      order: ['hero'],
+    }),
+    // One line, exactly as the real theme writes it.
+    'sections/hero.liquid': `{%- render 'hero' -%}`,
+    'snippets/hero.liquid':
+      `id=[{{ section.id }}] heading=[{{ section.settings.heading }}]` +
+      `{% for block in section.blocks %} block=[{{ block.settings.text }}]{% endfor %}` +
+      ` shop=[{{ shop.name }}]`,
+  });
+
+  const engine = createThemeEngine(defaultContext(), {
+    source: theme,
+    globals: { shop: { name: 'Acme' } },
+  });
+  const html = (await new PageRenderer(engine, theme, {}).render({ pageType: 'index', scope: {} })).html;
+
+  assert.match(html, /id=\[hero\]/, 'the section id reaches the snippet');
+  assert.match(html, /heading=\[Recycled Materials\]/, 'and its settings');
+  assert.match(html, /block=\[Inner block\]/, 'and its blocks');
+  // The half that a naive fix breaks: per-call globals REPLACE rather than
+  // merge, so passing only `section` would take every drop away at once.
+  assert.match(html, /shop=\[Acme\]/, 'without losing the engine globals');
+});

@@ -25,7 +25,7 @@ import {
 } from '../domain/template-resolution';
 import { resolveFontSettings } from '../domain/font-handle';
 import type { ThemeSource } from '../domain/theme-source';
-import type { ThemeEngine } from '../engine';
+import { resolveColorSettings, type ThemeEngine } from '../engine';
 
 export interface PageRequest {
   readonly pageType: PageType;
@@ -179,8 +179,14 @@ export class PageRenderer {
 
       const html = await this.renderOne(
         () =>
-          this.engine.renderFile(`sections/${section.type}.liquid`, {
-            ...scope,
+          this.engine.renderFile(`sections/${section.type}.liquid`, scope, {
+            /**
+             * Ambient, not scope, so a snippet the section delegates to can see
+             * it — `{% render %}` isolates the scope, and the reference theme's
+             * hero section is one line: `{% render 'hero' %}`. Passed as scope
+             * it rendered `id="Hero--"` with an empty block loop, which looks
+             * like a section that ran and produced nothing.
+             */
             section: {
               id: section.id,
               type: section.type,
@@ -193,10 +199,10 @@ export class PageRenderer {
                * typography rendered `font-family: , ;`, which browsers discard.
                * Theme settings alone were not enough.
                */
-              settings: resolveFontSettings(section.settings),
+              settings: resolveColorSettings(resolveFontSettings(section.settings)),
               blocks: section.blocks.map((block, position) => ({
                 ...block,
-                settings: resolveFontSettings(block.settings ?? {}),
+                settings: resolveColorSettings(resolveFontSettings(block.settings ?? {})),
                 index: position,
               })),
               index,

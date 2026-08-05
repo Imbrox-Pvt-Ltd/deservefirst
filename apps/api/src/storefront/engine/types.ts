@@ -103,7 +103,18 @@ export function stringify(value: unknown): string {
 export interface ThemeEngine {
   render(template: string, scope: Record<string, unknown>): Promise<string>;
   /** Renders a named file through the configured loader. */
-  renderFile(path: string, scope: Record<string, unknown>): Promise<string>;
+  /**
+   * Renders a theme file.
+   *
+   * `ambient` is made visible INSIDE `{% render %}`, which isolates its scope.
+   * That is how `section` and `block` reach a snippet a section delegates to —
+   * and real themes delegate: the reference theme's hero section is one line.
+   */
+  renderFile(
+    path: string,
+    scope: Record<string, unknown>,
+    ambient?: Record<string, unknown>,
+  ): Promise<string>;
   /** Whether a filter of this name is available — used by conformance checks. */
   hasFilter(name: string): boolean;
   hasTag(name: string): boolean;

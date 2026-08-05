@@ -75,7 +75,12 @@ import {
   renderStoreNotFoundPage,
   withTitleFallback,
 } from '../application';
-import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
+import {
+  createThemeEngine,
+  defaultContext,
+  resolveColorSettings,
+  type RenderContext,
+} from '../engine';
 import { randomUUID } from 'node:crypto';
 
 import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
@@ -838,7 +843,7 @@ export class StorefrontHandler {
     let loaded: Record<string, unknown> = {};
     try {
       const contents = await store.theme.read('config/settings_data.json');
-      if (contents) loaded = resolveThemeSettings(JSON.parse(contents));
+      if (contents) loaded = resolveColorSettings(resolveThemeSettings(JSON.parse(contents)));
     } catch {
       // A settings file a merchant has broken costs them their colours, not
       // their storefront: the theme's own defaults are still a page.

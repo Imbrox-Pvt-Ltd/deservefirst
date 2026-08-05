@@ -147,7 +147,7 @@ class LiquidThemeEngine implements ThemeEngine {
 
   constructor(
     private readonly context: RenderContext,
-    options: EngineOptions = {},
+    private readonly options: EngineOptions = {},
   ) {
     this.liquid = new Liquid({
       root: options.source ? '' : (options.root as string | string[] | undefined),
@@ -391,8 +391,33 @@ class LiquidThemeEngine implements ThemeEngine {
     return this.liquid.parseAndRender(template, scope);
   }
 
-  async renderFile(path: string, scope: Record<string, unknown>): Promise<string> {
-    return this.liquid.renderFile(path, scope);
+  /**
+   * Renders a theme file, optionally making values visible inside `{% render %}`.
+   *
+   * `ambient` is for `section` and `block`. They cannot travel in the scope,
+   * because `{% render %}` isolates it — and the reference theme's hero section
+   * is one line, `{% render 'hero' %}`, whose snippet then reads
+   * `section.settings`, `section.blocks` and `section.id`. Passed as scope, the
+   * snippet saw none of it and rendered `id="Hero--"` with an empty block loop:
+   * a section that appeared to work while producing nothing.
+   *
+   * The comment this replaces claimed themes pass `section` onward explicitly
+   * when a snippet needs one. Real themes do not, and this one does not.
+   *
+   * Merged with the engine's own globals rather than replacing them —
+   * liquidjs's per-call globals REPLACE, so passing only `section` would take
+   * `shop`, `settings` and every drop away from the snippet at the same time.
+   */
+  async renderFile(
+    path: string,
+    scope: Record<string, unknown>,
+    ambient?: Record<string, unknown>,
+  ): Promise<string> {
+    if (!ambient) return this.liquid.renderFile(path, scope);
+
+    return this.liquid.renderFile(path, scope, {
+      globals: { ...(this.options.globals ?? {}), ...ambient },
+    });
   }
 }
 

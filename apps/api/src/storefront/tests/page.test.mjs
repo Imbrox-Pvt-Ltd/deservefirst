@@ -377,9 +377,18 @@ test('a section that delegates to a snippet still sees the globals', async () =>
   assert.ok(page.html.includes('<p>Atelier</p>'), page.html);
 });
 
-test('section stays a local, so a snippet does not inherit it', async () => {
-  // Matching the reference product: themes pass `section` onward explicitly,
-  // and a snippet that saw its caller's section would be a different language.
+test('a snippet a section delegates to inherits `section`', async () => {
+  /**
+   * This test asserted the opposite, on the stated premise that "themes pass
+   * `section` onward explicitly". They do not. The reference theme's hero
+   * section is one line — `{% render 'hero' %}` — and the snippet then reads
+   * `section.id`, `section.settings` and `section.blocks`.
+   *
+   * With `section` as a local it saw none of them, so the section rendered
+   * `id="Hero--"` around an empty block loop: not an error, not a failure, just
+   * a section that ran and produced nothing. The product page grew 28 KB when
+   * this changed.
+   */
   const source = new InMemoryThemeSource({
     'layout/theme.liquid': `{{ content_for_layout }}`,
     'templates/index.json': JSON.stringify({ sections: { a: { type: 'a' } }, order: ['a'] }),
@@ -393,5 +402,5 @@ test('section stays a local, so a snippet does not inherit it', async () => {
   });
 
   assert.ok(page.html.includes('in=[a]'), page.html);
-  assert.ok(page.html.includes('snippet=[]'), page.html);
+  assert.ok(page.html.includes('snippet=[a]'), page.html);
 });
