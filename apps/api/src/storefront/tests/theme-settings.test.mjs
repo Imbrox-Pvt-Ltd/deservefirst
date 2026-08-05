@@ -134,3 +134,82 @@ test('a font setting holding a plain name survives conversion', () => {
   const resolved = resolveFontSettings({ checkout_body_font: 'Open Sans' });
   assert.equal(resolved.checkout_body_font, 'Open Sans');
 });
+
+// ------------------------------------------------ a product's default variant
+
+import { createDropContext, productDrop } from '../../../dist/storefront/domain/index.js';
+import { createThemeEngine, defaultContext } from '../../../dist/storefront/engine/index.js';
+
+const noRelations = {
+  variantsOfProduct: () => [], imagesOfProduct: () => [], productsOfCollection: () => [],
+  productCountOfCollection: () => 0, image: () => null,
+};
+const drops = () =>
+  createDropContext({ currency: 'USD', locale: 'en', baseUrl: 'https://x.test', load: noRelations });
+
+const shirt = {
+  id: 'p1', title: 'Linen Shirt', handle: 'linen-shirt',
+  priceAmountMinor: '4500', inventoryQuantity: 7, status: 'active',
+};
+
+test('a product with no variant rows still has one', async () => {
+  /**
+   * Every product in the reference product HAS a variant, and themes are
+   * written knowing it. The reference theme prints its price through
+   * `product.selected_or_first_available_variant.price`, so a product without
+   * variant rows rendered a page with NO PRICE — not an error, not a zero, just
+   * nothing where the price belongs.
+   */
+  const product = productDrop(shirt, drops());
+  const variant = await product.selected_or_first_available_variant;
+
+  assert.ok(variant, 'there is always a variant');
+  assert.equal(await variant.price, 4500);
+  assert.equal(await variant.available, true);
+  assert.equal(await variant.title, 'Default Title', 'themes compare against exactly this');
+  assert.equal((await product.variants).length, 1);
+});
+
+test('the default variant is the product, so a form posts the right id', async () => {
+  const product = productDrop(shirt, drops());
+  const variant = await product.selected_or_first_available_variant;
+  assert.equal(await variant.id, 'p1');
+});
+
+test('real variant rows are used instead of a synthetic one', async () => {
+  const withRows = createDropContext({
+    currency: 'USD', locale: 'en', baseUrl: 'https://x.test',
+    load: {
+      ...noRelations,
+      variantsOfProduct: () => [
+        { id: 'v1', productId: 'p1', title: 'Small', priceAmountMinor: '4500', inventoryQuantity: 0 },
+        { id: 'v2', productId: 'p1', title: 'Large', priceAmountMinor: '5500', inventoryQuantity: 3 },
+      ],
+    },
+  });
+
+  const product = productDrop(shirt, withRows);
+  assert.equal((await product.variants).length, 2);
+  // The first AVAILABLE one, not simply the first.
+  assert.equal(await (await product.selected_or_first_available_variant).title, 'Large');
+});
+
+// ------------------------------------------------ structured data prices
+
+test('structured data carries the decimal price, not the minor units', async () => {
+  /**
+   * `product.price` is 4500 for a $45 shirt, which is correct for a theme —
+   * it pipes it through `money`. Emitted raw into JSON-LD it told search
+   * engines the shirt cost $4,500, and the markup was valid so nothing
+   * complained. A rich result showing the wrong price is worse than none.
+   */
+  const engine = createThemeEngine(defaultContext({ currency: 'USD' }));
+  const out = await engine.render(`{{ p | structured_data }}`, {
+    p: { title: 'Linen Shirt', price: 4500, available: true, vendor: 'Atelier' },
+  });
+
+  const data = JSON.parse(out.replace(/\\u003c/g, '<'));
+  assert.equal(data.offers.price, '45.00');
+  assert.equal(data.offers.priceCurrency, 'USD');
+  assert.equal(data.offers.availability, 'https://schema.org/InStock');
+});

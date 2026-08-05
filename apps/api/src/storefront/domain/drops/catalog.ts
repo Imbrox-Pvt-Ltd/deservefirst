@@ -195,19 +195,16 @@ export const productDrop = defineDrop<ProductRow>('product', {
   options_with_values: async (product, context) => optionsWithValues(product, context),
 
   variants: async (product, context) => {
-    const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    return dropList(variantDrop, await resolved(load?.(product.id)), context);
+    return dropList(variantDrop, await variantsOf(product, context), context);
   },
   first_available_variant: async (product, context) => {
-    const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    const first = (await resolved(load?.(product.id))).find(
+    const first = (await variantsOf(product, context)).find(
       (variant) => (variant.inventoryQuantity ?? 0) > 0,
     );
     return first ? variantDrop(first, context) : null;
   },
   selected_or_first_available_variant: async (product, context) => {
-    const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    const variants = await resolved(load?.(product.id));
+    const variants = await variantsOf(product, context);
     const chosen = variants.find((variant) => (variant.inventoryQuantity ?? 0) > 0) ?? variants[0];
     return chosen ? variantDrop(chosen, context) : null;
   },
@@ -298,4 +295,48 @@ async function optionsWithValues(product: ProductRow, context: DropContext): Pro
     }
     return { name, position: position + 1, values: [...values] };
   });
+}
+
+/**
+ * A product's variants, with a default one when it has none.
+ *
+ * Every product in the reference product HAS a variant — a single unnamed one
+ * for a product nobody has given options to — and themes are written knowing
+ * that. The reference theme prints its price through
+ * `product.selected_or_first_available_variant.price`, so a product with no
+ * variant rows rendered a page with no price at all: not an error, not a zero,
+ * just nothing where the price belongs. It took comparing the page against the
+ * database to see it.
+ *
+ * Our catalogue lets a product exist without variant rows, and that is a
+ * reasonable model — a shirt with no options does not need a row to say so. So
+ * the shape a theme expects is supplied here rather than by requiring every
+ * product to carry a row it does not need. The synthetic variant is the
+ * product: same price, same stock, same id, which is what makes it behave
+ * correctly when a theme puts it in a form or compares it to `product.id`.
+ */
+async function variantsOf(
+  product: ProductRow,
+  context: DropContext,
+): Promise<readonly VariantRow[]> {
+  const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
+  const rows = await resolved(load?.(product.id));
+  if (rows.length > 0) return rows;
+
+  return [
+    {
+      id: product.id,
+      productId: product.id,
+      // Named as the reference product names it, because themes compare against
+      // exactly this string to decide whether to show a variant picker.
+      title: 'Default Title',
+      sku: product.sku ?? null,
+      priceAmountMinor: product.priceAmountMinor ?? null,
+      compareAtPriceAmountMinor: product.compareAtPriceAmountMinor ?? null,
+      optionValues: ['Default Title'],
+      inventoryQuantity: product.inventoryQuantity ?? null,
+      barcode: null,
+      imageId: null,
+    },
+  ];
 }

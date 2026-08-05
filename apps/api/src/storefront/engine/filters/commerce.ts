@@ -123,7 +123,16 @@ export const commerceFilters: FilterGroup = {
           brand: product.vendor ? { '@type': 'Brand', name: stringify(product.vendor) } : undefined,
           offers: {
             '@type': 'Offer',
-            price: stringify(product.price),
+            /**
+             * The DECIMAL price, not the minor units.
+             *
+             * `product.price` is 4500 for a $45 shirt — that is the correct
+             * value for a theme, which pipes it through `money`. Emitting it
+             * raw into JSON-LD told search engines the shirt cost $4,500, and
+             * the markup was valid, so nothing anywhere complained. A rich
+             * result showing the wrong price is worse than no rich result.
+             */
+            price: decimalPrice(product.price),
             priceCurrency: context.currency,
             availability: product.available
               ? 'https://schema.org/InStock'
@@ -245,3 +254,17 @@ export const commerceFilters: FilterGroup = {
     { name: 'login_button', returnsHtml: true, apply: () => '' },
   ],
 };
+
+/**
+ * Minor units as the decimal string structured data expects.
+ *
+ * Two decimal places for the currencies that have them, which is every currency
+ * a Phase-1 store uses. Zero-decimal currencies (JPY, KRW) would be divided
+ * wrongly here — noted rather than solved, because solving it needs the
+ * currency's exponent at this point and the filter is given only a number.
+ */
+function decimalPrice(value: unknown): string | undefined {
+  const minor = typeof value === 'number' ? value : Number(String(value ?? ''));
+  if (!Number.isFinite(minor)) return undefined;
+  return (minor / 100).toFixed(2);
+}
