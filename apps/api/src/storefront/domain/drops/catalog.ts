@@ -75,6 +75,26 @@ export interface CollectionRow {
   readonly updatedAt?: string | Date | null;
 }
 
+/**
+ * Awaits a loader result that may already be an array.
+ *
+ * Loaders are synchronous by signature because a drop is read while a template
+ * renders — but a SQL-backed one returns a promise, and a drop that called
+ * `.find()` on it crashed with "variants.find is not a function". Rendering a
+ * VALUE through a promise works, because the engine awaits it; computing over
+ * one does not.
+ *
+ * So every property that reduces a relation is async, and the engine awaits the
+ * property instead. Laziness is unaffected — nothing loads until the property is
+ * read. The drop unit tests used synchronous loaders throughout, which is
+ * exactly why none of them caught this.
+ */
+async function resolved<T>(
+  value: readonly T[] | Promise<readonly T[]> | undefined,
+): Promise<readonly T[]> {
+  return (await value) ?? [];
+}
+
 /** Minor units as a number, which is what the money filters take. */
 function minorUnits(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
@@ -130,10 +150,10 @@ export const variantDrop = defineDrop<VariantRow>('variant', {
   inventory_quantity: (variant) => variant.inventoryQuantity ?? 0,
   weight: (variant) => variant.weightGrams ?? 0,
   weight_unit: () => 'g',
-  featured_image: (variant, context) => {
+  featured_image: async (variant, context) => {
     if (!variant.imageId) return null;
     const load = context.load.image as ((id: string) => ImageRow | null) | undefined;
-    const image = load?.(variant.imageId);
+    const image = await load?.(variant.imageId);
     return image ? imageDrop(image, context) : null;
   },
   url: (variant) => `/variants/${variant.id}`,
@@ -157,46 +177,48 @@ export const productDrop = defineDrop<ProductRow>('product', {
    * them — which is exactly the laziness the getter design is for. A collection
    * page that only renders `product.price` never touches variant rows.
    */
-  price_min: (product, context) => {
-    const prices = variantPrices(product, context);
+  price_min: async (product, context) => {
+    const prices = await variantPrices(product, context);
     return prices.length ? Math.min(...prices) : minorUnits(product.priceAmountMinor);
   },
-  price_max: (product, context) => {
-    const prices = variantPrices(product, context);
+  price_max: async (product, context) => {
+    const prices = await variantPrices(product, context);
     return prices.length ? Math.max(...prices) : minorUnits(product.priceAmountMinor);
   },
-  price_varies: (product, context) => {
-    const prices = variantPrices(product, context);
+  price_varies: async (product, context) => {
+    const prices = await variantPrices(product, context);
     return prices.length > 1 && Math.min(...prices) !== Math.max(...prices);
   },
 
   available: (product) => (product.inventoryQuantity ?? 0) > 0,
   options: (product) => product.optionNames ?? [],
-  options_with_values: (product, context) => optionsWithValues(product, context),
+  options_with_values: async (product, context) => optionsWithValues(product, context),
 
-  variants: (product, context) => {
+  variants: async (product, context) => {
     const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    return dropList(variantDrop, load?.(product.id) ?? [], context);
+    return dropList(variantDrop, await resolved(load?.(product.id)), context);
   },
-  first_available_variant: (product, context) => {
+  first_available_variant: async (product, context) => {
     const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    const first = (load?.(product.id) ?? []).find((variant) => (variant.inventoryQuantity ?? 0) > 0);
+    const first = (await resolved(load?.(product.id))).find(
+      (variant) => (variant.inventoryQuantity ?? 0) > 0,
+    );
     return first ? variantDrop(first, context) : null;
   },
-  selected_or_first_available_variant: (product, context) => {
+  selected_or_first_available_variant: async (product, context) => {
     const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-    const variants = load?.(product.id) ?? [];
+    const variants = await resolved(load?.(product.id));
     const chosen = variants.find((variant) => (variant.inventoryQuantity ?? 0) > 0) ?? variants[0];
     return chosen ? variantDrop(chosen, context) : null;
   },
 
-  images: (product, context) => {
+  images: async (product, context) => {
     const load = context.load.imagesOfProduct as ((id: string) => readonly ImageRow[]) | undefined;
-    return dropList(imageDrop, load?.(product.id) ?? [], context);
+    return dropList(imageDrop, await resolved(load?.(product.id)), context);
   },
-  featured_image: (product, context) => {
+  featured_image: async (product, context) => {
     const load = context.load.imagesOfProduct as ((id: string) => readonly ImageRow[]) | undefined;
-    const first = (load?.(product.id) ?? [])[0];
+    const first = (await resolved(load?.(product.id)))[0];
     return first ? imageDrop(first, context) : null;
   },
 
@@ -214,18 +236,18 @@ export const collectionDrop = defineDrop<CollectionRow>('collection', {
   url: (collection) => `/collections/${collection.handle}`,
   updated_at: (collection) => isoOrNull(collection.updatedAt),
 
-  image: (collection, context) => {
+  image: async (collection, context) => {
     if (!collection.imageId) return null;
     const load = context.load.image as ((id: string) => ImageRow | null) | undefined;
-    const image = load?.(collection.imageId);
+    const image = await load?.(collection.imageId);
     return image ? imageDrop(image, context) : null;
   },
 
-  products: (collection, context) => {
+  products: async (collection, context) => {
     const load = context.load.productsOfCollection as
       | ((id: string) => readonly ProductRow[])
       | undefined;
-    return dropList(productDrop, load?.(collection.id) ?? [], context);
+    return dropList(productDrop, await resolved(load?.(collection.id)), context);
   },
   /**
    * The full count, not the page's length.
@@ -249,9 +271,9 @@ export const collectionDrop = defineDrop<CollectionRow>('collection', {
     ) ?? [],
 });
 
-function variantPrices(product: ProductRow, context: DropContext): number[] {
+async function variantPrices(product: ProductRow, context: DropContext): Promise<number[]> {
   const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-  return (load?.(product.id) ?? [])
+  return (await resolved(load?.(product.id)))
     .map((variant) => minorUnits(variant.priceAmountMinor))
     .filter((price): price is number => price !== null);
 }
@@ -263,9 +285,9 @@ function variantPrices(product: ProductRow, context: DropContext): number[] {
  * variant has cannot appear as a selectable choice — which is the difference
  * between a size picker that works and one with a dead button on it.
  */
-function optionsWithValues(product: ProductRow, context: DropContext): unknown[] {
+async function optionsWithValues(product: ProductRow, context: DropContext): Promise<unknown[]> {
   const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
-  const variants = load?.(product.id) ?? [];
+  const variants = await resolved(load?.(product.id));
   const names = product.optionNames ?? [];
 
   return names.map((name, position) => {

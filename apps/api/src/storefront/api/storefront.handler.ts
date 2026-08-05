@@ -1,5 +1,5 @@
 /**
- * Storefront · api/storefront.controller.ts
+ * Storefront · api/storefront.handler.ts
  * A URL on the storefront host becomes a response.
  *
  * The order of the pipeline is load-bearing and each step is here because
@@ -15,6 +15,13 @@
  * This is transport: it decides what to call and what to send back, and holds
  * no storefront logic of its own. Routing, redirects, sitemaps and rendering
  * are all domain or application code that is unit-tested without a socket.
+ *
+ * A `Handler`, deliberately not a `Controller`. In this codebase a controller
+ * is a module's declared API routes — it contributes permissions, schemas and
+ * operations to the Admin API reference. This contributes none of those: it
+ * answers every path on a different hostname with HTML, for anonymous visitors.
+ * Calling it a controller made `controllers-are-described` ask for it in
+ * `describe.ts`, which was the rule correctly noticing a name that lied.
  * Layer: api.
  */
 
@@ -31,6 +38,7 @@ import {
   pageDrop,
   paginateDrop,
   productDrop,
+  productJsonLd,
   articleDrop,
   blogDrop,
   readableParams,
@@ -44,8 +52,9 @@ import {
   type PageType,
   type RouteMatch,
 } from '../domain';
-import { PageRenderer } from '../application';
+import { PageRenderer, renderContentForHeader } from '../application';
 import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
+import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
 import type { ResolvedStore, StorefrontData, StoreResolver } from './storefront-ports';
 
 export interface StorefrontResponse {
@@ -91,7 +100,7 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'permissions-policy': 'geolocation=(), microphone=(), camera=()',
 };
 
-export class StorefrontController {
+export class StorefrontHandler {
   constructor(
     private readonly resolver: StoreResolver,
     private readonly options: StorefrontOptions = {},
@@ -103,17 +112,33 @@ export class StorefrontController {
     }
 
     /**
-     * The Host header decides the tenant, so it is looked up rather than
-     * parsed. A store id derived from a substring of an attacker-controlled
-     * header is a tenant boundary made of string manipulation.
+     * The Host header decides the tenant, and resolution runs in a PLATFORM
+     * context while everything after it runs in a STORE one, the rest in a STORE one.
+     *
+     * The two are genuinely different questions and the guard is right to
+     * insist. "Which store owns this hostname" is a lookup across every store,
+     * so it cannot be store-scoped; everything after it is one store's data and
+     * must be. Without the second context the query guard refuses every
+     * storefront query with `MissingStoreContextError` — correctly, since an
+     * unscoped query is one that could return another tenant's rows.
      */
-    const store = await this.resolver.resolve(normaliseHost(input.host));
+    const store = await withRequestContext(platformContext(), () =>
+      this.resolver.resolve(normaliseHost(input.host)),
+    );
+
     if (!store) {
       // Not a host we serve. No store's content, and nothing that reveals
       // which hosts do exist.
       return text(404, 'Not found');
     }
 
+    return withRequestContext(storefrontContext(store.storeId), () => this.serve(store, input));
+  }
+
+  private async serve(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+  ): Promise<StorefrontResponse> {
     const path = input.path.split('?')[0] ?? '/';
 
     if (path === '/robots.txt') return this.robots(store, input.host);
@@ -163,11 +188,6 @@ export class StorefrontController {
       platformAssetBaseUrl: `https://${shop.domain}/platform`,
     });
 
-    const engine = createThemeEngine(engineContext, { source: store.theme });
-    const renderer = new PageRenderer(engine, store.theme, {
-      explainFailures: this.options.explainFailures ?? false,
-    });
-
     const drops = createDropContext({
       currency: shop.currency,
       locale: 'en',
@@ -175,13 +195,54 @@ export class StorefrontController {
       load: loadersFor(store.data),
     });
 
+    // Built before the engine, because the drops become its globals.
     const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access);
+
+    /**
+     * The drops are GLOBALS, not render scope.
+     *
+     * `{% render %}` isolates its scope: a snippet sees nothing its caller had.
+     * The reference theme's entire product section is one line —
+     * `{% render 'product' %}` — so passing the drops as scope rendered a
+     * complete page with the product missing from it, and nothing errored.
+     *
+     * `section` and `block` stay locals, matching the reference product, which
+     * is why themes pass them onward explicitly when a snippet needs one.
+     */
+    const engine = createThemeEngine(engineContext, { source: store.theme, globals: scope });
+    const renderer = new PageRenderer(engine, store.theme, {
+      explainFailures: this.options.explainFailures ?? false,
+    });
 
     // A handle that resolves to nothing renders the theme's own 404 page, with
     // a 404 status — a soft 404 that returns 200 is indexed as a real page.
     const pageType: PageType = found ? (match.pageType as PageType) : '404';
 
-    const page = await renderer.render({ pageType, scope });
+    /**
+     * The head the theme does not write itself.
+     *
+     * A theme's layout emits `{{ content_for_header }}` and expects the title,
+     * the canonical and the structured data to arrive there — the reference
+     * theme's layout has no `<title>` tag at all. Passing an empty string, as
+     * this did at first, produces a page with no title anywhere in it.
+     */
+    const canonicalUrl = `https://${shop.domain}${canonicalPath(match)}`;
+    const record = scope.product as { title?: string; description?: string } | undefined;
+
+    const page = await renderer.render({
+      pageType,
+      scope: {
+        ...scope,
+        content_for_header: renderContentForHeader({
+          title: String(scope.page_title ?? shop.name),
+          description: record?.description ?? null,
+          canonical: canonicalUrl,
+          shopName: shop.name,
+          openGraphType: match.pageType === 'product' ? 'product' : 'website',
+          structuredData: buildStructuredData(match.pageType, scope, canonicalUrl, shop.currency),
+        }),
+      },
+    });
 
     if (!page.templatePath) {
       // The theme has no template for this page type at all.
@@ -189,7 +250,7 @@ export class StorefrontController {
     }
 
     const status = found ? 200 : 404;
-    const canonical = `https://${shop.domain}${canonicalPath(match)}`;
+    const canonical = canonicalUrl;
 
     return {
       status,
@@ -255,6 +316,23 @@ export class StorefrontController {
        * By-handle lookup, so a theme can render a product named by a query
        * parameter. Published-only and budgeted — see `domain/drops/lookup.ts`.
        */
+      /**
+       * The document title, which the layout reads directly.
+       *
+       * Defaulted to the shop name and overridden per page below. Without it
+       * every page rendered with an empty `<title>` — invisible in a browser
+       * tab and the single most important line a search result shows.
+       */
+      page_title: shop.name,
+      /**
+       * The canonical URL, as a global the theme reads.
+       *
+       * Themes write `<link rel="canonical" href="{{ canonical_url }}">`
+       * themselves. Leaving it unset rendered `href=""` on every page — a
+       * canonical pointing nowhere, which is worse than omitting the tag.
+       */
+      canonical_url: `https://${shop.domain}${canonicalPath(match)}`,
+      page_description: '',
       all_products: lookupDrop(
         {
           load: (handle) => syncOf(data.productByHandle(handle)),
@@ -270,7 +348,10 @@ export class StorefrontController {
       case 'product': {
         const row = await data.productByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
-        return { scope: { ...base, product: productDrop(row, drops) }, found: true };
+        return {
+          scope: { ...base, product: productDrop(row, drops), page_title: row.title },
+          found: true,
+        };
       }
       case 'collection': {
         const row = await data.collectionByHandle(match.handle ?? '');
@@ -279,6 +360,7 @@ export class StorefrontController {
         return {
           scope: {
             ...base,
+            page_title: row.title,
             collection,
             paginate: paginateDrop(
               {
@@ -297,17 +379,20 @@ export class StorefrontController {
       case 'page': {
         const row = await data.pageByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
-        return { scope: { ...base, page: pageDrop(row, drops) }, found: true };
+        return { scope: { ...base, page: pageDrop(row, drops), page_title: row.title }, found: true };
       }
       case 'blog': {
         const row = await data.blogByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
-        return { scope: { ...base, blog: blogDrop(row, drops) }, found: true };
+        return { scope: { ...base, blog: blogDrop(row, drops), page_title: row.title }, found: true };
       }
       case 'article': {
         const row = await data.articleByHandle(match.parentHandle ?? '', match.handle ?? '');
         if (!row) return { scope: base, found: false };
-        return { scope: { ...base, article: articleDrop(row, drops) }, found: true };
+        return {
+          scope: { ...base, article: articleDrop(row, drops), page_title: row.title },
+          found: true,
+        };
       }
       case '404':
         return { scope: base, found: false };
@@ -402,4 +487,38 @@ function text(
     body,
     cacheKey: status === 200 ? cacheKey : null,
   };
+}
+
+
+/**
+ * JSON-LD for the page, where the page is a kind search engines understand.
+ *
+ * Only for a page that actually shows what it declares — marking up a price a
+ * visitor cannot see is what search engines penalise as structured-data spam,
+ * and the penalty lands on the merchant.
+ */
+function buildStructuredData(
+  pageType: string,
+  scope: Record<string, unknown>,
+  canonical: string,
+  currency: string,
+): readonly Record<string, unknown>[] {
+  if (pageType !== 'product') return [];
+
+  const product = scope.product as
+    | { title?: string; description?: string; price?: number; vendor?: string; available?: boolean }
+    | undefined;
+  if (!product?.title) return [];
+
+  return [
+    productJsonLd({
+      title: product.title,
+      description: product.description ?? null,
+      url: canonical,
+      currency,
+      priceMinor: typeof product.price === 'number' ? product.price : null,
+      vendor: product.vendor ?? null,
+      available: product.available ?? false,
+    }),
+  ];
 }

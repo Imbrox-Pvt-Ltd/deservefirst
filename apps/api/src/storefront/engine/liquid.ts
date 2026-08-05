@@ -76,6 +76,21 @@ export interface EngineOptions {
    * against — which is correct for the many tests that render a string.
    */
   readonly source?: ThemeSource;
+  /**
+   * Objects visible everywhere, including inside `{% render %}`.
+   *
+   * This distinction is not cosmetic and it silently broke a real theme.
+   * `{% render %}` isolates its scope — a snippet sees NOTHING its caller had
+   * — so passing `product` and `shop` as render scope means a section that
+   * delegates to a snippet renders an empty page. The reference product treats
+   * those as globals, and the reference theme's own product section is exactly
+   * one line: `{% render 'product' %}`.
+   *
+   * `section` and `block` are deliberately NOT globals. They are per-section
+   * locals in the reference product too, which is why themes pass them onward
+   * explicitly when a snippet needs one.
+   */
+  readonly globals?: Record<string, unknown>;
 }
 
 /**
@@ -136,6 +151,7 @@ class LiquidThemeEngine implements ThemeEngine {
   ) {
     this.liquid = new Liquid({
       root: options.source ? '' : (options.root as string | string[] | undefined),
+      globals: options.globals,
       extname: '.liquid',
 
       /**

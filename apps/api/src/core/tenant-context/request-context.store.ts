@@ -8,6 +8,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 
 import type { RequestContext, StoreRequestContext } from '@deservefirst/contracts';
 
@@ -57,4 +58,50 @@ export function requirePlatformContext(operation: string): RequestContext {
     throw new MissingStoreContextError(operation);
   }
   return context;
+}
+
+/**
+ * A context for work that legitimately spans tenants.
+ *
+ * The guard's own escape hatch, and it lives here rather than being written out
+ * longhand at each use — which is how one copy ends up subtly different from
+ * the others.
+ */
+export function platformContext(): RequestContext {
+  return {
+    requestId: randomUUID(),
+    correlationId: randomUUID(),
+    actorType: 'system',
+    userId: null,
+    organizationId: null,
+    businessEntityId: null,
+    storeId: null,
+    partnerId: null,
+    appId: null,
+    accessType: 'platform',
+    roleKeys: [],
+    permissions: [],
+    supportSessionId: null,
+    entitlementsHash: null,
+    locale: 'en-US',
+    timeZone: 'UTC',
+    shardKey: null,
+  };
+}
+
+/**
+ * The context an anonymous storefront visitor gets.
+ *
+ * Scoped to one store and holding nothing else: no user, no roles, no
+ * permissions, and `accessType: 'storefront'` rather than the least-privileged
+ * staff type. A shopper is not a member of the store they are buying from, and
+ * a check that treated them as one would be a single mistake away from handing
+ * a customer a merchant's admin surface.
+ */
+export function storefrontContext(storeId: string): RequestContext {
+  return {
+    ...platformContext(),
+    storeId: storeId as RequestContext['storeId'],
+    accessType: 'storefront',
+  };
 }

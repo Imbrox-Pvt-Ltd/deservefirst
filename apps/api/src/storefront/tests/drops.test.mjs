@@ -488,3 +488,49 @@ test('an article summary joins block-level text rather than running it together'
   );
   assert.equal(await render(`{{ article.summary }}`, { article: drop }), 'First. Second.');
 });
+
+test('drops work when the loaders are ASYNCHRONOUS', async () => {
+  /**
+   * The bug that took the live storefront down with "variants.find is not a
+   * function".
+   *
+   * Every other test in this file uses synchronous loaders, so none of them
+   * exercised the path a SQL-backed store actually takes. Rendering a VALUE
+   * through a promise works — the engine awaits it — but a drop that REDUCES a
+   * relation calls `.find()` on whatever the loader returned, and a promise has
+   * no `.find`.
+   */
+  const asyncContext = createDropContext({
+    currency: 'USD',
+    locale: 'en',
+    baseUrl: 'https://shop.test',
+    load: {
+      variantsOfProduct: async () => variants,
+      imagesOfProduct: async () => images,
+      image: async (id) => images.find((image) => image.id === id) ?? null,
+      productsOfCollection: async () => [productRow],
+      productCountOfCollection: async () => 240,
+    },
+  });
+
+  const drop = productDrop(productRow, asyncContext);
+
+  // Reducers over a relation: each of these crashed before the fix.
+  assert.equal(await render(`{{ product.price_min | money }}`, { product: drop }), '$45.00');
+  assert.equal(await render(`{{ product.price_max | money }}`, { product: drop }), '$55.00');
+  assert.equal(await render(`{{ product.price_varies }}`, { product: drop }), 'true');
+  assert.equal(
+    await render(`{{ product.first_available_variant.title }}`, { product: drop }),
+    'M / Blue',
+  );
+  assert.equal(
+    await render(
+      `{% for o in product.options_with_values %}{{ o.name }}:{{ o.values | join: '/' }} {% endfor %}`,
+      { product: drop },
+    ),
+    'Size:S/M Colour:Blue',
+  );
+  // And the list-valued ones.
+  assert.equal(await render(`{{ product.variants | size }}`, { product: drop }), '2');
+  assert.equal(await render(`{{ product.featured_image.alt }}`, { product: drop }), 'A linen shirt');
+});

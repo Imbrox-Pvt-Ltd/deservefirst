@@ -13,11 +13,14 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { loadPlatformConfig } from '@deservefirst/config';
+import { branding, loadPlatformConfig } from '@deservefirst/config';
 
 import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
+import { storefrontManifest } from './storefront/storefront.manifest';
+import { SqlStoreResolver } from './storefront/infrastructure';
+import { StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
 import { SqlDeploymentRepository } from './functions/infrastructure';
@@ -36,7 +39,7 @@ import {
 } from './auth/infrastructure';
 import { requiresApproval } from './auth/domain';
 import type { RequestContext } from '@deservefirst/contracts';
-import { requireStoreContext, withRequestContext } from './core/tenant-context';
+import { platformContext, requireStoreContext, withRequestContext } from './core/tenant-context';
 import {
   CacheService,
   DashboardService,
@@ -131,6 +134,8 @@ import { CollectionRepositoryImpl, ProductRepositoryImpl } from './modules/catal
 
 export interface Platform {
   readonly registry: ModuleRegistry;
+  /** The public storefront, ready to answer a request on a store host. */
+  readonly storefront: StorefrontHandler;
   readonly dialect: SqlDialect;
   readonly executor: MysqlExecutor;
   readonly cache: CacheService;
@@ -213,35 +218,6 @@ export interface Platform {
   shutdown(): Promise<void>;
 }
 
-/**
- * A context for background work that legitimately spans tenants.
- *
- * The tenant guard defines this escape hatch and it was being written out
- * longhand at each use, which is how one of them ends up subtly different from
- * the others.
- */
-function platformContext(): RequestContext {
-  return {
-    requestId: randomUUID(),
-    correlationId: randomUUID(),
-    actorType: 'system',
-    userId: null,
-    organizationId: null,
-    businessEntityId: null,
-    storeId: null,
-    partnerId: null,
-    appId: null,
-    accessType: 'platform',
-    roleKeys: [],
-    permissions: [],
-    supportSessionId: null,
-    entitlementsHash: null,
-    locale: 'en-US',
-    timeZone: 'UTC',
-    shardKey: null,
-  };
-}
-
 export async function bootstrap(): Promise<Platform> {
   const config = loadPlatformConfig();
 
@@ -259,6 +235,7 @@ export async function bootstrap(): Promise<Platform> {
   registry.register(inventoryManifest);
   registry.register(appsManifest);
   registry.register(billingManifest);
+  registry.register(storefrontManifest);
   registry.register(functionsManifest);
   registry.seal();
 
@@ -638,10 +615,38 @@ export async function bootstrap(): Promise<Platform> {
   const drainWebhooks = (limit?: number) =>
     withRequestContext(platformContext(), () => webhooks.drain(limit));
 
+  /**
+   * The public storefront, assembled from the same executor everything else
+   * uses — so the tenant guard that protects the admin API protects this too.
+   *
+   * The resolver is the boundary: it turns a Host header into a store, and
+   * every query downstream reads that store from the ambient context rather
+   * than from an argument.
+   */
+  const storefront = new StorefrontHandler(
+    new SqlStoreResolver(
+      executor,
+      {
+        storefrontHost: branding.domains.storefront,
+        // Filesystem themes are the development path; object storage is the
+        // production one and is not built yet, so a store configured for it
+        // resolves to nothing rather than to a page missing every section.
+        themeRoot: process.env.DF_THEME_ROOT ?? 'theme',
+      },
+      () => Date.now(),
+      dialect,
+    ),
+    // A section failure explains itself in the markup outside production,
+    // where it is exactly what a theme developer needs and exactly what a
+    // customer must never see.
+    { explainFailures: config.env !== 'production' },
+  );
+
   return {
     registry,
     dialect,
     executor,
+    storefront,
     cache,
     events,
     rateLimiter,

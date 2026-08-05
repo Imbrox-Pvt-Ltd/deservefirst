@@ -11,6 +11,8 @@ import { randomUUID } from 'node:crypto';
 
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 
+import { branding } from '@deservefirst/config';
+
 import {
   apiError,
   bindResources,
@@ -342,6 +344,39 @@ async function start(): Promise<void> {
       deprecation: deprecationFor(url.pathname),
       at: new Date(),
     });
+  });
+
+  /**
+   * The public storefront, dispatched by Host before anything else runs.
+   *
+   * An `onRequest` hook rather than a route, because a storefront answers every
+   * path on its host — `/products/x`, `/robots.txt`, anything — and registering
+   * a catch-all route would shadow the admin API on the hosts that serve it.
+   *
+   * Running first is the point. A storefront request must never reach session
+   * resolution, permission checks or the admin routes: it is anonymous traffic
+   * on a different hostname, and the only thing it shares with the admin API is
+   * the process it happens to run in.
+   */
+  app.addHook('onRequest', async (request, reply) => {
+    const host = String(request.headers.host ?? '');
+    if (!host.toLowerCase().includes(branding.domains.storefront)) return;
+
+    const url = new URL(request.url, 'http://internal');
+
+    const response = await platform.storefront.handle({
+      host,
+      path: url.pathname,
+      query: url.search.replace(/^\?/, ''),
+      method: request.method,
+    });
+
+    for (const [name, value] of Object.entries(response.headers)) reply.header(name, value);
+    // The cache key travels as a header so a CDN or reverse proxy can vary on
+    // exactly the parameters the render read, rather than on the whole query.
+    if (response.cacheKey) reply.header('x-cache-key', response.cacheKey);
+
+    await reply.status(response.status).send(response.body);
   });
 
   app.addHook('onSend', async (_request, reply) => {

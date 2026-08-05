@@ -46,6 +46,20 @@ export interface BusinessEntity {
  * How the current actor reached this store. A support actor is never a member;
  * it holds a time-bound session with an explicit, wildcard-free permission list.
  */
-export type AccessType = 'member' | 'collaborator' | 'partner' | 'support' | 'platform';
+/**
+ * How the actor reached us.
+ *
+ * `storefront` is an anonymous shopper on a public store. It is deliberately
+ * its own value rather than the least-privileged staff type: a visitor holds no
+ * permissions at all, and any check that treated them as a member would be one
+ * mistake away from handing a customer a merchant's admin surface.
+ */
+export type AccessType =
+  | 'member'
+  | 'collaborator'
+  | 'partner'
+  | 'support'
+  | 'platform'
+  | 'storefront';
 
 export type ActorType = 'user' | 'app' | 'system';

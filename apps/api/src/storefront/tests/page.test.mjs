@@ -341,3 +341,57 @@ test('the reference theme renders a complete homepage', { skip }, async () => {
   // And it actually rendered sections rather than an empty shell.
   assert.ok((html.match(/<section/g) ?? []).length > 5, 'too few sections rendered');
 });
+
+// ============================================ regressions the suite missed
+
+test('a section that delegates to a snippet still sees the globals', async () => {
+  /**
+   * The bug that made every real product page render empty, with no error.
+   *
+   * `{% render %}` isolates its scope — a snippet sees nothing its caller had.
+   * The reference theme's entire product section is one line,
+   * `{% render 'product' %}`, so passing drops as render SCOPE produced a
+   * complete 39 KB page with the product missing from it. They must be engine
+   * globals. Every test here passed the scope to a top-level section, which is
+   * exactly why none of them caught it.
+   */
+  const delegating = new InMemoryThemeSource({
+    'layout/theme.liquid': `<html>{{ content_for_layout }}</html>`,
+    'templates/product.json': JSON.stringify({
+      sections: { main: { type: 'main' } },
+      order: ['main'],
+    }),
+    // One line, like the real theme's.
+    'sections/main.liquid': `{%- render 'product-card' -%}`,
+    'snippets/product-card.liquid': `<h1>{{ product.title }}</h1><p>{{ shop.name }}</p>`,
+  });
+
+  const globals = { product: { title: 'Linen Shirt' }, shop: { name: 'Atelier' } };
+  const withGlobals = createThemeEngine(defaultContext(), { source: delegating, globals });
+  const page = await new PageRenderer(withGlobals, delegating).render({
+    pageType: 'product',
+    scope: globals,
+  });
+
+  assert.ok(page.html.includes('<h1>Linen Shirt</h1>'), page.html);
+  assert.ok(page.html.includes('<p>Atelier</p>'), page.html);
+});
+
+test('section stays a local, so a snippet does not inherit it', async () => {
+  // Matching the reference product: themes pass `section` onward explicitly,
+  // and a snippet that saw its caller's section would be a different language.
+  const source = new InMemoryThemeSource({
+    'layout/theme.liquid': `{{ content_for_layout }}`,
+    'templates/index.json': JSON.stringify({ sections: { a: { type: 'a' } }, order: ['a'] }),
+    'sections/a.liquid': `in=[{{ section.id }}]{%- render 'peek' -%}`,
+    'snippets/peek.liquid': `snippet=[{{ section.id }}]`,
+  });
+  const engineWithGlobals = createThemeEngine(defaultContext(), { source, globals: {} });
+  const page = await new PageRenderer(engineWithGlobals, source).render({
+    pageType: 'index',
+    scope: {},
+  });
+
+  assert.ok(page.html.includes('in=[a]'), page.html);
+  assert.ok(page.html.includes('snippet=[]'), page.html);
+});

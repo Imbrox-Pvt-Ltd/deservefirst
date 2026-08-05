@@ -17,7 +17,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { StorefrontController } from '../../../dist/storefront/api/index.js';
+import { StorefrontHandler } from '../../../dist/storefront/api/index.js';
 import { InMemoryThemeSource } from '../../../dist/storefront/infrastructure/index.js';
 
 /** A minimal but complete theme: layout, four templates, three sections. */
@@ -98,7 +98,7 @@ const resolver = {
   },
 };
 
-const storefront = new StorefrontController(resolver);
+const storefront = new StorefrontHandler(resolver);
 const get = (host, path, query = '') =>
   storefront.handle({ host, path, query, method: 'GET' });
 
@@ -218,7 +218,7 @@ test('robots.txt names the sitemap and blocks the thin URLs', async () => {
 
 test('a closed store disallows everything', async () => {
   const shut = storeFixture('shut', { closed: true });
-  const controller = new StorefrontController({
+  const controller = new StorefrontHandler({
     resolve: async (host) => (host === 'shut.test' ? shut : null),
   });
   const response = await controller.handle({
@@ -285,7 +285,7 @@ test('a page that reads a parameter caches per that parameter', async () => {
     'sections/v.liquid': `<p>{{ request.params.variant }}</p>`,
   });
   const store = { ...storeFixture('reads'), theme: reading };
-  const controller = new StorefrontController({
+  const controller = new StorefrontHandler({
     resolve: async (host) => (host === 'reads.test' ? store : null),
   });
 
@@ -305,7 +305,7 @@ test('a hostile parameter is inert by the time it reaches the page', async () =>
     'sections/v.liquid': `<p>{{ request.params.q }}</p>`,
   });
   const store = { ...storeFixture('xss'), theme: reading };
-  const controller = new StorefrontController({
+  const controller = new StorefrontHandler({
     resolve: async (host) => (host === 'xss.test' ? store : null),
   });
 
