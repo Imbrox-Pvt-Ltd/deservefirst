@@ -39,6 +39,8 @@ import {
   TextField,
 } from '@deservefirst/ui';
 
+import { isPickableType, ResourcePicker } from './ResourcePicker';
+
 export interface SettingOption {
   readonly value: string;
   readonly label: string;
@@ -76,21 +78,15 @@ const TEXT_TYPES = new Set(['text', 'url', 'video_url', 'inline_richtext']);
 const AREA_TYPES = new Set(['textarea', 'richtext', 'html', 'liquid']);
 
 /**
- * Types that pick a record — a product, a collection, a page.
+ * Types that take a value with nothing to search for it.
  *
- * Drawn as a text field holding the handle for now, with the type named beside
- * it. A resource picker needs a searchable modal per resource, and shipping a
- * half one that lists the first fifty products would be worse than a field a
- * merchant can paste a known handle into. Named honestly in the label so nobody
- * mistakes it for finished.
+ * Products, collections, pages, blogs, posts and menus have moved to
+ * `ResourcePicker` — they are records this store owns and the editor can list
+ * them. What remains are values that live outside the catalogue: an image URL,
+ * a video URL, a font family. They keep a labelled field with the expected
+ * value named beside it, which is honest about there being nothing to browse.
  */
 const PICKER_TYPES: Readonly<Record<string, string>> = {
-  product: 'Product handle',
-  collection: 'Collection handle',
-  page: 'Page handle',
-  blog: 'Blog handle',
-  article: 'Article handle',
-  link_list: 'Menu handle',
   image_picker: 'Image URL',
   video: 'Video URL',
   font_picker: 'Font family',
@@ -298,6 +294,27 @@ export function SettingInput({ setting, value, onChange, disabled }: SettingInpu
     );
   }
 
+  /**
+   * The types the editor can actually search get a real picker.
+   *
+   * The rest — an image, a video, a font — still take a value typed or pasted
+   * in, because there is nothing to search yet. They keep the labelled field
+   * and the badge that says what belongs there, which is honest about which
+   * half of this is finished.
+   */
+  if (isPickableType(setting.type)) {
+    return (
+      <ResourcePicker
+        type={setting.type}
+        label={label}
+        helpText={help}
+        value={String(value ?? '')}
+        onChange={onChange}
+        disabled={disabled}
+      />
+    );
+  }
+
   const pickerLabel = PICKER_TYPES[setting.type];
   if (pickerLabel) {
     return (
@@ -312,7 +329,8 @@ export function SettingInput({ setting, value, onChange, disabled }: SettingInpu
           autoComplete="off"
         />
         <InlineStack gap="150">
-          {/* Named honestly: this is a handle field, not a picker yet. */}
+          {/* Named honestly: nothing to search for these yet, so it stays a
+              field with the expected value spelled out beside it. */}
           <Badge tone="info">{pickerLabel}</Badge>
         </InlineStack>
       </BlockStack>

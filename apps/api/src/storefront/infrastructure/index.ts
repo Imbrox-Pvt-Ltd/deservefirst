@@ -22,3 +22,5 @@ export * from './memory-page-cache';
 
 export * from './dns-probe';
 export * from './sql-domains';
+
+export * from './sql-editor-resources';

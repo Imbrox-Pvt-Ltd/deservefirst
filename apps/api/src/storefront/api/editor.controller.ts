@@ -18,7 +18,14 @@
  */
 
 import { controller, type ModuleController, type RouteRequest } from '../../core/http/controller';
-import { EditorError, type EditRequest } from '../domain';
+import {
+  EditorError,
+  isSearchableType,
+  SEARCHABLE_TYPES,
+  type EditRequest,
+  type ResourceMatch,
+  type SearchableType,
+} from '../domain';
 import type { EditorService, EditorSession, ThemeSchemas } from '../application';
 
 export interface EditorServices {
@@ -31,6 +38,8 @@ export interface EditorServices {
     previewUrl: (templatePath: string) => string;
   }>;
   publish(storeId: string, themeId: string): Promise<void>;
+  /** Records a setting can point at, for the picker. */
+  searchResources(type: SearchableType, term: string): Promise<readonly ResourceMatch[]>;
 }
 
 /** Turns an editor refusal into the status it deserves. */
@@ -125,6 +134,41 @@ export function editorController(services: EditorServices): ModuleController {
           previewUrl: previewUrl(templatePath),
           hasUnsavedChanges: pending.length > 0,
         };
+      },
+    },
+
+    {
+      /**
+       * What a `product` or `collection` setting can point at.
+       *
+       * A GET because it reads and changes nothing, so a merchant typing gets
+       * the browser's own request handling — and because a type-ahead firing on
+       * every keystroke should be something a proxy may cache and cancel.
+       */
+      method: 'GET',
+      path: '/editor/resources',
+      permission: 'store.themes.manage',
+      handle: async (request: RouteRequest) => {
+        const type = request.query.get('type');
+
+        /**
+         * Checked against the allow-list before anything else.
+         *
+         * The value arrives in a query string and decides which table is read.
+         * Refusing an unknown one here, by name, is what stops a settings panel
+         * from becoming a way to read any table in the database.
+         */
+        if (!isSearchableType(type)) {
+          throw Object.assign(
+            new Error(
+              `"${String(type)}" is not a resource a setting can point at. ` +
+                `Use one of: ${SEARCHABLE_TYPES.join(', ')}.`,
+            ),
+            { status: 422, code: 'validation_failed' },
+          );
+        }
+
+        return { matches: await services.searchResources(type, request.query.get('q') ?? '') };
       },
     },
 

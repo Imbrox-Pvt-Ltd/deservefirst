@@ -29,6 +29,7 @@ import {
   NodeDnsProbe,
   SqlDomainRepository,
   SqlDraftStore,
+  SqlEditorResources,
   SqlMessageStatus,
   SqlStorefrontSubmissions,
   SqlStoreResolver,
@@ -755,6 +756,17 @@ export async function bootstrap(): Promise<Platform> {
           `/store/preview?theme=${theme.id}&template=${encodeURIComponent(templatePath)}`,
       };
     },
+
+    /**
+     * Records a setting can point at.
+     *
+     * Store-scoped by the ambient context like every other read here, so the
+     * picker can only ever offer this store's own records.
+     */
+    searchResources: async (type: never, term: string) =>
+      withRequestContext(storefrontContext(requireStoreContext('storefront.editor').storeId), () =>
+        new SqlEditorResources(executor, dialect).search(type, term),
+      ),
 
     publish: async (storeId: string, themeId: string) => {
       await withRequestContext(storefrontContext(storeId), async () => {
