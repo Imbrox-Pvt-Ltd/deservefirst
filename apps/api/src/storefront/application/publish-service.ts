@@ -195,6 +195,62 @@ export class PublishService {
   }
 
   /**
+   * Makes an already-stored theme the live one.
+   *
+   * A different operation from `publish`, and keeping them apart is the point.
+   * `publish` means "write MY unsaved edits into the live theme" and refuses
+   * when there are none — which is correct there and useless here: an installed
+   * theme has no drafts by definition, so the install path could store a theme
+   * and never activate it. An install nobody can switch to is half a feature.
+   *
+   * Still preflighted. A theme that came from an archive has been checked for
+   * shape and for names, but not rendered — and "does every template actually
+   * render" is a question only a render answers. The check runs against the
+   * theme being promoted, before the pointer moves.
+   */
+  async makeLive(themeId: string): Promise<PublishResult> {
+    const theme = await this.themes.byId(themeId);
+    if (!theme) throw new PublishError('not_found', 'That theme no longer exists');
+
+    const live = await this.themes.mainTheme();
+    if (live?.id === themeId) {
+      // Not an error worth failing on: the merchant wanted this theme live and
+      // it is. Reported as unchanged rather than refused.
+      return { versionRef: theme.versionRef, preflight: { ok: true, failures: [], checked: [], warnings: [] }, changed: false };
+    }
+
+    const session: EditorSession = {
+      themeId: theme.id,
+      source: this.versions.sourceFor(theme.id, theme.versionRef),
+    };
+
+    const preflight = await this.preflight(session, []);
+    if (!preflight.ok) {
+      throw new PublishError(
+        'would_break',
+        `This theme fails to render ${preflight.failures.length} template(s), so it was not made live. Nothing was changed.`,
+        preflight.failures,
+      );
+    }
+
+    await this.themes.applyRoleChange(
+      planPublish(theme, live, theme.versionRef),
+    );
+
+    await this.announce({
+      type: STOREFRONT_EVENTS.themePublished,
+      payload: {
+        themeId: theme.id,
+        versionRef: theme.versionRef,
+        previousThemeId: live?.id ?? null,
+        templates: preflight.checked,
+      },
+    });
+
+    return { versionRef: theme.versionRef, preflight, changed: true };
+  }
+
+  /**
    * Points the live theme back at its previous version.
    *
    * The previous VERSION of the live theme, not the previously-live theme —

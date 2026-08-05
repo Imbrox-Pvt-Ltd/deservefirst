@@ -2128,21 +2128,25 @@ async function start(): Promise<void> {
         });
       };
 
+      // Only a route that says it receives a file gets a larger body; the
+      // rest keep Fastify's own default, which is the point of asking.
+      const options = route.bodyLimit ? { bodyLimit: route.bodyLimit } : {};
+
       switch (route.method) {
         case 'GET':
-          app.get(url, handler);
+          app.get(url, options, handler);
           break;
         case 'POST':
-          app.post(url, handler);
+          app.post(url, options, handler);
           break;
         case 'PATCH':
-          app.patch(url, handler);
+          app.patch(url, options, handler);
           break;
         case 'PUT':
-          app.put(url, handler);
+          app.put(url, options, handler);
           break;
         case 'DELETE':
-          app.delete(url, handler);
+          app.delete(url, options, handler);
           break;
       }
     }
@@ -2327,8 +2331,36 @@ async function start(): Promise<void> {
     const code: ErrorCode =
       status >= 500 ? 'internal_error' : isErrorCode(named) ? named : 'validation_failed';
 
+    /**
+     * One error per problem, when the error carries a list.
+     *
+     * `errors` is an array in the envelope precisely so a validation failure
+     * can report several at once. A theme archive with four unacceptable files
+     * should produce four lines a developer can fix in one pass — collapsing
+     * them into a count turns packaging a theme into a conversation where each
+     * fix reveals the next complaint.
+     *
+     * The summary stays first, so a client showing only `errors[0]` still says
+     * something true.
+     */
+    const problems = (error as { problems?: unknown }).problems;
+    const detailed = Array.isArray(problems)
+      ? problems
+          .filter((problem): problem is { path?: unknown; reason?: unknown; suggestion?: unknown } =>
+            !!problem && typeof problem === 'object',
+          )
+          .map((problem) =>
+            apiError(
+              code,
+              name,
+              `${String(problem.reason ?? '')} ${String(problem.suggestion ?? '')}`.trim(),
+              typeof problem.path === 'string' ? problem.path : undefined,
+            ),
+          )
+      : [];
+
     return reply.status(status).send(
-      failure([apiError(code, name, detail)], { requestId }),
+      failure([apiError(code, name, detail), ...detailed], { requestId }),
     );
   });
 

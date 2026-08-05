@@ -12,6 +12,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { branding, loadPlatformConfig } from '@deservefirst/config';
 
@@ -19,6 +21,7 @@ import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
 import { storefrontManifest } from './storefront/storefront.manifest';
+import { resolveCompatMap } from './storefront/domain';
 import { STOREFRONT_EVENTS } from './storefront/events';
 import { CATALOG_EVENTS } from './modules/catalog/events';
 import { CONTENT_EVENTS } from './modules/content/events';
@@ -35,7 +38,14 @@ import {
   SqlStoreResolver,
   SqlThemeRepository,
 } from './storefront/infrastructure';
-import { DomainService, EditorService, PublishService, ThemeSchemas } from './storefront/application';
+import {
+  DomainService,
+  EditorService,
+  PublishService,
+  ThemeInstallService,
+  ThemeSchemas,
+} from './storefront/application';
+import { PublishError } from './storefront/domain';
 import { domainsController, editorController, messagesController, StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
@@ -731,6 +741,23 @@ export async function bootstrap(): Promise<Platform> {
           `${process.env.DF_THEME_ROOT ?? 'theme'}/${theme.versionRef}`,
         );
 
+  /**
+   * The names another platform uses, and ours.
+   *
+   * Read once at boot from the config that ships with the platform. Re-reading
+   * it per upload would make a theme's verdict depend on when it happened to be
+   * uploaded, and two merchants installing the same archive could get different
+   * answers.
+   */
+  const compatMap = resolveCompatMap(
+    JSON.parse(
+      // Resolved from this module's own location, so it works from `dist`
+      // as well as from a test importing the source.
+      readFileSync(join(__dirname, 'storefront/config/theme-compat.json'), 'utf8'),
+    ),
+    branding.slug,
+  );
+
   const editorServices = {
     editor: editorService,
 
@@ -768,6 +795,24 @@ export async function bootstrap(): Promise<Platform> {
         new SqlEditorResources(executor, dialect).search(type, term),
       ),
 
+    /**
+     * Installing a theme from an archive.
+     *
+     * The compatibility map is read once at boot rather than per upload: it is
+     * a config file that ships with the platform, and re-reading it for every
+     * install would make a theme's verdict depend on when it was uploaded.
+     */
+    installTheme: async (storeId: string, archive: Buffer, name?: string) =>
+      withRequestContext(storefrontContext(storeId), () => {
+        const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());
+        return new ThemeInstallService(
+          themeVersions,
+          repository,
+          compatMap,
+          () => `thm_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
+        ).install(archive, name);
+      }),
+
     resolveResources: async (type: never, handles: readonly string[]) =>
       withRequestContext(storefrontContext(requireStoreContext('storefront.editor').storeId), () =>
         new SqlEditorResources(executor, dialect).resolve(type, handles),
@@ -783,7 +828,27 @@ export async function bootstrap(): Promise<Platform> {
           await events.emit(event.type, event.payload);
         });
 
-        await publisher.publish({ themeId: theme.id, source: themeSourceFor(theme) });
+        /**
+         * Publishing means two different things, and the merchant means both.
+         *
+         * With unsaved edits it means "write them into the live theme". With
+         * none — which is every freshly installed theme — it means "make this
+         * one live". The service keeps them apart because their preconditions
+         * differ; the button does not, because to whoever pressed it there is
+         * one intention.
+         *
+         * Tried in that order so an editor session with drafts never silently
+         * promotes a theme instead of saving the work in front of them.
+         */
+        try {
+          await publisher.publish({ themeId: theme.id, source: themeSourceFor(theme) });
+        } catch (error) {
+          if (error instanceof PublishError && error.code === 'nothing_to_publish') {
+            await publisher.makeLive(theme.id);
+            return;
+          }
+          throw error;
+        }
       });
     },
   };

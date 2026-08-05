@@ -82,8 +82,29 @@ export function confinePath(path: string): string {
     throw new ThemePathError(raw, `"${directory}" is not a theme directory`);
   }
 
-  // No dot segments, and nothing but the characters a theme file name uses.
-  if (!/^[A-Za-z0-9][\w.-]*$/.test(name) || name.includes('..')) {
+  /**
+   * No dot segments, and nothing but the characters a theme file name uses.
+   *
+   * A leading underscore is allowed, and that was found the hard way: the
+   * reference theme ships `blocks/_slide-image.liquid` and three like it —
+   * the convention for a block that is only rendered by another block rather
+   * than offered in the editor. Requiring an alphanumeric first character
+   * refused four files of a theme the platform otherwise renders, which is the
+   * sort of incompatibility that reads as "this platform is broken".
+   *
+   * A leading DOT stays refused, which is the rule that was actually wanted:
+   * `.env` and `.git/config` are not theme files, and `..` is caught below
+   * regardless.
+   */
+  /**
+   * `@` is allowed too, for `logo@2x.png`.
+   *
+   * The retina-asset convention, and common enough in real themes that
+   * refusing it drops an image with no error rather than reporting a problem.
+   * It is not a path character and cannot separate segments, so it widens the
+   * name alphabet without widening what a name can reach.
+   */
+  if (!/^[A-Za-z0-9_][\w.@-]*$/.test(name) || name.includes('..')) {
     throw new ThemePathError(raw, `"${name}" is not a usable file name`);
   }
 

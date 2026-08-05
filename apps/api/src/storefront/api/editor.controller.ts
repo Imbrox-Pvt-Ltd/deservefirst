@@ -27,6 +27,7 @@ import {
   type ResourceMatch,
   type SearchableType,
 } from '../domain';
+import { ThemeInstallError } from '../application';
 import type { EditorService, EditorSession, ThemeSchemas } from '../application';
 
 export interface EditorServices {
@@ -43,6 +44,8 @@ export interface EditorServices {
   searchResources(type: SearchableType, term: string): Promise<readonly ResourceMatch[]>;
   /** The records a list setting already names, in the order it names them. */
   resolveResources(type: SearchableType, handles: readonly string[]): Promise<readonly ResourceMatch[]>;
+  /** Installs a theme from an archive. Never publishes it. */
+  installTheme(storeId: string, archive: Buffer, name?: string): Promise<unknown>;
 }
 
 /** Turns an editor refusal into the status it deserves. */
@@ -222,6 +225,67 @@ export function editorController(services: EditorServices): ModuleController {
         );
         await services.editor.discard(session, request.query.get('template') ?? '');
         return { discarded: true };
+      },
+    },
+
+    {
+      /**
+       * Installing a theme from an archive.
+       *
+       * On the editor controller because it is the same surface and the same
+       * permission — `store.themes.manage` already means "decide what this
+       * store's storefront is made of", and installing is the first step of it.
+       *
+       * The archive arrives base64-encoded in JSON, matching how a function's
+       * wasm is deployed. Multipart would be leaner on the wire and would mean
+       * a second body parser for one endpoint; a theme is a few megabytes, and
+       * the third of it that base64 adds is not what makes this slow.
+       */
+      method: 'POST',
+      path: '/editor/themes',
+      permission: 'store.themes.manage',
+      /**
+       * The one route on the platform that receives a file.
+       *
+       * 32 MB of JSON, which is roughly a 24 MB archive once base64 is
+       * accounted for — comfortably above a large theme with its images, and
+       * far below what `DEFAULT_ZIP_LIMITS` will unpack. The archive is bounded
+       * twice on purpose: this stops a body arriving, and the reader stops one
+       * that declares more than it sent.
+       */
+      bodyLimit: 32 * 1024 * 1024,
+      handle: async (request: RouteRequest) => {
+        const encoded = String(request.body.archiveBase64 ?? '');
+        if (encoded === '') {
+          throw Object.assign(new Error('Attach a theme archive to install.'), {
+            status: 422,
+            code: 'validation_failed',
+          });
+        }
+
+        try {
+          return await services.installTheme(
+            request.storeId,
+            Buffer.from(encoded, 'base64'),
+            request.body.name ? String(request.body.name) : undefined,
+          );
+        } catch (error) {
+          if (error instanceof ThemeInstallError) {
+            /**
+             * Every problem, not the first.
+             *
+             * Somebody packaging a theme wants the list — a conversation where
+             * each fix reveals the next complaint is how a developer gives up
+             * on a platform.
+             */
+            throw Object.assign(new Error(error.message), {
+              status: 422,
+              code: 'validation_failed',
+              problems: error.problems,
+            });
+          }
+          throw error;
+        }
       },
     },
 

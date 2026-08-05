@@ -19,4 +19,5 @@ export * from './http';
 export * from './adapters';
 export * from './entity-toolkit';
 export * from './list-engine';
+export * from './archive';
 export * from './database';

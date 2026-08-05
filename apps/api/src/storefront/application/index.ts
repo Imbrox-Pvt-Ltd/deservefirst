@@ -15,3 +15,4 @@ export * from './editor-service';
 
 export * from './publish-service';
 export * from './domain-service';
+export * from './theme-install';

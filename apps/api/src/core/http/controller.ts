@@ -39,6 +39,16 @@ export interface RouteDefinition {
   /** 201 for creates; the default is 200. */
   readonly status?: number;
   /**
+   * A larger request body than the platform default, in bytes.
+   *
+   * Per route rather than global, because the default is a defence: every
+   * endpoint that accepts a megabyte is an endpoint somebody can send a
+   * megabyte to, repeatedly. Raising it everywhere so one upload works trades
+   * a real limit for a convenience. A route that genuinely receives a file
+   * declares what it needs and the rest stay small.
+   */
+  readonly bodyLimit?: number;
+  /**
    * Returns the payload, not a response. Throwing is how a handler fails —
    * the transport's single error mapper turns a domain error into its status,
    * so no handler has to know what an HTTP code is.

@@ -125,6 +125,36 @@ export class SqlThemeRepository implements ThemeRepository {
     };
   }
 
+  /**
+   * Records an installed theme, always unpublished.
+   *
+   * The role is written here rather than taken as an argument, so there is no
+   * call site that could install a theme straight into `main`. Publishing has
+   * its own path, with its own preflight.
+   *
+   * `source_kind` describes where the VERSION STORE keeps files, which is the
+   * filesystem today — not where they came from. Writing `object_store` because
+   * an archive was uploaded made the resolver refuse the theme outright: it
+   * gates on this column, object storage is not implemented, and a store whose
+   * theme lives there resolves to nothing. The install succeeded, the promotion
+   * succeeded, and the storefront went dark.
+   */
+  async create(input: { id: string; name: string; versionRef: string }): Promise<void> {
+    const bind = new Binder(this.dialect);
+    const now = new Date();
+
+    const sql = `INSERT INTO ${this.q('themes')} (
+        ${this.q('id')}, ${this.q('store_id')}, ${this.q('name')}, ${this.q('role')},
+        ${this.q('source_kind')}, ${this.q('source_ref')},
+        ${this.q('created_at')}, ${this.q('updated_at')}, ${this.q('version')}
+      ) VALUES (${bind.add(input.id)}, ${bind.add(this.storeId())}, ${bind.add(input.name)},
+        ${bind.add('unpublished')}, ${bind.add('filesystem')}, ${bind.add(input.versionRef)},
+        ${bind.add(now)}, ${bind.add(now)}, 1)`;
+
+    const statement = bind.finish(sql);
+    await writerFor(this.executor, 'installing a theme').execute(statement.sql, statement.parameters);
+  }
+
   async byId(themeId: string): Promise<ThemeRecord | null> {
     const rows = await this.executor.query<Row>(
       `SELECT ${this.q('id')}, ${this.q('name')}, ${this.q('role')}, ${this.q('source_ref')}
