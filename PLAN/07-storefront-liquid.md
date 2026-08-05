@@ -693,6 +693,57 @@ policy worth having needs per-render nonces threaded through those tags.
 Shipping a policy every theme violates would teach everyone to ignore the
 console.
 
+## The POST surface — the storefront can now take an enquiry
+
+Until now the storefront rendered `<form action="/requests/add">` and answered
+**405** to every POST. It could display a catalogue and not receive a single
+enquiry — which, with Phase-1 commerce being request-only (D10), meant it had no
+conversion action at all.
+
+### The threat model is different here
+
+This is **the one place an anonymous stranger writes data**. Everything else on
+the platform is a merchant with a session or an app with a token, and that
+changes which defences are worth having:
+
+**CSRF is not the main risk on a public form.** Forging a request on behalf of
+an anonymous visitor accomplishes what that visitor could do themselves — send
+an enquiry. There is no privileged action to hijack. So public forms are checked
+by **Origin**, which a browser sends on every cross-site POST and cannot be made
+to lie about. A *missing* Origin is allowed: some privacy tools strip it, and
+refusing those would break the form for real people to prevent an attack that
+gains the attacker nothing.
+
+The forms that *do* carry authority — login, register, change address — need a
+session and a token bound to it. That distinction is what makes the
+origin-only approach defensible rather than lazy.
+
+**Spam is the real risk**, so: a rate limit keyed by store *and* visitor (one
+merchant's viral moment must not exhaust everyone's bucket), a honeypot emitted
+by the `{% form %}` tag rather than left to themes, and refusal before parsing.
+
+A tripped honeypot is answered **as though it succeeded**. Telling a bot it was
+detected teaches whoever wrote it to stop filling the field.
+
+### Post / Redirect / Get
+
+A success **redirects** (`?posted=requested&ref=…`); a failure **re-renders** the
+page with `form.errors` populated, which is what themes are written for. A
+success that re-rendered would resubmit on refresh and a merchant would find the
+same enquiry four times.
+
+The outcome travels as a query parameter the theme reads —
+`request.params.posted` — which is exactly what the readable-parameters work was
+for.
+
+### One shape, not two
+
+`formStateFor` returns the shape the `form` **drop takes**, not the shape it
+produces. The first version returned the drop's own output: the error list
+rendered correctly and `{{ form.email }}` came back empty, because themes read
+fields off the form directly and only the drop puts them there. A test caught
+the half-right page.
+
 ## SEO — built
 
 All four gaps below are now closed, in `domain/`. Every one is a file or a

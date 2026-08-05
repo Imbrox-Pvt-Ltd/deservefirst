@@ -26,8 +26,11 @@
  */
 
 import {
+  admitSubmission,
   cacheKeyFor,
   canonicalPath,
+  formDrop,
+  formStateFor,
   collectionDrop,
   compileRedirects,
   createDropContext,
@@ -49,6 +52,7 @@ import {
   requestDrop,
   shopDrop,
   templateDrop,
+  validateSubmission,
   type PageType,
   type RouteMatch,
 } from '../domain';
@@ -72,11 +76,27 @@ export interface StorefrontRequestInput {
   readonly method: string;
   /** True when the theme editor is previewing. */
   readonly designMode?: boolean;
+  /** Parsed form body, for a POST. */
+  readonly form?: Readonly<Record<string, string>>;
+  /** The Origin header, which is how a cross-site POST is recognised. */
+  readonly origin?: string | null;
+  /** Whoever is asking, for the rate limit. */
+  readonly clientIp?: string;
+  readonly hasSession?: boolean;
+  readonly tokenValid?: boolean;
 }
 
 export interface StorefrontOptions {
   /** Section failures explain themselves in the markup. Never in production. */
   readonly explainFailures?: boolean;
+  /**
+   * The budget a single visitor gets for submitting forms.
+   *
+   * Required in practice: this is the one place an anonymous stranger writes
+   * data, so without it a store's enquiry inbox is filled by a bot on the day
+   * it launches. Optional in the type only so a test can render without one.
+   */
+  readonly submissionLimit?: (key: string) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
 }
 
 /**
@@ -107,8 +127,8 @@ export class StorefrontHandler {
   ) {}
 
   async handle(input: StorefrontRequestInput): Promise<StorefrontResponse> {
-    if (input.method !== 'GET' && input.method !== 'HEAD') {
-      return text(405, 'Method not allowed', { allow: 'GET, HEAD' });
+    if (!['GET', 'HEAD', 'POST'].includes(input.method)) {
+      return text(405, 'Method not allowed', { allow: 'GET, HEAD, POST' });
     }
 
     /**
@@ -152,7 +172,9 @@ export class StorefrontHandler {
       };
     }
 
-    return withRequestContext(storefrontContext(store.storeId), () => this.serve(store, input));
+    return withRequestContext(storefrontContext(store.storeId), () =>
+      input.method === 'POST' ? this.submit(store, input) : this.serve(store, input),
+    );
   }
 
   private async serve(
@@ -187,10 +209,192 @@ export class StorefrontHandler {
     return this.renderPage(store, input, path);
   }
 
+  /**
+   * A form submission from a stranger.
+   *
+   * The order is the defence. Rate limit before anything is parsed, admit
+   * before anything is validated, validate before anything is written — so the
+   * cheapest refusal happens first and a flood never reaches the database.
+   *
+   * On failure the page is RE-RENDERED with `form.errors` populated, which is
+   * what themes are written for. On success it REDIRECTS: a success that
+   * re-rendered would resubmit on refresh, and a merchant would find the same
+   * enquiry four times.
+   */
+  private async submit(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+  ): Promise<StorefrontResponse> {
+    const path = input.path.split('?')[0] ?? '/';
+    const fields = input.form ?? {};
+
+    /**
+     * The budget, keyed by visitor AND store.
+     *
+     * By store as well, so one merchant's viral moment cannot exhaust a bucket
+     * shared with everyone else's.
+     */
+    if (this.options.submissionLimit) {
+      const decision = await this.options.submissionLimit(
+        `storefront:${store.storeId}:submit:${input.clientIp ?? 'unknown'}`,
+      );
+      if (!decision.allowed) {
+        return text(429, 'Too many submissions. Please wait a moment and try again.', {
+          'retry-after': String(Math.max(1, decision.retryAfterSeconds)),
+        });
+      }
+    }
+
+    const admitted = admitSubmission({
+      formType: String(fields.form_type ?? ''),
+      fields,
+      origin: input.origin ?? null,
+      host: normaliseHost(input.host),
+      hasSession: input.hasSession ?? false,
+      tokenValid: input.tokenValid ?? false,
+    });
+
+    if (!admitted.ok) {
+      /**
+       * A honeypot is answered as though it worked.
+       *
+       * Telling a bot it was detected teaches whoever wrote it to stop filling
+       * the field. Nothing is stored.
+       */
+      if (admitted.reason === 'honeypot') return this.redirectAfterPost(path, 'sent');
+      return this.rerenderWithErrors(store, input, path, [
+        { field: 'form', message: admitted.message },
+      ]);
+    }
+
+    const errors = validateSubmission(admitted.formType, admitted.fields);
+    if (errors.length > 0) {
+      return this.rerenderWithErrors(store, input, path, errors);
+    }
+
+    if (!store.submissions) {
+      // The store cannot take submissions yet. Said plainly rather than
+      // pretending it worked, which would lose a customer's enquiry silently.
+      return this.rerenderWithErrors(store, input, path, [
+        { field: 'form', message: 'This store is not accepting messages at the moment.' },
+      ]);
+    }
+
+    try {
+      return await this.perform(store, admitted.formType, admitted.fields, path);
+    } catch (error) {
+      return this.rerenderWithErrors(store, input, path, [
+        {
+          field: 'form',
+          // Never the underlying message: it is written for us, not for a
+          // customer, and may name a table.
+          message: 'Something went wrong sending that. Please try again.',
+        },
+      ]);
+    }
+  }
+
+  /** Carries out an admitted, valid submission. */
+  private async perform(
+    store: ResolvedStore,
+    formType: string,
+    fields: Readonly<Record<string, string>>,
+    path: string,
+  ): Promise<StorefrontResponse> {
+    const submissions = store.submissions as NonNullable<ResolvedStore['submissions']>;
+
+    switch (formType) {
+      case 'product':
+      case 'cart': {
+        const quantity = Number(fields.quantity ?? 1);
+        const { reference } = await submissions.requestQuote({
+          contactEmail: (fields.email ?? '').trim(),
+          contactName: (fields.name ?? '').trim() || null,
+          message: (fields.body ?? '').trim() || null,
+          productId: (fields.product_id ?? '').trim() || null,
+          quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1,
+        });
+        // The reference travels in the URL so the theme can thank them by name.
+        return this.redirectAfterPost(path, 'requested', reference);
+      }
+
+      case 'contact':
+      case 'customer': {
+        await submissions.contact({
+          email: (fields.email ?? '').trim(),
+          name: (fields.name ?? '').trim() || null,
+          body: (fields.body ?? '').trim(),
+        });
+        return this.redirectAfterPost(path, 'sent');
+      }
+
+      default:
+        /**
+         * A form we admit but cannot yet carry out.
+         *
+         * The account forms need customer accounts, which Phase 1 does not have.
+         * Refusing here rather than earlier keeps the reason honest: the form is
+         * legitimate, the feature is not built.
+         */
+        return this.rerenderWithErrors(store, { path } as StorefrontRequestInput, path, [
+          { field: 'form', message: 'That is not available on this store yet.' },
+        ]);
+    }
+  }
+
+  /**
+   * Post/Redirect/Get, so a refresh does not resubmit.
+   *
+   * The outcome is a query parameter the theme reads — `request.params.posted`
+   * — which is exactly what the readable-parameters work was for.
+   */
+  private redirectAfterPost(path: string, outcome: string, reference?: string): StorefrontResponse {
+    const params = new URLSearchParams({ posted: outcome });
+    if (reference) params.set('ref', reference);
+
+    return {
+      status: 303,
+      headers: {
+        ...SECURITY_HEADERS,
+        location: `${path}?${params.toString()}`,
+        // A result page is about one submission and must never be cached.
+        'cache-control': 'no-store',
+      },
+      body: '',
+      cacheKey: null,
+    };
+  }
+
+  /** Re-renders the page the form was on, with the errors a theme displays. */
+  private async rerenderWithErrors(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+    path: string,
+    errors: readonly { field: string; message: string }[],
+  ): Promise<StorefrontResponse> {
+    const page = await this.renderPage(
+      store,
+      { ...input, method: 'GET', form: undefined },
+      path,
+      formStateFor(String(input.form?.form_type ?? ''), input.form ?? {}, errors),
+    );
+
+    return {
+      ...page,
+      // 422: understood, and not acted on. And never cached — it holds one
+      // person's typing.
+      status: 422,
+      headers: { ...page.headers, 'cache-control': 'no-store' },
+      cacheKey: null,
+    };
+  }
+
   private async renderPage(
     store: ResolvedStore,
     input: StorefrontRequestInput,
     path: string,
+    /** Set when re-rendering after a failed submission. */
+    formState?: Record<string, unknown>,
   ): Promise<StorefrontResponse> {
     const match = store.closed ? ({ pageType: 'password' } as RouteMatch) : matchRoute(path);
 
@@ -217,6 +421,10 @@ export class StorefrontHandler {
 
     // Built before the engine, because the drops become its globals.
     const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access);
+
+    // A failed submission puts the theme's own error rendering back in front of
+    // the customer, through the SAME drop a theme reads on any other page.
+    if (formState) scope.form = formDrop(formState as never, drops);
 
     /**
      * The drops are GLOBALS, not render scope.

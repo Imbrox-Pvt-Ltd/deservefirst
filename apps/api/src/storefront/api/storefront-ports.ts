@@ -63,6 +63,8 @@ export interface ResolvedStore {
   /** The theme currently published. */
   readonly theme: ThemeSource & { manifest(): Promise<ReadonlySet<string>> };
   readonly data: StorefrontData;
+  /** Absent for a store that cannot yet take submissions. */
+  readonly submissions?: StorefrontSubmissions;
   /**
    * A store not yet open. Renders the password page and disallows crawling.
    */
@@ -82,4 +84,33 @@ export interface ResolvedStore {
  */
 export interface StoreResolver {
   resolve(host: string): Promise<ResolvedStore | null>;
+}
+
+/**
+ * What a storefront form submission does once it has been admitted.
+ *
+ * A port, because the storefront must not reach into the orders or customers
+ * modules directly (§14.1) — and because "what happens to an enquiry" is a
+ * decision that belongs to whoever owns enquiries, not to the transport that
+ * received one.
+ */
+export interface StorefrontSubmissions {
+  /**
+   * Records a quote request. Phase-1 commerce is request-only (D10), so this is
+   * the storefront's conversion action.
+   */
+  requestQuote(input: {
+    readonly contactEmail: string;
+    readonly contactName: string | null;
+    readonly message: string | null;
+    readonly productId: string | null;
+    readonly quantity: number;
+  }): Promise<{ readonly reference: string }>;
+
+  /** Records a contact-form message. */
+  contact(input: {
+    readonly email: string;
+    readonly name: string | null;
+    readonly body: string;
+  }): Promise<void>;
 }

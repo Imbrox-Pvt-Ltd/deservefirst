@@ -369,6 +369,18 @@ async function start(): Promise<void> {
       path: url.pathname,
       query: url.search.replace(/^\?/, ''),
       method: request.method,
+      /**
+       * Everything a submission needs to be judged.
+       *
+       * `origin` is how a cross-site POST is recognised — a browser sends it on
+       * every one and cannot be made to lie about it. `clientIp` keys the rate
+       * limit, and comes from Fastify's own resolution rather than a header we
+       * read ourselves, so a forwarded-for header cannot be used to reset
+       * somebody else's budget.
+       */
+      form: request.body as Record<string, string> | undefined,
+      origin: (request.headers.origin as string | undefined) ?? null,
+      clientIp: request.ip,
     });
 
     for (const [name, value] of Object.entries(response.headers)) reply.header(name, value);

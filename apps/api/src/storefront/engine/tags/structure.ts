@@ -14,6 +14,7 @@
  * Layer: engine.
  */
 
+import { HONEYPOT_FIELD } from '../../domain/form-submission';
 import { attributes, escapeHtml } from '../markup';
 import { asLiteral, parseTagArgs, type BlockOpening, type TagDefinition } from './types';
 
@@ -180,7 +181,18 @@ const formTag: TagDefinition = {
         `<form${attributes({ action: known.action, method: known.method, 'accept-charset': 'UTF-8', ...extra })}>` +
         // The forgery token is emitted by the tag, so a theme cannot omit it.
         (token ? `<input type="hidden" name="_token" value="${escapeHtml(token)}">` : '') +
-        `<input type="hidden" name="form_type" value="${escapeHtml(type)}">`,
+        `<input type="hidden" name="form_type" value="${escapeHtml(type)}">` +
+        /**
+         * The honeypot, emitted by the tag rather than left to themes.
+         *
+         * A field only a bot fills in — named plausibly so field-matching
+         * heuristics reach for it, and hidden from people who use a screen
+         * reader as well as from those who do not. Left to themes it would be
+         * present in some and absent in others, which is the same as absent.
+         */
+        `<div style="position:absolute;left:-9999px" aria-hidden="true">` +
+        `<label>Fax<input type="text" name="${escapeHtml(HONEYPOT_FIELD)}" tabindex="-1" autocomplete="off"></label>` +
+        `</div>`,
       after: '</form>',
       scope: {
         form: context.get('form') ?? { errors: null, posted_successfully: false },

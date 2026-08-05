@@ -230,12 +230,18 @@ test('an unroutable path renders the theme 404', async () => {
   assert.ok(response.body.includes('Nothing here'), response.body);
 });
 
-test('a non-GET method is refused', async () => {
+test('a method the storefront does not serve is refused', async () => {
+  /**
+   * POST is no longer among them: forms post to the storefront, and their
+   * handling is covered in submissions.test.mjs. This asserted 405 for POST
+   * before that existed, which was right then and would now be a stale
+   * expectation quietly passing.
+   */
   const response = await storefront.handle({
-    host: 'alpha.test', path: '/', query: '', method: 'POST',
+    host: 'alpha.test', path: '/', query: '', method: 'DELETE',
   });
   assert.equal(response.status, 405);
-  assert.equal(response.headers.allow, 'GET, HEAD');
+  assert.equal(response.headers.allow, 'GET, HEAD, POST');
 });
 
 // ------------------------------------------------------------ redirects
