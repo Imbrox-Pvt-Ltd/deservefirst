@@ -18,7 +18,7 @@
 import { Binder, writerFor } from '../../core/database/bind';
 import type { QueryExecutor } from '../../core/list-engine';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
-import { requireStoreContext } from '../../core/tenant-context';
+import { platformContext, requireStoreContext, withRequestContext } from '../../core/tenant-context';
 import type { DomainRepository } from '../application/domain-service';
 import type { DomainStatus, StoreDomain } from '../domain';
 
@@ -114,7 +114,27 @@ export class SqlDomainRepository implements DomainRepository {
         LIMIT 1`;
 
     const statement = bind.finish(sql);
-    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    /**
+     * Run in a PLATFORM context, which is the sanctioned way to cross stores.
+     *
+     * The query guard refused this — correctly — because it reads a
+     * store-scoped table without a store predicate. That is not a rule to work
+     * around: it is the reason two tenants' rows cannot be confused. But "has
+     * anyone else already proved they own this hostname" genuinely spans every
+     * store, and asking it inside one store's scope answers a different
+     * question.
+     *
+     * So it takes the escape hatch the guard itself defines (§14.2) rather than
+     * an exemption, which keeps the crossing visible and deliberate. Paired
+     * with the two-column projection above, the widest read in the storefront
+     * returns a store id and a status and nothing that could describe anyone's
+     * business.
+     */
+    const rows = await withRequestContext(platformContext(), () =>
+      this.executor.query<Row>(statement.sql, statement.parameters),
+    );
+
     const row = rows[0];
     if (!row) return null;
 

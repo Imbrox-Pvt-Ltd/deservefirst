@@ -40,7 +40,9 @@ export function messagesController(services: MessageServices): ModuleController 
            */
           throw Object.assign(
             new Error(`"${status}" is not a message status. Use one of: ${STATUSES.join(', ')}.`),
-            { statusCode: 422 },
+            // `status`, which is what the transport's error handler reads —
+            // `statusCode` falls through and is served as a 500.
+            { status: 422 },
           );
         }
 

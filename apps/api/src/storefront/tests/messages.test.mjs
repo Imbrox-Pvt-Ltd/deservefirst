@@ -60,7 +60,16 @@ test('a change that matched nothing is reported, not swallowed', async () => {
 
   await assert.rejects(
     () => inStore('store_1', () => service.setStatus('msg_from_elsewhere', 'spam')),
-    (error) => error.statusCode === 404 && /No message with that id/.test(error.message),
+    /**
+     * `status`, not `statusCode`.
+     *
+     * This assertion used to read `statusCode`, which pinned the wrong
+     * contract: the transport decides a response code from `.status`, so an
+     * error carrying only `statusCode` was served as a 500 with its message
+     * replaced. The test passed and the API answered wrongly — which is why
+     * `errors-carry-status` is now a fitness rule rather than a habit.
+     */
+    (error) => error.status === 404 && /No message with that id/.test(error.message),
   );
 });
 

@@ -73,7 +73,7 @@ export class SqlMessageStatus {
      * which would let them probe for ids that exist elsewhere.
      */
     if (affectedRows === 0) {
-      throw Object.assign(new Error('No message with that id in this store.'), { statusCode: 404 });
+      throw Object.assign(new Error('No message with that id in this store.'), { status: 404 });
     }
 
     return { id, status };

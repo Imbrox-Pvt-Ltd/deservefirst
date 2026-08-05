@@ -132,7 +132,7 @@ const SESSION_COOKIE = 'df_session';
  * right failure: the alternative is a hardcoded default secret that works, and
  * therefore ships.
  */
-const sessionSecret = process.env.SESSION_SECRET ?? randomUUID();
+
 
 /** Reads one cookie out of the header, without a parser dependency. */
 function cookieFrom(header: string | null): string | null {
@@ -293,7 +293,7 @@ async function start(): Promise<void> {
       return appContext;
     }
 
-    const sessionId = openSessionCookie(sessionSecret, cookieFrom(header('cookie')));
+    const sessionId = openSessionCookie(platform.sessionSecret, cookieFrom(header('cookie')));
     if (!sessionId) return anonymous;
 
     const identity = await platform.resolveSession(sessionId);
@@ -498,7 +498,7 @@ async function start(): Promise<void> {
 
   app.post(`/${API_VERSION}/auth/logout`, async (request, reply) => {
     const context = await contextFor(request as never);
-    const sessionId = openSessionCookie(sessionSecret, cookieFrom(
+    const sessionId = openSessionCookie(platform.sessionSecret, cookieFrom(
       (request.headers.cookie as string | undefined) ?? null,
     ));
 
@@ -533,7 +533,7 @@ async function start(): Promise<void> {
    */
   app.post(`/${API_VERSION}/auth/switch-store`, async (request, reply) => {
     const context = await contextFor(request as never);
-    const sessionId = openSessionCookie(sessionSecret, cookieFrom(
+    const sessionId = openSessionCookie(platform.sessionSecret, cookieFrom(
       (request.headers.cookie as string | undefined) ?? null,
     ));
 

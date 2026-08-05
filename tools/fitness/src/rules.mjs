@@ -531,7 +531,66 @@ export const dropsExposeNothingPrivate = {
   },
 };
 
+/**
+ * An error carries `status`, never `statusCode`.
+ *
+ * The transport's error handler reads `.status` to decide the response code.
+ * An error thrown with `statusCode` instead is not a slightly-wrong error — it
+ * falls through to the generic branch and is served as a **500 with its message
+ * replaced** by "An unexpected error occurred". The careful 409, 404 or 422
+ * simply never reaches the client.
+ *
+ * Nothing catches this. It type-checks, the unit tests pass because they call
+ * the service rather than the route, and the only way to see it is to make the
+ * request and read the status. It shipped four times before anyone did: the
+ * theme editor's conflict handling, a message triage 404, and both of the
+ * domain controller's validation refusals.
+ *
+ * `reply.statusCode` is Fastify's own and is left alone; so is a declared field
+ * that happens to share the name, like a redirect record's.
+ */
+export const errorsCarryStatus = {
+  name: 'errors-carry-status',
+  description: 'A thrown error sets `status`, which is what the transport reads',
+  run(sources) {
+    const violations = [];
+
+    for (const source of sources) {
+      /**
+       * Anchored on `new Error(`, not on the property name.
+       *
+       * The first version matched every `statusCode:` in the codebase and
+       * reported a redirect record that legitimately HAS one — `seo.ts` builds
+       * `{ statusCode: 301 }` as data, and there is nothing wrong with it. A
+       * rule that flags correct code is one people learn to skip, so this looks
+       * for the shape that actually fails: a status attached to an Error.
+       */
+      for (const match of source.text.matchAll(/new Error\(/g)) {
+        // The object being assigned onto it follows within a short window;
+        // anything further away belongs to different code.
+        const window = source.text.slice(match.index, match.index + 240);
+        const found = /\bstatusCode:/.exec(window);
+        if (!found) continue;
+
+        violations.push(
+          violation(
+            source.relativePath,
+            lineOf(source.text, match.index + found.index),
+            'errors-carry-status',
+            'sets `statusCode` on an error. The transport reads `.status` — with ' +
+              'only `statusCode` this is served as a 500 and the message is ' +
+              'replaced. Rename it to `status`.',
+          ),
+        );
+      }
+    }
+
+    return violations;
+  },
+};
+
 export const allRules = [
+  errorsCarryStatus,
   platformPermissionsAreOperatorOnly,
   dropsExposeNothingPrivate,
   noDirectLiquid,

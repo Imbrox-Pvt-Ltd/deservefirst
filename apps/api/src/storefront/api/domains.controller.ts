@@ -54,7 +54,16 @@ function asHttp(error: unknown): never {
       not_verified: 422,
       last_primary: 422,
     }[error.code];
-    throw Object.assign(new Error(error.message), { statusCode: status });
+    /**
+     * `status`, not `statusCode`.
+     *
+     * The transport's error handler reads `.status`; an error carrying only
+     * `statusCode` falls through to the generic branch and is served as a 500
+     * with its message replaced by "An unexpected error occurred." So a
+     * merchant typing a domain they already own got a server error instead of
+     * being told they already own it.
+     */
+    throw Object.assign(new Error(error.message), { status });
   }
   throw error;
 }

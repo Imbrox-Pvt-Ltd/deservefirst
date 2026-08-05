@@ -60,8 +60,13 @@ export function editorController(services: EditorServices): ModuleController {
         // The code travels to the client, because a conflict needs a different
         // response from a validation failure — one means reload, the other
         // means fix the value.
+        // `status`, not `statusCode` — the transport's error handler reads the
+        // former, and an error carrying only the latter is served as a 500 with
+        // its message replaced. Which meant this careful mapping never reached
+        // anyone: a merchant whose colleague saved first got "an unexpected
+        // error occurred" instead of "reload and try again".
         throw Object.assign(new Error(error.message), {
-          statusCode: statusFor(error),
+          status: statusFor(error),
           code: error.code,
         });
       }

@@ -210,6 +210,13 @@ export interface Platform {
    */
   resolveSession(sessionId: string): Promise<SessionIdentity | null>;
   sealSession(sessionId: string): string;
+  /**
+   * The secret sessions are sealed with.
+   *
+   * On the platform so the transport opens cookies with the same value that
+   * sealed them — see `resolveSessionSecret`.
+   */
+  readonly sessionSecret: string;
   storesFor(userId: string): Promise<readonly { id: string; handle: string; name: string }[]>;
   readonly products: ProductRepositoryImpl;
   /** Built per request: the service is scoped to whichever store is active. */
@@ -468,7 +475,20 @@ export async function bootstrap(): Promise<Platform> {
   const sessions = new SqlSessionRepository(executor, dialect);
   const loginFlows = new SqlLoginFlowRepository(executor, dialect);
 
-  const sessionSecret = process.env.SESSION_SECRET ?? 'development-secret-not-for-production';
+  /**
+   * The one session secret, resolved once.
+   *
+   * It used to be resolved twice — here, and again in `main.ts` with a
+   * DIFFERENT default. This side sealed cookies with a fixed development
+   * string while the transport opened them with a fresh `randomUUID()`, so
+   * outside an environment that set `SESSION_SECRET` the two could never agree
+   * and every session cookie failed to open. Signing in worked, and nothing
+   * after it did.
+   *
+   * Exposed on the platform rather than re-read from the environment, so there
+   * is one value and no way for a second reader to disagree with it again.
+   */
+  const sessionSecret = resolveSessionSecret(config.env);
   const auth = new AuthService(
     identity,
     sessions,
@@ -980,6 +1000,7 @@ export async function bootstrap(): Promise<Platform> {
     },
 
     sealSession: (sessionId) => sealSessionId(sessionSecret, sessionId),
+    sessionSecret,
 
     storesFor: async (userId) => {
       const memberships = await identity.membershipsFor(userId as never);
@@ -1108,4 +1129,32 @@ export async function bootstrap(): Promise<Platform> {
 /** Correlation id for a request that arrives without one. */
 export function newRequestId(): string {
   return randomUUID();
+}
+
+/**
+ * The session secret, or a refusal to boot without one.
+ *
+ * Production gets no default. A hardcoded fallback there would mean every
+ * deployment that forgot the variable shared one publicly-known signing key,
+ * and anyone reading this file could mint a session cookie for any account —
+ * a platform that boots and is silently unauthenticated is worse than one that
+ * does not boot.
+ *
+ * Development gets a fixed, obviously-named default so a checkout runs without
+ * ceremony. Fixed rather than random because it has to survive a restart:
+ * a random one signs everybody out on every reload, which is exactly the kind
+ * of "flaky login" nobody stops to diagnose.
+ */
+export function resolveSessionSecret(env: string): string {
+  const configured = process.env.SESSION_SECRET?.trim();
+  if (configured) return configured;
+
+  if (env === 'production') {
+    throw new Error(
+      'SESSION_SECRET is not set. Sessions are signed with it, so the platform ' +
+        'will not start in production without one.',
+    );
+  }
+
+  return 'development-secret-not-for-production';
 }
