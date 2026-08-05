@@ -465,9 +465,53 @@ enumeration is `ownKeys`'s job alone. Finally the target must be **extensible** 
 a proxy over a frozen target may not report a property the target lacks, which
 threw on every miss. Writes are refused by the `set` trap instead.
 
+## Theme editor — the model
+
+`domain/editor.ts` is the document model; `application/editor-service.ts` reads
+schemas and holds drafts. The React UI is what remains.
+
+Reordering is the easy part. What isn't:
+
+- **Two editors.** A merchant and their designer both have it open.
+  Last-write-wins discards one silently. Every edit carries the version it was
+  made against and a mismatch is refused, not merged.
+- **Settings are typed.** A `range` value is checked against min, max **and
+  step** — a slider can only produce values on its steps, so one that isn't came
+  from somewhere else, and the theme's CSS may assume the increments.
+- **Limits are the theme's.** `limit`, `max_blocks` and per-block limits are
+  declared by the theme author and enforced here, because a section added past
+  its limit renders wrongly for every visitor.
+- **Disabled ≠ deleted.** Settings stay in the file, so switching a section back
+  on restores what the merchant configured rather than the preset.
+
+### The property that makes it safe
+
+**An edit changes the preview and not the live store.** `withDrafts` wraps the
+theme source and overlays only the changed templates, so the renderer asks for
+`templates/index.json` and gets the draft while every other file comes from the
+real theme. Wrapping rather than copying — a duplicated theme would drift the
+moment anything else changed. Tested by rendering both and asserting each sees
+only what it should.
+
+### A real theme corrected the placement rule
+
+`enabled_on`/`disabled_on` have a `groups` dimension as well as `templates`, and
+checking only `templates` fell through to "no restriction". All **55** of the
+reference theme's placement declarations use `groups` and **none** uses
+`templates` — so nine header and footer sections were being offered in the page
+picker, where they render wrongly.
+
+The asymmetry is the rule: `enabled_on` is a whitelist, so naming groups and not
+templates means *not on a template*; `disabled_on` is a blacklist, so saying
+nothing about templates means templates are fine. Treating them alike would have
+removed 46 sections from every picker instead.
+
+Measured after the fix: 48 addable per template (was 54), header 3, footer 6,
+aside 5.
+
 ### Still to build
 
-SEO — redirects, sitemap, robots, JSON-LD, canonicals — then the editor.
+The editor UI, and publishing a draft to `role: main`.
 
 ## The security position
 
@@ -496,7 +540,8 @@ somebody exposed for convenience.
    `/pages/{handle}`, `/blogs/{blog}/{post}`, on its own host.
 5. **SEO** — redirects, sitemap, robots, JSON-LD, canonicals. Alongside routing,
    not bolted on after.
-6. **Theme editor** — the largest UI in the product. Last.
+6. **Theme editor** — the largest UI in the product. Model and service done;
+   the React UI is what remains.
 
 ## What the first slice is NOT
 

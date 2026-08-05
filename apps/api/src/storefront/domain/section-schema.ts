@@ -252,12 +252,52 @@ export function assertPlacementCoherent(sectionName: string, schema: SectionSche
   }
 }
 
+/**
+ * Whether a section may be placed on a template.
+ *
+ * `groups` matters as much as `templates`, and missing that was a real bug
+ * found against a real theme. Every one of the reference theme's 55 placement
+ * declarations uses `groups` and none uses `templates`:
+ *
+ *   `enabled_on: { groups: ["header"] }` — this belongs in the header group and
+ *   NOWHERE ELSE, so it is not addable to a template at all. Checking only
+ *   `templates` fell through to "no restriction" and offered nine header and
+ *   footer sections in the page picker, where they render wrongly.
+ *
+ *   `disabled_on: { groups: [...] }` says nothing about templates, so it does
+ *   not restrict one. The asymmetry is the point: `enabled_on` is a whitelist
+ *   and its absence from a dimension means "not here", while `disabled_on` is a
+ *   blacklist and its absence means "fine".
+ */
 export function allowedOnTemplate(schema: SectionSchema, template: string): boolean {
-  if (schema.enabled_on?.templates) {
-    return schema.enabled_on.templates.includes(template) || schema.enabled_on.templates.includes('*');
+  const enabled = schema.enabled_on;
+  if (enabled) {
+    if (enabled.templates) {
+      return enabled.templates.includes(template) || enabled.templates.includes('*');
+    }
+    // Enabled somewhere, and templates are not among the places named.
+    if (enabled.groups) return false;
   }
+
   if (schema.disabled_on?.templates) {
     return !schema.disabled_on.templates.includes(template);
+  }
+  return true;
+}
+
+/** Whether a section may be placed in a named section group — a header or footer. */
+export function allowedInGroup(schema: SectionSchema, group: string): boolean {
+  const enabled = schema.enabled_on;
+  if (enabled) {
+    if (enabled.groups) {
+      return enabled.groups.includes(group) || enabled.groups.includes('*');
+    }
+    // Enabled only on templates, so not in a group.
+    if (enabled.templates) return false;
+  }
+
+  if (schema.disabled_on?.groups) {
+    return !schema.disabled_on.groups.includes(group);
   }
   return true;
 }
