@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('src/functions/infrastructure/worker.mjs','dist/functions/infrastructure/worker.mjs')\"",
     "dev": "node --env-file=../../.env --watch dist/main.js",
     "clean": "rm -rf dist",
     "start": "node --env-file=../../.env dist/main.js"

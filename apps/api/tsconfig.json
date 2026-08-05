@@ -3,7 +3,11 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "types": ["node"]
+    "types": ["node"],
+    // WebAssembly lives in the DOM lib even though this is a server: the
+    // Functions tier compiles and instantiates modules, and the namespace has
+    // no server-specific declaration.
+    "lib": ["ES2023", "DOM"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/modules/**/tests/**"]
