@@ -55,6 +55,83 @@ function filtersUsedIn(root) {
   return used;
 }
 
+/**
+ * The whole documented storefront filter surface, by category.
+ *
+ * Broadcast uses 92 of these; an arbitrary theme may use any. Testing against
+ * one theme proves that theme renders — testing against the canonical list is
+ * what makes "bring your theme" a claim we can actually stand behind.
+ */
+const CANONICAL_FILTERS = {
+  array: ['compact','concat','find','find_index','first','has','join','last','map','reject','reverse','size','sort','sort_natural','sum','uniq','where'],
+  cart: ['item_count_for_variant','line_items_for'],
+  collection: ['highlight_active_tag','link_to_type','link_to_vendor','sort_by','url_for_type','url_for_vendor','within'],
+  color: ['brightness_difference','color_brightness','color_contrast','color_darken','color_desaturate','color_difference','color_extract','color_lighten','color_mix','color_modify','color_saturate','color_to_hex','color_to_hsl','color_to_rgb','hex_to_rgba'],
+  customer: ['avatar','customer_login_link','customer_logout_link','customer_register_link','login_button'],
+  default: ['default','default_errors','default_pagination'],
+  font: ['font_face','font_modify','font_url'],
+  format: ['date','json','structured_data','weight_with_unit'],
+  html: ['class_list','highlight','placeholder_svg_tag','preload_tag','script_tag','stylesheet_tag','time_tag'],
+  hosted: ['asset_img_url','asset_url','file_img_url','file_url','global_asset_url','image_url','img_url','payment_type_img_url'],
+  localization: ['currency_selector','format_address','t','translate'],
+  math: ['abs','at_least','at_most','ceil','divided_by','floor','minus','modulo','plus','round','times'],
+  media: ['external_video_tag','external_video_url','image_tag','img_tag','media_tag','model_viewer_tag','video_tag'],
+  metafield: ['metafield_tag','metafield_text'],
+  money: ['money','money_with_currency','money_without_currency','money_without_trailing_zeros'],
+  payment: ['payment_button','payment_terms','payment_type_svg_tag'],
+  string: ['append','base64_decode','base64_encode','base64_url_safe_decode','base64_url_safe_encode','camelcase','capitalize','downcase','escape','escape_once','handle','handleize','hmac_sha1','hmac_sha256','lstrip','md5','newline_to_br','pluralize','prepend','remove','remove_first','remove_last','replace','replace_first','replace_last','rstrip','sha1','sha256','slice','split','strip','strip_html','strip_newlines','truncate','truncatewords','upcase','url_decode','url_encode','url_escape','url_param_escape'],
+  tag: ['link_to_add_tag','link_to_remove_tag','link_to_tag'],
+  utility: ['link_to'],
+};
+
+test('the whole canonical storefront filter surface exists', () => {
+  const missing = {};
+  for (const [category, names] of Object.entries(CANONICAL_FILTERS)) {
+    const gap = [...new Set(names)].filter((name) => !engine.hasFilter(name));
+    if (gap.length) missing[category] = gap;
+  }
+
+  assert.deepEqual(
+    missing,
+    {},
+    'a theme using any of these renders a broken page — strictFilters makes a ' +
+      `missing filter fail the whole template:\n${JSON.stringify(missing, null, 2)}`,
+  );
+});
+
+test('every canonical filter actually runs rather than merely existing', async () => {
+  /**
+   * Registration is not implementation. A filter that throws on its own name
+   * would pass the check above and fail every page that used it, so each one is
+   * invoked once with a plausible input.
+   *
+   * The assertion is only that it does not throw; what it returns is the
+   * business of the tests that cover it specifically.
+   */
+  const names = [...new Set(Object.values(CANONICAL_FILTERS).flat())];
+  const failures = [];
+
+  for (const name of names) {
+    for (const source of [`{{ value | ${name} }}`, `{{ value | ${name}: 'x' }}`]) {
+      try {
+        await engine.render(source, { value: 'a' });
+      } catch (error) {
+        const message = error.message.split('\n')[0];
+        /**
+         * An arity complaint is the engine enforcing the filter's own contract,
+         * not a broken filter. `{{ x | append }}` with no argument is invalid
+         * Liquid and should be refused — this test called every filter with and
+         * without one, so it provokes exactly that.
+         */
+        if (/expect \d+ argument/.test(message)) continue;
+        failures.push(`${name}: ${message}`);
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [], `filters that threw:\n  ${failures.join('\n  ')}`);
+});
+
 test('every filter the reference theme uses is available', { skip }, () => {
   const used = filtersUsedIn(THEME);
   assert.ok(used.size > 50, `expected a real theme to use many filters, found ${used.size}`);

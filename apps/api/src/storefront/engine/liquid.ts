@@ -18,6 +18,7 @@
 import { Liquid } from 'liquidjs';
 
 import type { RenderContext } from './context';
+import { aliasFilters } from './compat';
 import { allFilters } from './filters';
 import type { FilterArgs, ThemeEngine } from './types';
 
@@ -44,6 +45,15 @@ export interface EngineOptions {
    * times out somewhere less specific and harder to attribute.
    */
   readonly timeoutMs?: number;
+  /**
+   * Also answer to the filter names other platforms use.
+   *
+   * Off by default: our names are the real ones, and `theme:port` gives a
+   * developer a theme in our vocabulary with a diff they can review. This is
+   * for themes that cannot be ported — one still tracking an upstream release,
+   * or one a merchant has no ability to edit.
+   */
+  readonly compatibility?: boolean;
 }
 
 /**
@@ -137,7 +147,11 @@ class LiquidThemeEngine implements ThemeEngine {
       trimTagRight: false,
     });
 
-    for (const filter of allFilters()) {
+    const registered = options.compatibility
+      ? [...allFilters(), ...aliasFilters(allFilters())]
+      : allFilters();
+
+    for (const filter of registered) {
       // `function` rather than an arrow: liquidjs binds the filter's own
       // metadata to `this`, and that is where the argument tokens live.
       const self = this;

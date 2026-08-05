@@ -158,6 +158,30 @@ export const colorFilters: FilterGroup = {
     pairFilter('color_contrast', (first, second) => Math.round(contrast(first, second) * 100) / 100),
 
     pairFilter('color_difference', (first, second) => difference(first, second)),
+
+    /**
+     * The gap in perceived brightness between two colours.
+     *
+     * Paired with `color_difference` in the legibility rule themes use: the
+     * w3c guidance asks for a brightness difference above 125 *and* a colour
+     * difference above 500, which is why both exist and why neither is enough
+     * alone.
+     */
+    pairFilter('brightness_difference', (first, second) =>
+      Math.round(Math.abs(brightness(first) - brightness(second)) * 100) / 100,
+    ),
+
+    /**
+     * A hex colour with an alpha applied.
+     *
+     * Named for hex input but accepts anything parseable, because themes reach
+     * for it with a colour setting whose value may already be `rgb()`.
+     */
+    colorFilter('hex_to_rgba', (color, args) => {
+      const alpha = args.positional.length > 0 ? numberArg(arg(args, 0), 1) : color.a;
+      const clamped = Math.min(1, Math.max(0, alpha));
+      return `rgba(${color.r}, ${color.g}, ${color.b}, ${Math.round(clamped * 100) / 100})`;
+    }),
   ],
 };
 

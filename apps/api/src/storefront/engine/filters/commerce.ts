@@ -140,6 +140,105 @@ export const commerceFilters: FilterGroup = {
       },
     },
 
+    /**
+     * The cart lines for one product, across all its variants.
+     *
+     * Distinct from `item_count_for_variant`, which answers "how many of this
+     * exact variant" — this answers "is this product in the cart at all", which
+     * is what a product page needs to show "already in your cart".
+     */
+    {
+      name: 'line_items_for',
+      apply: (_context, value, args) => {
+        const cart = value as { items?: unknown } | null;
+        const items = Array.isArray(cart?.items) ? cart.items : [];
+        const target = arg(args, 0) as { id?: unknown } | null;
+        const id = stringify(target?.id ?? target);
+        if (id === '') return [];
+
+        return items.filter((item) => {
+          const line = item as { product_id?: unknown; variant_id?: unknown };
+          return stringify(line.product_id) === id || stringify(line.variant_id) === id;
+        });
+      },
+    },
+
+    /**
+     * A customer's avatar, or nothing.
+     *
+     * Nothing rather than a generated initials image: a theme that wants a
+     * fallback can test for empty and render its own, whereas one handed a
+     * placeholder cannot tell it apart from a real picture.
+     */
+    {
+      name: 'avatar',
+      returnsHtml: true,
+      apply: (_context, value) => {
+        const customer = value as { image?: unknown; name?: unknown } | null;
+        const src = stringify((customer?.image as { src?: unknown } | undefined)?.src);
+        if (src === '') return '';
+        return `<img src="${escapeHtml(src)}" alt="${escapeHtml(stringify(customer?.name))}" class="avatar">`;
+      },
+    },
+
+    /**
+     * Pagination links, when a theme has not written its own.
+     *
+     * Deliberately plain. A theme that cares renders `paginate.parts` itself;
+     * this exists so one that does not still gets working navigation rather
+     * than a page-one-only listing.
+     */
+    {
+      name: 'default_pagination',
+      returnsHtml: true,
+      apply: (_context, value) => {
+        const paginate = value as { parts?: unknown; previous?: unknown; next?: unknown } | null;
+        const parts = Array.isArray(paginate?.parts) ? paginate.parts : [];
+        if (parts.length === 0) return '';
+
+        const link = (part: unknown): string => {
+          const entry = part as { url?: unknown; title?: unknown; is_link?: unknown };
+          const title = escapeHtml(stringify(entry.title));
+          return entry.is_link
+            ? `<a href="${escapeHtml(stringify(entry.url))}">${title}</a>`
+            : `<span class="current">${title}</span>`;
+        };
+
+        return `<span class="pagination">${parts.map(link).join(' ')}</span>`;
+      },
+    },
+
+    /**
+     * A currency picker, when the store offers more than one.
+     *
+     * Renders nothing for a single-currency store rather than a select with one
+     * option, which is a control that does nothing and still takes a tab stop.
+     */
+    {
+      name: 'currency_selector',
+      returnsHtml: true,
+      apply: (context, value) => {
+        const form = value as { available_currencies?: unknown } | null;
+        const available = Array.isArray(form?.available_currencies)
+          ? form.available_currencies
+          : [];
+        if (available.length < 2) return '';
+
+        const options = available
+          .map((entry) => {
+            const currency = entry as { iso_code?: unknown; name?: unknown };
+            const code = stringify(currency.iso_code);
+            const selected = code === context.currency ? ' selected' : '';
+            return `<option value="${escapeHtml(code)}"${selected}>${escapeHtml(
+              stringify(currency.name) || code,
+            )}</option>`;
+          })
+          .join('');
+
+        return `<select name="currency_code" class="currency-selector">${options}</select>`;
+      },
+    },
+
     // The three that wait for checkout. See the header.
     { name: 'payment_button', returnsHtml: true, apply: () => '' },
     { name: 'payment_terms', returnsHtml: true, apply: () => '' },

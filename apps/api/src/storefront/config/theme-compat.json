@@ -1,0 +1,29 @@
+{
+  "$comment": [
+    "Names other storefront platforms use, mapped to ours.",
+    "",
+    "This is DATA, not code, and that distinction is the whole design. Our shipped",
+    "vocabulary carries no other company's brand; this table records what we are",
+    "willing to ANSWER TO when a theme written elsewhere arrives. It is the same",
+    "kind of artefact as a MIME-type table or a browser compatibility list.",
+    "",
+    "`{slug}` is substituted from branding.slug at load time, so renaming the",
+    "platform renames the target without editing this file (§33.1).",
+    "",
+    "Two ways to use it, both built:",
+    "  platform theme:check <dir>  — report every foreign name with its replacement",
+    "  platform theme:port  <dir>  — rewrite them, once, reviewably",
+    "and a runtime compatibility mode for themes that cannot be ported.",
+    "",
+    "Adding an entry should feel like a decision: it is a name we agree to answer",
+    "to for as long as themes use it."
+  ],
+
+  "filters": {
+    "shopify_asset_url": "{slug}_asset_url"
+  },
+
+  "objects": {},
+
+  "tags": {}
+}

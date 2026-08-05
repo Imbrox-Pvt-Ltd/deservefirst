@@ -16,6 +16,7 @@ import { commerceFilters } from './commerce';
 import { fontFilters } from './font';
 import { htmlFilters } from './html';
 import { localizationFilters } from './localization';
+import { metafieldFilters } from './metafield';
 import { moneyFilters } from './money';
 import { stringFilters } from './string';
 import { urlFilters } from './url';
@@ -29,6 +30,7 @@ export const FILTER_GROUPS: readonly FilterGroup[] = [
   urlFilters,
   htmlFilters,
   localizationFilters,
+  metafieldFilters,
   commerceFilters,
 ];
 

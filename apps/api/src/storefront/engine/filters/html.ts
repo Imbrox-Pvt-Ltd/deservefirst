@@ -13,6 +13,7 @@
  * Layer: engine.
  */
 
+import { strftime, toDate } from '../dates';
 import { attributes, escapeHtml, safeUrl, type AttributeValue } from '../markup';
 import { arg, numberArg, stringify, type FilterDefinition, type FilterGroup } from '../types';
 
@@ -261,6 +262,92 @@ export const htmlFilters: FilterGroup = {
           alt: type,
           ...passthroughAttributes(args.named, []),
         })}>`;
+      },
+    },
+
+    /** The legacy name for `image_tag`; identical behaviour. */
+    { ...imageTag, name: 'img_tag' },
+
+    /**
+     * A `<link rel="preload">` for something the page will need shortly.
+     *
+     * `as` is required by the browser and warned about when missing — a preload
+     * without it is fetched at the wrong priority and often twice, which makes
+     * the page slower than not preloading at all.
+     */
+    {
+      name: 'preload_tag',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const href = safeUrl(stringify(value));
+        if (href === '') return '';
+        const as = stringify(args.named.as ?? arg(args, 0));
+        return `<link rel="preload"${attributes({
+          href,
+          as: as === '' ? null : as,
+          ...passthroughAttributes(args.named, ['as']),
+        })}>`;
+      },
+    },
+
+    /**
+     * A `<time>` element carrying both a machine date and a readable one.
+     *
+     * The `datetime` attribute is the point: it is what a search engine and a
+     * screen reader read, and it has to be ISO-8601 regardless of how the
+     * visible text is formatted.
+     */
+    {
+      name: 'time_tag',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const date = toDate(value);
+        if (!date) return '';
+        const format = stringify(arg(args, 0));
+        const shown = format === '' ? date.toISOString().slice(0, 10) : strftime(date, format);
+        const machine = stringify(args.named.datetime) || date.toISOString();
+        return `<time${attributes({ datetime: machine })}>${escapeHtml(shown)}</time>`;
+      },
+    },
+
+    /**
+     * Wraps occurrences of a search term so they stand out in results.
+     *
+     * Both the text and the term are escaped before the markup goes in, and the
+     * term is escaped again for the regex — a search for `a+b` would otherwise
+     * be a pattern rather than a phrase.
+     */
+    {
+      name: 'highlight',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const text = escapeHtml(stringify(value));
+        const term = stringify(arg(args, 0)).trim();
+        if (term === '') return text;
+
+        const pattern = new RegExp(
+          `(${escapeHtml(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+          'gi',
+        );
+        return text.replace(pattern, '<strong class="highlight">$1</strong>');
+      },
+    },
+
+    /**
+     * The CSS classes for a layout/spacing setting panel.
+     *
+     * The `style.*` setting types store an object of choices; this turns it into
+     * the class names a theme's stylesheet expects, so the mapping lives in one
+     * place instead of in every section that reads one.
+     */
+    {
+      name: 'class_list',
+      apply: (_context, value) => {
+        if (!value || typeof value !== 'object') return '';
+        return Object.entries(value as Record<string, unknown>)
+          .filter(([, held]) => held !== null && held !== undefined && held !== '')
+          .map(([key, held]) => `${key.replace(/_/g, '-')}-${String(held).replace(/[^\w-]/g, '')}`)
+          .join(' ');
       },
     },
 

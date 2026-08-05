@@ -18,6 +18,7 @@ import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
 import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { writeApiDocument } from '../src/api-docs.mjs';
+import { checkTheme, portTheme } from '../src/theme.mjs';
 import { createMigration, generateMigration, markApplied, migrate, migrateStatus } from '../src/migrate.mjs';
 import { seed } from '../src/seed.mjs';
 import { formatTimestampReport, reportTimestamps } from '../src/timestamps.mjs';
@@ -60,6 +61,7 @@ const cyan = (text) => `[36m${text}[0m`;
 const red = (text) => `[31m${text}[0m`;
 const green = (text) => `[32m${text}[0m`;
 const dim = (text) => `[2m${text}[0m`;
+const yellow = (text) => `[33m${text}[0m`;
 
 function usage() {
   console.log(`
@@ -83,6 +85,8 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('module:enable')} <mod>    Make a module available again  [--store=handle]
   ${cyan('module:disable')} <mod>   Take a module away             [--store=handle] --reason=".."
   ${cyan('module:states')}          Show what is enabled, and where the decision was made
+  ${cyan('theme:check')} <dir>   What in this theme will not run here, and why
+  ${cyan('theme:port')} <dir>    Rewrite another platform's names to ours [--dry-run]
   ${cyan('docs:api')}              Regenerate the API reference from the declarations
 
 ${dim('Every command is safe to run repeatedly; none mutate anything but the module')}
@@ -318,6 +322,35 @@ switch (command) {
         console.error(red(`\ndb:timestamps failed: ${error.message}`));
         process.exit(1);
       });
+    break;
+  }
+  case 'theme:check': {
+    const dir = args[0];
+    if (!dir) {
+      console.error(red('\ntheme:check needs a theme directory.'));
+      process.exit(1);
+    }
+    try {
+      const result = await checkTheme(ROOT, dir, { green, red, dim, yellow });
+      process.exit(result.errors > 0 ? 1 : 0);
+    } catch (error) {
+      console.error(red(`\ntheme:check failed: ${error.message}`));
+      process.exit(1);
+    }
+    break;
+  }
+  case 'theme:port': {
+    const dir = args.find((a) => !a.startsWith('--'));
+    if (!dir) {
+      console.error(red('\ntheme:port needs a theme directory.'));
+      process.exit(1);
+    }
+    try {
+      await portTheme(ROOT, dir, { green, red, dim, yellow }, { dryRun: args.includes('--dry-run') });
+    } catch (error) {
+      console.error(red(`\ntheme:port failed: ${error.message}`));
+      process.exit(1);
+    }
     break;
   }
   case 'docs:api': {

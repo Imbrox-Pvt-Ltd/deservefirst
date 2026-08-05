@@ -196,6 +196,49 @@ export const urlFilters: FilterGroup = {
     linkToCollection('link_to_type', (value) => `/collections/types?q=${encodeURIComponent(value)}`),
 
     /**
+     * Tag links that add to or remove from the tags already filtering a view.
+     *
+     * These are how faceted filtering works without JavaScript, and they need
+     * the tags currently applied — which arrive as the filter's second argument
+     * because a filter cannot reach the surrounding template's state.
+     */
+    {
+      name: 'link_to_add_tag',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const tag = stringify(value);
+        const current = toTagList(arg(args, 0));
+        const next = current.includes(tag) ? current : [...current, tag];
+        return tagAnchor(next, stringify(args.positional[1] ?? value));
+      },
+    },
+    {
+      name: 'link_to_remove_tag',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const tag = stringify(value);
+        const next = toTagList(arg(args, 0)).filter((entry) => entry !== tag);
+        return tagAnchor(next, stringify(args.positional[1] ?? value));
+      },
+    },
+
+    /**
+     * Marks the tag currently being filtered on.
+     *
+     * A `<span>` rather than a link, because linking to the view you are
+     * already on is a dead control that screen readers still announce.
+     */
+    {
+      name: 'highlight_active_tag',
+      returnsHtml: true,
+      apply: (_context, value, args) => {
+        const tag = stringify(value);
+        const className = stringify(arg(args, 0)) || 'active';
+        return `<span class="${escapeHtml(className)}">${escapeHtml(tag)}</span>`;
+      },
+    },
+
+    /**
      * A product URL scoped to the collection it was reached through.
      *
      * The scoping is what makes "next product" work on a collection page, and
@@ -210,6 +253,59 @@ export const urlFilters: FilterGroup = {
         const handle = stringify(collection?.handle);
         if (handle === '' || url === '') return url;
         return `/collections/${handle}${url.startsWith('/') ? url : `/${url}`}`;
+      },
+    },
+
+    /** A theme asset with a size, the legacy counterpart to `asset_url`. */
+    {
+      name: 'asset_img_url',
+      apply: (context, value, args) =>
+        imageUrl(context.assetBaseUrl, join(context.assetBaseUrl, stringify(value)), {
+          ...args.named,
+          ...sizeToParams(arg(args, 0)),
+        }),
+    },
+
+    /**
+     * A shared asset served for every store, not one theme's copy.
+     *
+     * Distinct from the branded platform-asset filter: this is for files a
+     * theme references by well-known name, so the URL must not vary per store
+     * or the browser cache is wasted across the platform.
+     */
+    {
+      name: 'global_asset_url',
+      apply: (context, value) => join(context.platformAssetBaseUrl, `global/${stringify(value)}`),
+    },
+
+    {
+      name: 'payment_type_img_url',
+      apply: (context, value) => {
+        const type = stringify(value).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+        return type === ''
+          ? ''
+          : join(context.platformAssetBaseUrl, `payment-icons/${type}.svg`);
+      },
+    },
+
+    /**
+     * A collection URL carrying a sort order.
+     *
+     * Replaces any existing `sort_by` rather than appending, so chaining it
+     * twice does not produce a URL with two of them — which some routers read
+     * as the first and some as the last.
+     */
+    {
+      name: 'sort_by',
+      apply: (_context, value, args) => {
+        const url = stringify(value);
+        const order = stringify(arg(args, 0));
+        if (url === '' || order === '') return url;
+
+        const [base, query = ''] = url.split('?');
+        const params = new URLSearchParams(query);
+        params.set('sort_by', order);
+        return `${base}?${params.toString()}`;
       },
     },
 
@@ -260,6 +356,21 @@ function linkToCollection(name: string, url: (value: string) => string) {
       return `<a href="${escapeHtml(url(stringify(value)))}" title="${escapeHtml(label)}">${escapeHtml(label)}</a>`;
     },
   };
+}
+
+/** The tags currently applied, however the theme passed them. */
+function toTagList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(stringify).filter((tag) => tag !== '');
+  const text = stringify(value);
+  return text === '' ? [] : text.split('+').filter((tag) => tag !== '');
+}
+
+/** A link to the collection filtered by exactly these tags. */
+function tagAnchor(tags: readonly string[], label: string): string {
+  const path = tags.length === 0
+    ? '/collections/all'
+    : `/collections/all/${tags.map(handleize).join('+')}`;
+  return `<a href="${escapeHtml(path)}" title="${escapeHtml(label)}">${escapeHtml(label)}</a>`;
 }
 
 function customerLink(route: string) {

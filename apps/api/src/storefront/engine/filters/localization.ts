@@ -11,7 +11,7 @@
  */
 
 import { escapeHtml } from '../markup';
-import { stringify, type FilterGroup } from '../types';
+import { stringify, type FilterFn, type FilterGroup } from '../types';
 
 /**
  * Which plural form a count selects.
@@ -28,43 +28,50 @@ function pluralKey(count: number): string {
   return 'other';
 }
 
+/**
+ * The translation lookup, shared by `t` and its long form `translate`.
+ *
+ * Both names are part of the vocabulary — themes use `t` almost exclusively,
+ * but `translate` is what the documentation calls it and some themes follow
+ * that. One implementation, registered twice.
+ */
+const translate: FilterFn = (context, value, args) => {
+  const key = stringify(value);
+  if (key === '') return '';
+
+  const named = args.named;
+  const count = named.count;
+
+  // A count makes the key a family: `cart.item_count.one` and `.other`.
+  let translation = context.translations[key];
+  if (count !== undefined) {
+    const numeric = typeof count === 'number' ? count : Number(stringify(count));
+    const plural = context.translations[`${key}.${pluralKey(numeric)}`];
+    if (plural !== undefined) translation = plural;
+    else if (translation === undefined) {
+      translation = context.translations[`${key}.other`];
+    }
+  }
+
+  /**
+   * A missing key renders as `translation missing: <locale>.<key>`.
+   *
+   * The reference product's behaviour, and the right one: it is visible on the
+   * page during development and it names exactly what to add. Silence would
+   * leave a blank space nobody attributes to a missing translation.
+   */
+  if (translation === undefined) {
+    return `translation missing: ${context.locale}.${key}`;
+  }
+
+  return interpolate(translation, named);
+};
+
 export const localizationFilters: FilterGroup = {
   name: 'localization',
   filters: [
-    {
-      name: 't',
-      apply: (context, value, args) => {
-        const key = stringify(value);
-        if (key === '') return '';
-
-        const named = args.named;
-        const count = named.count;
-
-        // A count makes the key a family: `cart.item_count.one` and `.other`.
-        let translation = context.translations[key];
-        if (count !== undefined) {
-          const numeric = typeof count === 'number' ? count : Number(stringify(count));
-          const plural = context.translations[`${key}.${pluralKey(numeric)}`];
-          if (plural !== undefined) translation = plural;
-          else if (translation === undefined) {
-            translation = context.translations[`${key}.other`];
-          }
-        }
-
-        /**
-         * A missing key renders as `translation missing: <locale>.<key>`.
-         *
-         * The reference product's behaviour, and the right one: it is visible on
-         * the page during development and it names exactly what to add. Silence
-         * would leave a blank space nobody attributes to a missing translation.
-         */
-        if (translation === undefined) {
-          return `translation missing: ${context.locale}.${key}`;
-        }
-
-        return interpolate(translation, named);
-      },
-    },
+    { name: 't', apply: translate },
+    { name: 'translate', apply: translate },
 
     /**
      * An address in its country's own order.

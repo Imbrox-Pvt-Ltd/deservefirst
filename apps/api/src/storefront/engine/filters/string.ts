@@ -9,9 +9,16 @@
  * Layer: engine.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
-import { arg, stringify, type FilterGroup } from '../types';
+import { arg, stringify, type FilterArgs, type FilterGroup } from '../types';
+
+/** Keyed hash, where the key is the filter's first argument. */
+function hmac(algorithm: string, value: unknown, args: FilterArgs): string {
+  return createHmac(algorithm, stringify(args.positional[0]))
+    .update(stringify(value))
+    .digest('hex');
+}
 
 /**
  * A title as a URL segment.
@@ -39,7 +46,55 @@ export const stringFilters: FilterGroup = {
     { name: 'md5', apply: (_context, value) => createHash('md5').update(stringify(value)).digest('hex') },
     { name: 'sha1', apply: (_context, value) => createHash('sha1').update(stringify(value)).digest('hex') },
 
-    { name: 'camelize', apply: (_context, value) => camelize(stringify(value)) },
+    { name: 'camelcase', apply: (_context, value) => camelize(stringify(value)) },
+
+    { name: 'hmac_sha1', apply: (_context, value, args) => hmac('sha1', value, args) },
+
+    /**
+     * Base64 in the URL-safe alphabet: `-` and `_` for `+` and `/`.
+     *
+     * A separate pair rather than an option, because the plain and URL-safe
+     * forms are not interchangeable — decoding one with the other silently
+     * produces different bytes rather than failing.
+     */
+    {
+      name: 'base64_url_safe_encode',
+      apply: (_context, value) =>
+        Buffer.from(stringify(value), 'utf8')
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, ''),
+    },
+    {
+      name: 'base64_url_safe_decode',
+      apply: (_context, value) => {
+        const text = stringify(value).replace(/-/g, '+').replace(/_/g, '/');
+        return Buffer.from(text, 'base64').toString('utf8');
+      },
+    },
+
+    /**
+     * `url_escape` escapes a whole URL; `url_param_escape` escapes one value
+     * going *into* one.
+     *
+     * The difference matters and is easy to get backwards. `url_escape` leaves
+     * `&`, `=` and `/` alone because they are structure; `url_param_escape`
+     * escapes them, because inside a parameter they are data and would
+     * otherwise end the value early.
+     */
+    {
+      name: 'url_escape',
+      apply: (_context, value) =>
+        encodeURI(stringify(value)).replace(/%5B/g, '[').replace(/%5D/g, ']'),
+    },
+    {
+      name: 'url_param_escape',
+      apply: (_context, value) =>
+        encodeURIComponent(stringify(value)).replace(/[!'()*]/g, (char) =>
+          `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+        ),
+    },
 
     /**
      * Picks the singular or plural word for a count.

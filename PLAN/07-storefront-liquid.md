@@ -91,7 +91,42 @@ cart yet (see below). They *exist* because `strictFilters` is on: an absent
 filter fails the whole page, so a missing buy button degrades to a page without
 one rather than to no page. They gain bodies when checkout does.
 
-### No foreign filter names — decided
+## Bring your theme — the compatibility story
+
+**All 146 canonical storefront filters exist**, not just the 92 Broadcast uses.
+Two tests hold the line: one asserts every canonical name is registered, the
+other actually *invokes* each one, because registration is not implementation.
+
+Foreign names are handled by tooling rather than by carrying someone else's
+brand in our vocabulary. `config/theme-compat.json` is **data, not code** — a
+table of names we are willing to answer to, with `{slug}` substituted from
+`branding.slug` at load. Three ways to use it:
+
+| | |
+|---|---|
+| `platform theme:check <dir>` | What will not run here, and why. Reports foreign names grouped with their replacement, plus the template lint. |
+| `platform theme:port <dir>` | Rewrites them, once, reviewably. `--dry-run` first. |
+| `{ compatibility: true }` | Runtime aliasing, **off by default**, for themes that cannot be edited. |
+
+Check and port share one map and one detection routine, so they cannot
+disagree — a checker and a fixer that report different things is worse than
+either alone. Both only match inside Liquid delimiters: a theme's own
+JavaScript may mention any of these strings in a comment or a URL, and
+rewriting those would break working code to fix nothing.
+
+Measured on Broadcast: `theme:check` finds 4 uses of 1 foreign name across 2
+files and 3 genuine lint warnings; `theme:port` fixes all 4 and re-checking is
+clean.
+
+### Why compatibility mode is off by default
+
+Our names are the real ones. A ported theme is a theme the developer owns, in
+our vocabulary, with a diff they can read — that is the recommended path, and
+making aliasing automatic would quietly turn the foreign names into part of the
+platform. Aliases delegate to the filter they point at, so they cannot drift; a
+test renders every alias and its target and asserts identical output.
+
+### No foreign filter names in our own vocabulary — decided
 
 There is **no alias table**. The platform-asset filter is
 `deservefirst_asset_url`, and its name is built from `branding.slug` so renaming
