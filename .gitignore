@@ -10,3 +10,11 @@ coverage/
 # Reference capture material — large binaries, not source.
 recording/
 out/
+
+# Reference themes used as a conformance target.
+#
+# Broadcast and anything else dropped in here is somebody else's licensed
+# commercial theme. It is enormously useful to validate against and must not end
+# up in this repository — the conformance tests skip when it is absent, so a
+# clone without it still passes CI.
+theme/

@@ -18,7 +18,10 @@
     "typecheck": "pnpm -r exec tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
-    "@types/node": "^22.10.0"
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "liquidjs": "^10.28.0"
   }
 }
