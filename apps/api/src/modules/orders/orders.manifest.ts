@@ -195,6 +195,24 @@ export const ordersManifest: ModuleManifest = {
     },
   ],
 
+  extensionSurfaces: [
+    {
+      key: 'orders.request.detail',
+      label: 'Request detail — side panel',
+      description: 'Renders beside a request, next to the merchant’s own quote.',
+      /**
+       * Everything an extension learns here, written out.
+       *
+       * Deliberately not the request itself. An extension that needs the line
+       * items should ask for the scopes and read them through the API, where
+       * the merchant approved it — passing them in silently would be a grant
+       * nobody made.
+       */
+      context: ['requestId', 'subtotal', 'currency', 'lineCount'],
+      actions: ['recalculate'],
+    },
+  ],
+
   events: [
     { type: 'orders.request.submitted', version: 1, label: 'Request submitted', description: 'A buyer submitted a request for quote.', direction: 'emits' },
     { type: 'orders.request.quoted', version: 1, label: 'Request quoted', description: 'A merchant sent a quote.', direction: 'emits' },

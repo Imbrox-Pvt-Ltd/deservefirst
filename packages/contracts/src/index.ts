@@ -15,3 +15,4 @@ export * from './capability';
 export * from './events';
 export * from './roles';
 export * from './urls';
+export * from './ui-extension';

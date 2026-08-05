@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 import { DetailScreen, type DetailSection } from '@deservefirst/ui';
+import { ExtensionHost } from './ExtensionHost';
 
 import {
   acceptRequest,
@@ -47,7 +48,22 @@ const STATUS_TONE: Record<RequestDto['status'], 'success' | 'info' | 'attention'
   cancelled: undefined,
 };
 
-export function RequestDetail({ handle, request }: { handle: string; request: RequestDto }) {
+export function RequestDetail({
+  handle,
+  request,
+  extensionUrl = null,
+}: {
+  handle: string;
+  request: RequestDto;
+  /**
+   * The extension a merchant has installed on this surface, if any.
+   *
+   * Passed in rather than discovered here, so a screen with no installed
+   * extension does not start a worker at all — and so this component has no
+   * opinion about where extension code comes from.
+   */
+  extensionUrl?: string | null;
+}) {
   const router = useRouter();
   const [current, setCurrent] = useState(request);
   const [pending, startTransition] = useTransition();
@@ -224,6 +240,32 @@ export function RequestDetail({ handle, request }: { handle: string; request: Re
           <Banner tone={banner.tone} onDismiss={() => setBanner(null)}>
             <p>{banner.message}</p>
           </Banner>
+        ) : null,
+        /**
+         * The `orders.request.detail` surface (§22.2).
+         *
+         * The context is exactly what the manifest declares and nothing else —
+         * an extension gets the subtotal and the line COUNT, not the lines. One
+         * that needs those should ask for scopes and read them through the API,
+         * where the merchant approved it; passing them in here would be a grant
+         * nobody made.
+         */
+        aside: extensionUrl ? (
+          <ExtensionHost
+            scriptUrl={extensionUrl}
+            extensionName="Delivery estimate"
+            context={{
+              requestId: request.id,
+              subtotal: request.subtotal?.amount ?? '0',
+              currency: request.subtotal?.currency ?? 'USD',
+              lineCount: request.lines.length,
+            }}
+            // Only the ids the surface declared. Anything else is dropped
+            // rather than guessed at.
+            onAction={(action) => {
+              if (action === 'recalculate') setBanner({ tone: 'success', message: 'The extension asked for a recalculation.' });
+            }}
+          />
         ) : null,
       }}
     />

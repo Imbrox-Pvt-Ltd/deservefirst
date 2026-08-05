@@ -110,6 +110,24 @@ export interface FunctionPointDeclaration {
   readonly inputExample: string;
 }
 
+/**
+ * A place in a screen where a third party's UI extension may render (§22.2).
+ *
+ * Declared by the module owning the screen, because only it knows what is
+ * sensible to hand an extension — and `context` is the whole of what a third
+ * party learns about the merchant's data on that screen, so it is written out
+ * rather than being "whatever the page had".
+ */
+export interface ExtensionSurfaceDeclaration {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  /** Field names passed to the extension. Everything here is visible to it. */
+  readonly context: readonly string[];
+  /** Action ids this surface will honour when an extension raises one. */
+  readonly actions: readonly string[];
+}
+
 /** A UI route contributed by the module. Screens map to §8.3 templates. */
 export interface RouteDeclaration {
   readonly path: string;
@@ -319,6 +337,8 @@ export interface ModuleManifest {
   readonly apiScopes?: readonly ApiScopeDeclaration[];
   /** Places a third party's Function may run (§22.3). */
   readonly functionPoints?: readonly FunctionPointDeclaration[];
+  /** Places a third party's UI extension may render (§22.2). */
+  readonly extensionSurfaces?: readonly ExtensionSurfaceDeclaration[];
   readonly events?: readonly EventDeclaration[];
   readonly webhooks?: readonly WebhookDeclaration[];
   readonly jobs?: readonly JobDeclaration[];

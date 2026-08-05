@@ -13,14 +13,30 @@ import type { RequestDto } from '../../../../../lib/types';
 
 export default async function RequestDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ handle: string; id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { handle, id } = await params;
+  const search = await searchParams;
 
   try {
     const response = await apiFetch<RequestDto>(`/orders/requests/${id}/detail`);
-    return <RequestDetail handle={handle} request={response.data} />;
+    /**
+     * The demo extension, so the sandbox can be seen working.
+     *
+     * `?extension=hostile` loads one that misbehaves on purpose — a component
+     * outside the vocabulary, a prop carrying markup, and an attempt to reach
+     * `document`. It is here rather than in a test because the interesting
+     * claim is what a merchant SEES when an extension turns hostile.
+     */
+    const which = typeof search.extension === 'string' ? search.extension : 'demo';
+    const extensionUrl = which === 'none' ? null : `/extensions/${which === 'hostile' ? 'hostile' : 'demo'}.js`;
+
+    return (
+      <RequestDetail handle={handle} request={response.data} extensionUrl={extensionUrl} />
+    );
   } catch (error) {
     const notFound = isNotFound(error);
     return (
