@@ -35,6 +35,12 @@ export {
   TextField,
   RadioButton,
   Spinner,
+  // A real slider for a `range` setting. Drawing one as a text field would let
+  // a merchant type a value off the schema's step, which the server refuses —
+  // an error they would hit without understanding why.
+  RangeSlider,
+  // Reordering sections is the theme editor's central gesture.
+  DropZone,
   // Data
   IndexTable,
   IndexFilters,

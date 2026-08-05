@@ -509,9 +509,50 @@ removed 46 sections from every picker instead.
 Measured after the fix: 48 addable per template (was 54), header 3, footer 6,
 aside 5.
 
-### Still to build
+## Theme editor — the UI
 
-The editor UI, and publishing a draft to `role: main`.
+Three panes: sections left, the store in the middle, settings right.
+
+**The preview is a real render.** An iframe pointed at the storefront, going
+through the same engine, filters and drops a customer's page would — not a
+mock-up and not a client-side approximation. A preview built from a different
+code path is one that lies eventually. It is sandboxed without
+`allow-same-origin`, because a theme is third-party code and must not reach the
+editor's own session.
+
+**`SettingInput` is the bulk of the surface.** Thirty-five declared types mapped
+to real controls, because the mapping *is* the editing experience: a `range`
+drawn as a text box lets a merchant type a value off the schema's step, which
+the server then refuses — an error they hit without understanding why. So the
+schema's own min/max/step reach the slider, a select's options reach the
+dropdown, and a colour gets a swatch *and* a hex field (one is how you pick, the
+other is how a brand guideline gets entered exactly).
+
+Unknown types degrade to a text field with the type named. A theme built for a
+newer version stays editable; a blank space would be a setting nobody can find.
+
+**Reordering is arrow buttons, not drag-and-drop** — keyboard-reachable, works
+on touch, and always lands where it says. A half-built drag that drops a section
+in the wrong place is worse than a pair of arrows.
+
+**Conflicts stop the editor.** A 409 from the server replaces the panes with
+"someone else edited this template — reload", because merging silently would
+discard one of two people's afternoon.
+
+### What is NOT wired
+
+`editorController` exists with its four endpoints and is **not mounted**. Two
+things block it, and both are real rather than fiddly:
+
+- `sessionFor` needs theme lookup, schema parsing and a preview URL per store.
+- **`publish` needs `ThemeSource.write`, which does not exist.** The interface is
+  read-only by design, and publishing means writing template JSON back to the
+  theme. That is a deliberate gap to close with a decision, not an oversight to
+  patch — writing to a live theme is the one operation that changes what every
+  customer sees.
+
+Until then the editor page renders against the API shape it expects, and the
+model and service beneath it are fully tested.
 
 ## The security position
 

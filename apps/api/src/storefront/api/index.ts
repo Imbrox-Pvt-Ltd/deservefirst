@@ -7,3 +7,5 @@ export {};
 
 export * from './storefront-ports';
 export * from './storefront.handler';
+
+export * from './editor.controller';
