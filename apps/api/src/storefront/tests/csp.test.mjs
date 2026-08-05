@@ -196,22 +196,30 @@ test('enforcing sends the enforcing header', async () => {
   assert.equal(response.headers['content-security-policy-report-only'], undefined);
 });
 
-test('a nonced page is not cached', async () => {
+test('a nonced page is cacheable, and reports the nonce for swapping out', async () => {
   /**
-   * Every response carries a different nonce, so a cache replaying the body
-   * would serve one the header no longer matches — and the page would stop
-   * executing entirely. Caching nonced HTML needs the nonce substituted on the
-   * way out, which is a cache concern rather than a render one.
+   * This used to assert the opposite. A nonced page was excluded from the cache
+   * because every response carries a different nonce and a replayed body would
+   * serve one the header no longer matches — the page would stop executing
+   * entirely.
+   *
+   * The cache now swaps the nonce for a per-entry random marker on the way in
+   * and substitutes a fresh one on the way out, so both properties hold at
+   * once. `page-cache.test.mjs` is where that is proven; here we only check the
+   * render hands over what the cache needs.
    */
   const nonced = await handlerWith({ csp: { enabled: true } }).handle({
     host: 'shop.test', path: '/', query: '', method: 'GET',
   });
-  assert.equal(nonced.cacheKey, null);
+  assert.equal(nonced.cacheKey, '/');
+  assert.ok(nonced.nonce, 'the cache cannot swap out a nonce it is not told');
+  assert.ok(nonced.body.includes(nonced.nonce), 'and it is the one in the markup');
 
   const plain = await handlerWith({}).handle({
     host: 'shop.test', path: '/', query: '', method: 'GET',
   });
-  assert.equal(plain.cacheKey, '/', 'without a policy it caches as before');
+  assert.equal(plain.cacheKey, '/');
+  assert.equal(plain.nonce, null);
 });
 
 test('no policy is sent unless it is switched on', async () => {

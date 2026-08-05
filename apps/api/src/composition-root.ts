@@ -19,9 +19,13 @@ import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
 import { storefrontManifest } from './storefront/storefront.manifest';
+import { STOREFRONT_EVENTS } from './storefront/events';
+import { CATALOG_EVENTS } from './modules/catalog/events';
+import { CONTENT_EVENTS } from './modules/content/events';
 import {
   FilesystemThemeSource,
   FilesystemThemeVersionStore,
+  MemoryPageCache,
   SqlDraftStore,
   SqlMessageStatus,
   SqlStorefrontSubmissions,
@@ -745,6 +749,56 @@ export async function bootstrap(): Promise<Platform> {
     },
   };
 
+  /**
+   * Rendered pages, kept between requests.
+   *
+   * In-process, which is correct on one node and wrong on four: a publish
+   * received by one node leaves the other three serving the old theme until
+   * their entries expire. That is why the TTL is a minute rather than an hour,
+   * and why `PageCache` is a port — the shared implementation replaces this one
+   * without the storefront noticing.
+   */
+  const pageCache = new MemoryPageCache({
+    maxBytes: Number(process.env.DF_PAGE_CACHE_BYTES ?? 64 * 1024 * 1024),
+  });
+
+  /**
+   * What retires a store's cached pages.
+   *
+   * Coarse on purpose: any of these clears everything that store has cached,
+   * rather than working out which pages mentioned the product that changed. A
+   * page can name a product through a section setting, a related-products
+   * block or a menu link, so precise invalidation means tracking every read of
+   * every render — and the failure mode of getting it slightly wrong is a
+   * merchant looking at a price they have already changed twice.
+   *
+   * Re-rendering a store's pages costs us. Showing a stale price costs them.
+   */
+  /**
+   * The constants each module exports, never the strings.
+   *
+   * A renamed event that still type-checks here would leave every storefront
+   * serving a theme its merchant had already replaced, and nothing anywhere
+   * would fail. This is the one list where a silent miss is invisible.
+   */
+  const INVALIDATES_A_STOREFRONT = [
+    STOREFRONT_EVENTS.themePublished,
+    CATALOG_EVENTS.productCreated,
+    CATALOG_EVENTS.productUpdated,
+    CATALOG_EVENTS.productPublished,
+    CATALOG_EVENTS.productArchived,
+    CONTENT_EVENTS.pagePublished,
+    CONTENT_EVENTS.pageUnpublished,
+  ] as const;
+
+  for (const eventType of INVALIDATES_A_STOREFRONT) {
+    events.subscribe('storefront', eventType, async (envelope) => {
+      // A platform-scoped event has no store to clear, and clearing every
+      // store because one lacked an id would be a self-inflicted stampede.
+      if (envelope.storeId) await pageCache.invalidateStore(envelope.storeId);
+    });
+  }
+
   const storefront = new StorefrontHandler(
     new SqlStoreResolver(
       executor,
@@ -785,6 +839,9 @@ export async function bootstrap(): Promise<Platform> {
       // The admin frames a storefront to preview a theme, which is why
       // X-Frame-Options is absent: it cannot express this.
       frameAncestors: [`https://${branding.domains.admin}`, "'self'"],
+
+      pageCache,
+      pageCacheTtlSeconds: Number(process.env.DF_PAGE_CACHE_TTL ?? 60),
     },
   );
 

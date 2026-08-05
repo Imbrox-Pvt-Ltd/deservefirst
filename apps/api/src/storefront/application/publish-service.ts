@@ -31,6 +31,7 @@ import {
   type ThemeSource,
 } from '../domain';
 import { createThemeEngine, defaultContext } from '../engine';
+import { STOREFRONT_EVENTS } from '../events';
 import { PageRenderer } from './page-renderer';
 import { withDrafts, type DraftStore, type EditorSession } from './editor-service';
 
@@ -181,7 +182,7 @@ export class PublishService {
     for (const file of pending) await this.drafts.discard(session.themeId, file.path);
 
     await this.announce({
-      type: 'storefront.theme.published',
+      type: STOREFRONT_EVENTS.themePublished,
       payload: {
         themeId: theme.id,
         versionRef,
@@ -211,7 +212,7 @@ export class PublishService {
     });
 
     await this.announce({
-      type: 'storefront.theme.published',
+      type: STOREFRONT_EVENTS.themePublished,
       payload: { themeId: target.themeId, versionRef: target.versionRef, rolledBack: true },
     });
 

@@ -31,6 +31,11 @@ import {
   cacheKeyFor,
   canonicalPath,
   cspHeaderName,
+  decideCacheable,
+  DEFAULT_TTL_SECONDS,
+  fullCacheKey,
+  substitute,
+  varyKey,
   formDrop,
   formStateFor,
   collectionDrop,
@@ -63,7 +68,13 @@ import { createThemeEngine, defaultContext, type RenderContext } from '../engine
 import { randomUUID } from 'node:crypto';
 
 import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
-import type { ResolvedStore, StorefrontData, StoreResolver } from './storefront-ports';
+import type {
+  CachedPage,
+  PageCache,
+  ResolvedStore,
+  StorefrontData,
+  StoreResolver,
+} from './storefront-ports';
 
 export interface StorefrontResponse {
   readonly status: number;
@@ -71,6 +82,20 @@ export interface StorefrontResponse {
   readonly body: string;
   /** What this response should be cached under, or null if it must not be. */
   readonly cacheKey: string | null;
+  /**
+   * The query parameters this render read, which is what the key varies on.
+   *
+   * Carried separately from the key because a lookup has to build the key
+   * BEFORE rendering, and only a completed render knows this — the cache
+   * remembers it per path, the way HTTP's own `Vary` does.
+   */
+  readonly cacheVary?: readonly string[];
+  /**
+   * The nonce in this response, for the cache to swap out before storing.
+   *
+   * Transport metadata like `cacheKey`, not something a caller sends onward.
+   */
+  readonly nonce?: string | null;
 }
 
 export interface StorefrontRequestInput {
@@ -111,6 +136,16 @@ export interface StorefrontOptions {
   readonly csp?: { readonly enabled: boolean; readonly enforce?: boolean; readonly reportUri?: string | null };
   /** Hosts allowed to frame a storefront — the admin, for the theme editor. */
   readonly frameAncestors?: readonly string[];
+  /**
+   * Where rendered pages are kept. Without one, every request re-renders.
+   *
+   * Optional so a test can render without one, and so the editor's preview path
+   * can deliberately go without: a merchant dragging a section expects to see
+   * the result, not a page from thirty seconds ago.
+   */
+  readonly pageCache?: PageCache;
+  /** Seconds a cached page stays usable. */
+  readonly pageCacheTtlSeconds?: number;
 }
 
 /**
@@ -187,8 +222,110 @@ export class StorefrontHandler {
     }
 
     return withRequestContext(storefrontContext(store.storeId), () =>
-      input.method === 'POST' ? this.submit(store, input) : this.serve(store, input),
+      input.method === 'POST' ? this.submit(store, input) : this.serveCached(store, input),
     );
+  }
+
+  /**
+   * The cache, wrapped around `serve`.
+   *
+   * Deliberately a wrapper rather than something `renderPage` consults. Every
+   * rule about what may be kept then lives in one place next to the lookup, and
+   * the render path stays a function from a request to a page — which is what
+   * makes it testable without a cache and cacheable without knowing it is.
+   */
+  private async serveCached(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+  ): Promise<StorefrontResponse> {
+    const cache = this.options.pageCache;
+    // The editor's preview must never be served from a cache: a merchant
+    // dragging a section expects to see the result, not a page from a minute ago.
+    if (!cache || input.designMode) return this.serve(store, input);
+
+    const path = input.path.split('?')[0] ?? '/';
+    const epoch = cache.epochFor(store.storeId);
+
+    /**
+     * Two lookups, both O(1): what this path varies on, then the page itself.
+     *
+     * The vary list has to be read first because the key is built from it, and
+     * it can only have been learned from an earlier render of this same path.
+     * A path nobody has rendered under this epoch is simply a miss.
+     */
+    const vary = await cache.get(varyKey(store.storeId, epoch, path));
+    if (vary) {
+      const keys = parseVary(vary.body);
+      const hit = await cache.get(
+        fullCacheKey(store.storeId, epoch, cacheKeyFor(path, input.query, keys)),
+      );
+      if (hit) return fromCache(hit);
+    }
+
+    const response = await this.serve(store, input);
+
+    const decision = decideCacheable({
+      method: input.method,
+      status: response.status,
+      cacheKey: response.cacheKey,
+      hasSession: input.hasSession ?? false,
+      contentType: response.headers['content-type'] ?? '',
+    });
+
+    if (!decision.cacheable) {
+      // The reason travels in the header. "Why is this page not cached" is
+      // otherwise a question that costs somebody an afternoon.
+      return withHeader(response, 'x-cache', `bypass: ${decision.reason}`);
+    }
+
+    await this.keep(cache, store.storeId, epoch, path, response);
+    return withHeader(response, 'x-cache', 'miss');
+  }
+
+  /** Stores a rendered page, with its nonce swapped out. */
+  private async keep(
+    cache: PageCache,
+    storeId: string,
+    epoch: number,
+    path: string,
+    response: StorefrontResponse,
+  ): Promise<void> {
+    /**
+     * A fresh marker per entry, from `randomUUID`.
+     *
+     * The security-relevant line in this file. A fixed marker would let someone
+     * store `<script nonce="MARKER">` in a product title and have the cache
+     * substitute a live nonce into it on the way out — the policy defeated
+     * using our own machinery. This value is random and never leaves the
+     * process, so there is nothing to write down in advance.
+     */
+    const placeholder = response.nonce ? `df-nonce-${randomUUID()}` : null;
+    const swap = (value: string): string =>
+      placeholder && response.nonce ? substitute(value, response.nonce, placeholder) : value;
+
+    const ttl = (this.options.pageCacheTtlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
+    const expiresAt = Date.now() + ttl;
+
+    await cache.set(fullCacheKey(storeId, epoch, response.cacheKey as string), {
+      status: response.status,
+      // Headers are swapped too: the nonce appears in the policy as well as in
+      // the markup, and the two must still agree after substitution.
+      headers: Object.fromEntries(
+        Object.entries(response.headers).map(([name, value]) => [name, swap(value)]),
+      ),
+      body: swap(response.body),
+      noncePlaceholder: placeholder,
+      expiresAt,
+    });
+
+    // And the lesson about this path, so the next request can build the key.
+    await cache.set(varyKey(storeId, epoch, path), {
+      status: 200,
+      headers: {},
+      body: JSON.stringify(response.cacheVary ?? []),
+      noncePlaceholder: null,
+      expiresAt,
+    });
   }
 
   private async serve(
@@ -538,15 +675,6 @@ export class StorefrontHandler {
             }
           : {}),
       },
-      /**
-       * A nonced page cannot be cached as it stands.
-       *
-       * Every response carries a different nonce, so a cache that replayed the
-       * body would serve a nonce the header no longer matches — and the whole
-       * page would stop executing. Caching nonced HTML needs the nonce
-       * substituted on the way out, which is a cache concern rather than a
-       * render one.
-       */
       body: page.html,
       /**
        * The key includes exactly the parameters this render read.
@@ -554,8 +682,15 @@ export class StorefrontHandler {
        * A page that read nothing caches by path; one that read `?variant`
        * caches per variant. Without this the first visitor's parameters would
        * be served to everyone after them.
+       *
+       * A nonced page is cacheable, which it was not when the policy landed.
+       * The nonce is swapped for a per-entry random marker on the way in and a
+       * fresh one substituted on the way out, so a cached body carries no
+       * nonce at all and no two visitors share one.
        */
-      cacheKey: status === 200 && !nonce ? cacheKeyFor(path, input.query, access.readKeys()) : null,
+      cacheKey: status === 200 ? cacheKeyFor(path, input.query, access.readKeys()) : null,
+      cacheVary: access.readKeys(),
+      nonce,
     };
   }
 
@@ -719,6 +854,56 @@ export class StorefrontHandler {
       path,
     );
   }
+}
+
+/**
+ * A cached page becomes a response, with a nonce nobody has seen before.
+ *
+ * The substitution is why a cached storefront and a Content-Security-Policy can
+ * coexist. Without it the choice is a cache that replays one nonce to everyone
+ * — which is not a nonce — or no cache at all.
+ */
+function fromCache(entry: CachedPage): StorefrontResponse {
+  const nonce = entry.noncePlaceholder ? randomUUID().replace(/-/g, '') : null;
+  const swap = (value: string): string =>
+    entry.noncePlaceholder && nonce ? substitute(value, entry.noncePlaceholder, nonce) : value;
+
+  return {
+    status: entry.status,
+    headers: {
+      ...Object.fromEntries(
+        Object.entries(entry.headers).map(([name, value]) => [name, swap(value)]),
+      ),
+      'x-cache': 'hit',
+    },
+    body: swap(entry.body),
+    // Already stored; re-storing what we just read would only reset its expiry.
+    cacheKey: null,
+    nonce,
+  };
+}
+
+/**
+ * The remembered vary list, defensively.
+ *
+ * A malformed entry means no caching for that path rather than a 500 — a cache
+ * that can take the site down is worse than the requests it saves.
+ */
+function parseVary(body: string): readonly string[] {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function withHeader(
+  response: StorefrontResponse,
+  name: string,
+  value: string,
+): StorefrontResponse {
+  return { ...response, headers: { ...response.headers, [name]: value } };
 }
 
 /**

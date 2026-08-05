@@ -114,3 +114,39 @@ export interface StorefrontSubmissions {
     readonly body: string;
   }): Promise<void>;
 }
+
+/**
+ * Where rendered pages are kept between requests.
+ *
+ * A port rather than a concrete cache, because the two implementations differ
+ * in the property that matters: an in-process map is correct on one node and
+ * wrong on four, since a publish on the node that received it leaves the other
+ * three serving the old theme. A shared cache fixes that and is the production
+ * answer; this interface is what lets the second one arrive without the
+ * storefront noticing.
+ */
+export interface PageCache {
+  get(key: string): Promise<CachedPage | null>;
+  set(key: string, page: CachedPage): Promise<void>;
+  /** Retires everything for one store. */
+  invalidateStore(storeId: string): Promise<void>;
+  /** The store's current generation, which is part of every key. */
+  epochFor(storeId: string): number;
+  stats(): { entries: number; bytes: number; hits: number; misses: number };
+}
+
+export interface CachedPage {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  /** Body and headers with the nonce already swapped for the placeholder. */
+  readonly body: string;
+  /**
+   * The random marker standing in for the nonce, or null when there was none.
+   *
+   * Stored WITH the entry rather than fixed in code, and never sent to a
+   * browser — see `domain/page-cache.ts` for why a predictable marker would let
+   * injected markup borrow a live nonce.
+   */
+  readonly noncePlaceholder: string | null;
+  readonly expiresAt: number;
+}

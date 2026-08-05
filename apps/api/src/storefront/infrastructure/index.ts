@@ -17,3 +17,5 @@ export * from './message-status';
 export * from './theme-versions';
 
 export * from './sql-draft-store';
+
+export * from './memory-page-cache';
