@@ -505,7 +505,68 @@ Phase-1 commerce request-only. So the first storefront renders a catalogue with
 a "request a quote" action — no cart, no checkout. That is coherent for B2B RFQ
 and it is not a buyable store. Said here so it is not a surprise at a demo.
 
-## SEO: what exists and what does not
+## SEO — built
+
+All four gaps below are now closed, in `domain/`. Every one is a file or a
+header read by a machine, and every one has a failure mode where the output
+looks fine and is discarded **wholesale**.
+
+### Redirects (`redirects.ts`)
+
+A handle is part of a URL, so renaming a product breaks every link to it. Three
+non-obvious rules, each a real defect if skipped:
+
+- **Loops refused at save time.** `a → b → a` makes a browser show its own error
+  page — worse than the 404 the redirect replaced, because at least the 404 is
+  the theme's.
+- **Chains resolved to the end**, so `a → b → c` costs the visitor one hop
+  rather than two. Search engines stop following after a handful.
+- **No open redirects.** A target on another host turns the merchant's domain
+  into a phishing relay carrying their reputation. Relative paths only —
+  `//evil.test`, `/\evil.test` and a newline-injected `Location:` are all
+  refused.
+
+Campaign parameters survive the redirect, because dropping `?utm_source` loses
+attribution the merchant is paying for.
+
+### sitemap.xml (`sitemap.ts`)
+
+The **50,000 URL** ceiling is the protocol's, not a preference: exceeding it
+means the file is rejected entirely, so a growing store would silently stop
+being indexed. Hence `splitIntoSitemaps` and an index.
+
+XML escaping is the trap — a handle may legitimately contain `&`, and one raw
+ampersand invalidates the document so a crawler discards **every** URL in it.
+All five entities are escaped. The `xhtml` namespace is declared only when
+hreflang alternates use it.
+
+### robots.txt (`robots.ts`)
+
+The defaults matter more than the editing. Beyond `/cart` and `/account`, the
+expensive one is **faceted collection URLs**: six filters is thousands of
+near-identical pages, and a crawler that indexes them spends its budget there
+instead of on products. `/password` is a leak rather than a waste.
+
+Merchant values are stripped of control characters, because robots.txt is
+line-oriented and an injected `\nDisallow: /` would hide the entire store from
+every crawler — a catastrophic, silent outage.
+
+### JSON-LD (`structured-data.ts`)
+
+Product/Offer, BreadcrumbList, Organization, Article, WebSite. Prices convert
+from minor units by **string arithmetic**: `4499 / 100` is `44.989999999999995`,
+and a price in a search result that disagrees with the page is the merchant's
+problem to explain.
+
+A product with no price emits **no price field** rather than zero — marking up a
+price the page does not show is what search engines penalise as structured-data
+spam. `<` is escaped so a description containing `</script>` cannot close the
+tag it sits in.
+
+Canonicals were already done: `canonicalPath` in `routing.ts` drops the
+collection prefix and the tag filter.
+
+## SEO: the original gap list
 
 Already built — the entity toolkit gives products, collections, pages and blog
 posts a `_seo` table (meta title, description, canonical, OG), and translations
