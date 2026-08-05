@@ -106,4 +106,5 @@ export interface ThemeEngine {
   renderFile(path: string, scope: Record<string, unknown>): Promise<string>;
   /** Whether a filter of this name is available — used by conformance checks. */
   hasFilter(name: string): boolean;
+  hasTag(name: string): boolean;
 }

@@ -278,10 +278,65 @@ blanked before matching (offsets preserved, so line numbers stay honest) and the
 pattern allows no space. Re-verified by planting two leaks afterwards: both
 still caught, on the right lines.
 
+### The rest of the drops
+
+`localization`, `currency`, `country`, `language`; `media`, `media_source`,
+`metafield`; `filter`, `filter_value`, `sort_option`, `facets`;
+`discount_application`. **35 drops, 313 properties.**
+
+Two decisions worth keeping:
+
+- **Filter values carry their own URLs.** `url_to_add` and `url_to_remove` are
+  computed from the request, so a theme never concatenates a filter URL. A theme
+  that did gets the second filter wrong, loses the sort order, or keeps the page
+  number — and the symptom is a shopper who ticks "Blue" and lands on page four
+  of an unfiltered list. `page` is always dropped when a filter changes.
+- **`discount_application` reports, never computes.** `total_allocated_amount`
+  is what the platform actually deducted. A theme multiplying a percentage by a
+  price would disagree with the invoice by a penny — the kind of discrepancy
+  customers report and nobody can reproduce.
+
+## Tags — all eight, behind the same boundary
+
+`engine/tags/`. Tags are written against our own `TagDefinition` and translated
+in `liquid.ts`, so `no-direct-liquid` still holds. This mattered more than it did
+for filters: a tag written against liquidjs's parser and emitter is far more
+entangled than a filter, so without the abstraction, adding tags would have
+quietly made the engine irreplaceable.
+
+Three kinds, because measuring the engine showed three genuinely different
+mechanics rather than one with options:
+
+| kind | tags | why |
+|---|---|---|
+| **raw** | `schema`, `javascript`, `stylesheet`, `doc` | The body is never parsed. `{% schema %}` is JSON and `{% javascript %}` is JavaScript — Liquid would fail on the first brace. |
+| **block** | `style`, `paginate`, `form` | The body *is* Liquid, rendered with extra variables scoped to it. |
+| **inline** | `section`, `sections`, `content_for` | No body; renders another file. |
+
+### What the tags take away from themes
+
+- **`form` emits the action and the forgery token.** An allow-list of form types
+  maps to routes, so a theme cannot invent one and POST where it chose. An
+  unknown type renders a comment rather than a form that posts somewhere
+  plausible. `onsubmit:` is refused by the same attribute allow-list as the
+  markup helpers.
+- **`paginate` takes the page from the *request*, not the template**, so a theme
+  cannot paginate to a page the URL disagrees with. `?page=9999` clamps to the
+  last page rather than rendering an empty one that looks like a broken
+  collection. The sliced variable leaves scope at `{% endpaginate %}`.
+
+### The bug that only a test would find
+
+Block tags must be registered with a **generator** `*render`, not `async render`.
+`renderer.renderTemplates` returns a generator liquidjs drives itself; awaiting
+it resolves to the generator object and renders nothing. The symptom was precise
+and quiet: `{% style %}` emitted `<style></style>` with the body missing, and
+`{% form %}` produced a form with no fields. Nothing threw.
+
 ### Still to build
 
-`metafield`, `localization`, `media`, `settings`, `filter`/`filter_value`,
-`discount_application`. Then the 8 tags, which need these to be useful.
+Layout and template resolution — `layout/theme.liquid`, `templates/*.json`,
+section groups — which is what stands between this and a rendered page.
 
 ## The security position
 

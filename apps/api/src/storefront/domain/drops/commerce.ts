@@ -227,6 +227,35 @@ export const customerDrop = defineDrop<CustomerRow>('customer', {
     ) ?? [],
 });
 
+export interface DiscountApplicationRow {
+  readonly title: string;
+  readonly targetType: string;
+  readonly valueType: 'percentage' | 'fixed_amount';
+  readonly value: number;
+  readonly amountMinor?: string | number | null;
+}
+
+/**
+ * A discount that applied, as a theme reports it — never as a theme computes it.
+ *
+ * `total_allocated_amount` is the amount the platform actually deducted, in
+ * minor units. Themes must render that rather than multiplying `value` by a
+ * price: rounding on a percentage discount is decided once, server-side, and a
+ * theme that recomputed it would show a total that disagrees with the invoice
+ * by a penny — which is the kind of discrepancy customers report and nobody can
+ * reproduce.
+ */
+export const discountApplicationDrop = defineDrop<DiscountApplicationRow>(
+  'discount_application',
+  {
+    title: (discount) => discount.title,
+    target_type: (discount) => discount.targetType,
+    value_type: (discount) => discount.valueType,
+    value: (discount) => discount.value,
+    total_allocated_amount: (discount) => minorUnits(discount.amountMinor),
+  },
+);
+
 export const orderDrop = defineDrop<OrderRow>('order', {
   id: (order) => order.id,
   name: (order) => order.reference,
