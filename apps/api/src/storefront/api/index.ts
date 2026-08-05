@@ -11,3 +11,5 @@ export * from './storefront.handler';
 export * from './editor.controller';
 
 export * from './messages.controller';
+
+export * from './domains.controller';

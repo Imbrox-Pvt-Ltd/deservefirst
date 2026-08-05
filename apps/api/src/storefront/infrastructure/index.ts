@@ -19,3 +19,6 @@ export * from './theme-versions';
 export * from './sql-draft-store';
 
 export * from './memory-page-cache';
+
+export * from './dns-probe';
+export * from './sql-domains';

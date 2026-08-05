@@ -86,17 +86,18 @@ export class SqlStoreResolver implements StoreResolver {
   }
 
   private async lookup(host: string): Promise<ResolvedStore | null> {
+    /**
+     * The platform's own subdomain first, then a connected domain.
+     *
+     * Order matters. The subdomain is derived from the handle and is
+     * unforgeable — it cannot be claimed by a row — so checking it first means
+     * no `store_domains` record can ever shadow the hostname a store is
+     * guaranteed to answer on. `normaliseDomain` already refuses to store one,
+     * and this is the second lock on the same door.
+     */
     const handle = this.handleFor(host);
-    if (handle === null) return null;
-
-    const rows = await this.executor.query<Row>(
-      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('type')}, ${this.q('status')},
-              ${this.q('base_currency')}
-         FROM ${this.q('stores')}
-        WHERE ${this.q('handle')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
-        LIMIT 1`,
-      [handle],
-    );
+    const rows =
+      handle !== null ? await this.storeByHandle(handle) : await this.storeByConnectedDomain(host);
 
     const row = rows[0];
     if (!row) return null;
@@ -119,6 +120,7 @@ export class SqlStoreResolver implements StoreResolver {
     return {
       storeId,
       theme,
+      primaryHost: await this.primaryHostFor(storeId),
       closed: status === 'paused' || String(row.type) === 'password_protected',
       data: new SqlStorefrontData(this.executor, this.options.storefrontHost, this.dialect),
       /**
@@ -134,13 +136,70 @@ export class SqlStoreResolver implements StoreResolver {
     };
   }
 
+  private storeByHandle(handle: string): Promise<Row[]> {
+    return this.executor.query<Row>(
+      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('type')}, ${this.q('status')},
+              ${this.q('base_currency')}
+         FROM ${this.q('stores')}
+        WHERE ${this.q('handle')} = ${this.p(1)} AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [handle],
+    );
+  }
+
+  /**
+   * A hostname a merchant connected and PROVED they own.
+   *
+   * `status = 'verified'` is not a detail of this query, it is the whole point.
+   * A row in `store_domains` records a claim; anyone may claim any hostname,
+   * because DNS takes days to propagate and the claim has to exist before the
+   * proof does. Dropping this condition would serve a store from any name
+   * anybody typed into a form — including one they do not own.
+   */
+  private storeByConnectedDomain(host: string): Promise<Row[]> {
+    return this.executor.query<Row>(
+      `SELECT ${this.q('s')}.${this.q('id')}, ${this.q('s')}.${this.q('handle')},
+              ${this.q('s')}.${this.q('type')}, ${this.q('s')}.${this.q('status')},
+              ${this.q('s')}.${this.q('base_currency')}
+         FROM ${this.q('store_domains')} ${this.q('d')}
+         JOIN ${this.q('stores')} ${this.q('s')}
+           ON ${this.q('s')}.${this.q('id')} = ${this.q('d')}.${this.q('store_id')}
+        WHERE ${this.q('d')}.${this.q('host')} = ${this.p(1)}
+          AND ${this.q('d')}.${this.q('status')} = 'verified'
+          AND ${this.q('d')}.${this.q('deleted_at')} IS NULL
+          AND ${this.q('s')}.${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [host],
+    );
+  }
+
+  /**
+   * The hostname this store canonically lives at, if it has one.
+   *
+   * Read on resolution rather than per render, because the transport needs it
+   * before it decides whether to redirect — and it is cached with the rest of
+   * the resolution, so this costs one query per store per five seconds rather
+   * than one per request.
+   */
+  private async primaryHostFor(storeId: string): Promise<string | null> {
+    const rows = await this.executor.query<Row>(
+      `SELECT ${this.q('host')} FROM ${this.q('store_domains')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('role')} = 'primary'
+          AND ${this.q('status')} = 'verified'
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [storeId],
+    );
+    return rows[0] ? String(rows[0].host) : null;
+  }
+
   /**
    * The store handle a hostname refers to, or null.
    *
-   * Only the platform's own storefront suffix for now. Custom domains need
-   * their own table and a verification step — a host that merely *claims* to be
-   * a store is not one, and accepting the claim would let anyone point a
-   * hostname at us and serve someone else's shop under it.
+   * The platform's own storefront suffix only. A hostname outside it is a
+   * connected domain or nothing — see `storeByConnectedDomain`, where the
+   * verification requirement lives.
    */
   private handleFor(host: string): string | null {
     const suffix = `.${this.options.storefrontHost}`;

@@ -73,3 +73,67 @@ export const contactMessageResource: ResourceDefinition = {
     delete: 'store.messages.read',
   },
 };
+
+/**
+ * A connected hostname, as the admin reads it.
+ *
+ * `verificationToken` is deliberately NOT a field here. The list screen reads
+ * this resource, and a token on its own is a value nobody can act on — the
+ * instruction a merchant needs is the whole DNS record, which
+ * `GET /domains` assembles. Exposing the raw token would put a secret-looking
+ * string in an export for no benefit.
+ */
+export const storeDomainResource: ResourceDefinition = {
+  name: 'StoreDomain',
+  entity: 'StoreDomain',
+  pluralName: 'StoreDomains',
+  urlSegment: 'domains',
+  aggregateRoot: 'StoreDomain',
+  fields: [
+    { name: 'id', type: 'id', visibility: 'public' },
+    { name: 'host', type: 'string', filterable: true, sortable: true, searchable: true },
+    { name: 'role', type: 'enum', values: ['primary', 'alias'], filterable: true, sortable: true },
+    {
+      name: 'status',
+      type: 'enum',
+      values: ['pending', 'verified', 'failed'],
+      filterable: true,
+      sortable: true,
+      indexed: true,
+    },
+    /** Whether traffic actually arrives. Diagnostic, never a gate on serving. */
+    { name: 'reachesUs', type: 'boolean', filterable: true },
+    { name: 'verifiedAt', type: 'datetime', sortable: true, filterable: true },
+    { name: 'lastCheckedAt', type: 'datetime', sortable: true },
+    { name: 'createdAt', type: 'datetime', sortable: true, filterable: true },
+  ],
+  /**
+   * No generic REST surface, deliberately — `domains.controller.ts` is the only
+   * way in.
+   *
+   * Every other resource on the platform is happy with the generic list, and
+   * this one is not, because a domain row is useless on its own: what a
+   * merchant needs is the DNS records to paste at their registrar, and those
+   * are DERIVED from the host and the token rather than stored. A generic list
+   * would return rows nobody can act on, sitting beside a controller that
+   * returns rows they can — two ways into the same data that would eventually
+   * disagree about which is authoritative.
+   *
+   * The resource still earns its place: it defines the entity the ListScreen
+   * renders and the fields it may sort and filter on.
+   */
+  api: { graphql: false, rest: false, visibility: 'internal' },
+  screens: ['list'],
+  /**
+   * Reading and writing take the SAME permission, and that is deliberate.
+   *
+   * Knowing which hostnames a store answers on is not sensitive; being able to
+   * add one decides where its customers land. There is no useful role that
+   * reads this list and must not change it, and splitting them would invent a
+   * distinction nobody asked for.
+   */
+  permissions: {
+    read: 'store.domains.manage',
+    write: 'store.domains.manage',
+  },
+};

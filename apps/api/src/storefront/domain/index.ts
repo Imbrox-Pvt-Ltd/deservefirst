@@ -23,3 +23,4 @@ export * from './form-submission';
 export * from './csp';
 export * from './drops';
 export * from './page-cache';
+export * from './domains';

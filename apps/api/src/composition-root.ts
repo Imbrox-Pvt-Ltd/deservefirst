@@ -26,14 +26,16 @@ import {
   FilesystemThemeSource,
   FilesystemThemeVersionStore,
   MemoryPageCache,
+  NodeDnsProbe,
+  SqlDomainRepository,
   SqlDraftStore,
   SqlMessageStatus,
   SqlStorefrontSubmissions,
   SqlStoreResolver,
   SqlThemeRepository,
 } from './storefront/infrastructure';
-import { EditorService, PublishService, ThemeSchemas } from './storefront/application';
-import { editorController, messagesController, StorefrontHandler } from './storefront/api';
+import { DomainService, EditorService, PublishService, ThemeSchemas } from './storefront/application';
+import { domainsController, editorController, messagesController, StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
 import { SqlDeploymentRepository } from './functions/infrastructure';
@@ -750,6 +752,38 @@ export async function bootstrap(): Promise<Platform> {
   };
 
   /**
+   * Connecting a hostname to a store.
+   *
+   * Built per request rather than once, because the repository reads the store
+   * from the ambient context — a single shared instance would answer for
+   * whichever store happened to construct it, which is the whole class of bug
+   * tenant context exists to prevent.
+   *
+   * The platform's own hostnames are passed in so `normaliseDomain` can refuse
+   * them: `admin.<platform>` attached to a merchant's store would let them
+   * serve their own markup from the admin's origin.
+   */
+  const domainTarget = {
+    cname: process.env.DF_DOMAIN_CNAME ?? `shops.${branding.domains.marketing}`,
+    ipv4: process.env.DF_DOMAIN_IPV4 ?? '203.0.113.10',
+  };
+  const dnsProbe = new NodeDnsProbe({
+    timeoutMs: Number(process.env.DF_DNS_TIMEOUT_MS ?? 5_000),
+    servers: process.env.DF_DNS_SERVERS?.split(',').filter(Boolean),
+  });
+
+  const domainServiceFor = () =>
+    new DomainService(
+      new SqlDomainRepository(executor, dialect, () => `dom_${randomUUID()}`),
+      dnsProbe,
+      domainTarget,
+      Object.values(branding.domains),
+      // Long and unguessable: a token somebody could predict would let them
+      // publish it under a domain before the real owner did.
+      () => randomUUID().replace(/-/g, ''),
+    );
+
+  /**
    * Rendered pages, kept between requests.
    *
    * In-process, which is correct on one node and wrong on four: a publish
@@ -1039,6 +1073,7 @@ export async function bootstrap(): Promise<Platform> {
       appsController({ apps: appService }),
       messagesController(new SqlMessageStatus(executor, dialect) as never),
       editorController(editorServices as never),
+      domainsController({ domains: domainServiceFor } as never),
       billingController({ billing: billingService }),
       partnerController({
         partners: partnerService,

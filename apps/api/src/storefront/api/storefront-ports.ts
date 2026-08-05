@@ -69,6 +69,15 @@ export interface ResolvedStore {
    * A store not yet open. Renders the password page and disallows crawling.
    */
   readonly closed?: boolean;
+  /**
+   * The hostname this store canonically lives at, once one is verified.
+   *
+   * Carried on the resolution because the transport needs it before it renders
+   * anything: a request arriving on any other hostname is redirected here, so
+   * that one page has one URL. Null while a store has connected nothing, which
+   * is when its platform subdomain IS the canonical name.
+   */
+  readonly primaryHost?: string | null;
 }
 
 /**

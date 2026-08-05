@@ -10,7 +10,7 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
-import { contactMessageResource } from './contracts';
+import { contactMessageResource, storeDomainResource } from './contracts';
 
 const STOREFRONT_TOOLKIT = {
   metafields: false,
@@ -168,6 +168,50 @@ export const storefrontManifest: ModuleManifest = {
         { name: 'createdAt', type: 'datetime', sortable: true },
       ],
     },
+    {
+      /**
+       * A hostname a merchant has connected to their store.
+       *
+       * The row exists from the moment it is claimed, in `pending`, and that is
+       * the point: it records a claim, and the claim is worthless until
+       * `verifiedAt` is set. Nothing is served on the strength of a row alone —
+       * `isServable` is the only thing the resolver asks, and it asks about
+       * status rather than existence.
+       *
+       * `host` is indexed because it is looked up on every anonymous request
+       * that arrives on a hostname we do not otherwise recognise, which on a
+       * busy platform is the hottest query the storefront makes.
+       */
+      name: 'StoreDomain',
+      tableName: 'store_domains',
+      toolkit: { ...STOREFRONT_TOOLKIT, timeline: true, audit: true },
+      fields: [
+        { name: 'host', type: 'string', required: true, indexed: true, filterable: true, searchable: true },
+        /**
+         * Exactly one primary per store, computed over the set rather than
+         * constrained on the column — the same reasoning as a theme's `main`
+         * role, and for the same reason: "exactly one" is a statement about the
+         * set, not about any row.
+         */
+        { name: 'role', type: 'enum', values: ['primary', 'alias'], filterable: true, indexed: true },
+        { name: 'status', type: 'enum', values: ['pending', 'verified', 'failed'], filterable: true, indexed: true },
+        /**
+         * The value the merchant publishes in DNS to prove they own this name.
+         *
+         * Per domain and never reused, so a token observed on one domain cannot
+         * be replayed to claim another.
+         */
+        { name: 'verificationToken', type: 'string', required: true },
+        /** Null until ownership was proved. This is what gates serving. */
+        { name: 'verifiedAt', type: 'datetime', sortable: true, filterable: true },
+        /** When we last looked, so a merchant knows whether to wait or retry. */
+        { name: 'lastCheckedAt', type: 'datetime', sortable: true },
+        /** Whether traffic actually arrives. Diagnostic, never a gate. */
+        { name: 'reachesUs', type: 'boolean', filterable: true },
+        { name: 'createdAt', type: 'datetime', sortable: true },
+        { name: 'updatedAt', type: 'datetime', sortable: true },
+      ],
+    },
   ],
 
   /**
@@ -177,7 +221,7 @@ export const storefrontManifest: ModuleManifest = {
    * them would be a second way into the same rows, and the two would eventually
    * disagree about filtering.
    */
-  resources: [contactMessageResource],
+  resources: [contactMessageResource, storeDomainResource],
 
   permissions: [
     {
@@ -202,6 +246,21 @@ export const storefrontManifest: ModuleManifest = {
       key: 'store.redirects.manage',
       label: 'Manage URL redirects',
       description: 'Decide where old links lead.',
+      categories: ['store'],
+    },
+    {
+      /**
+       * Its own permission rather than the general settings one.
+       *
+       * Connecting a hostname decides where every customer of this store lands,
+       * and disconnecting the primary one moves the whole shop. That is a
+       * larger blast radius than most of what lives under settings, and staff
+       * who may change a shipping rate should not inherit it by accident.
+       */
+      key: 'store.domains.manage',
+      label: 'Manage domains',
+      description:
+        'Connect and verify the hostnames this store answers on, and choose the primary one.',
       categories: ['store'],
     },
   ],
@@ -242,5 +301,11 @@ export const storefrontManifest: ModuleManifest = {
     { path: '/store/:handle/themes/:id', screen: 'DetailScreen', entity: 'Theme', permission: 'store.themes.read' },
     { path: '/store/:handle/redirects', screen: 'ListScreen', entity: 'UrlRedirect', permission: 'store.redirects.manage' },
     { path: '/store/:handle/messages', screen: 'ListScreen', entity: 'ContactMessage', permission: 'store.messages.read' },
+    /**
+     * Under `/settings/` rather than beside themes, matching the reference
+     * product's own placement — a domain is a store-wide setting, and a
+     * merchant looking for it looks in settings.
+     */
+    { path: '/store/:handle/settings/domains', screen: 'ListScreen', entity: 'StoreDomain', permission: 'store.domains.manage' },
   ],
 };

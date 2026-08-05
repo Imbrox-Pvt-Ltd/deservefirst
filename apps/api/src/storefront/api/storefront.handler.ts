@@ -30,6 +30,7 @@ import {
   buildCsp,
   cacheKeyFor,
   canonicalPath,
+  canonicalRedirect,
   cspHeaderName,
   decideCacheable,
   DEFAULT_TTL_SECONDS,
@@ -217,6 +218,37 @@ export class StorefrontHandler {
           'cache-control': 'no-store',
         },
         body: renderStoreNotFoundPage({ host: normaliseHost(input.host) }),
+        cacheKey: null,
+      };
+    }
+
+    /**
+     * One page, one URL — decided before anything is rendered.
+     *
+     * A store with a verified primary domain answers on its platform subdomain
+     * and on every alias too, and serving identical pages from several
+     * hostnames splits the search ranking between them. That costs the merchant
+     * exactly the traffic they connected a domain to get.
+     *
+     * Before the render rather than after, because a page rendered and then
+     * discarded is 86 KB of Liquid nobody reads. Before the POST branch too:
+     * a form posted to an alias should land on the canonical host, and 308
+     * rather than 301 is what preserves the method and the body while it does.
+     */
+    const canonical = canonicalRedirect({
+      requestHost: normaliseHost(input.host),
+      primaryHost: store.primaryHost ?? null,
+      path: input.path.split('?')[0] ?? '/',
+      query: input.query,
+    });
+
+    if (canonical !== null) {
+      return {
+        status: input.method === 'POST' ? 308 : 301,
+        headers: { ...SECURITY_HEADERS, location: canonical },
+        body: '',
+        // The redirect itself is stable and cacheable; where it lands decides
+        // its own caching.
         cacheKey: null,
       };
     }

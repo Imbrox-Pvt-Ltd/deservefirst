@@ -104,3 +104,37 @@ export function countPlaceholders(sql: string): number {
 
   return count;
 }
+
+/**
+ * An executor that can report how many rows a write touched.
+ *
+ * `QueryExecutor` only promises `query`, which returns ROWS. A MySQL driver
+ * answers an UPDATE with a result header rather than rows, so reading
+ * `affectedRows` off what `query` returns reads it off an array — which is
+ * `undefined`, every time. That bug shipped once: a cross-tenant triage was
+ * correctly refused and cheerfully reported as succeeding, because the code
+ * decided the outcome from a number that was never there.
+ *
+ * So a write that needs to know what it touched asks for this explicitly, and
+ * an executor that cannot answer is refused up front rather than guessed at.
+ * The platform does not pretend a write worked.
+ */
+export interface WritableExecutor {
+  execute(sql: string, parameters: readonly unknown[]): Promise<{ affectedRows: number }>;
+}
+
+/**
+ * Narrows an executor to one that can count its writes, or explains why not.
+ *
+ * `purpose` names the operation so the failure says which one cannot be
+ * verified, rather than reporting a missing method somewhere in the platform.
+ */
+export function writerFor(executor: unknown, purpose: string): WritableExecutor {
+  const candidate = executor as Partial<WritableExecutor>;
+  if (typeof candidate.execute !== 'function') {
+    throw new Error(
+      `This executor cannot report affected rows, so ${purpose} cannot be verified.`,
+    );
+  }
+  return candidate as WritableExecutor;
+}

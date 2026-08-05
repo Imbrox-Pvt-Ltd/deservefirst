@@ -17,7 +17,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
-import { Binder } from '../../core/database/bind';
+import { Binder, writerFor } from '../../core/database/bind';
 import type { QueryExecutor } from '../../core/list-engine';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
@@ -159,13 +159,7 @@ export class SqlThemeRepository implements ThemeRepository {
    */
   async applyRoleChange(change: RoleChange): Promise<void> {
     const storeId = this.storeId();
-    const writable = this.executor as QueryExecutor & {
-      execute?: (sql: string, parameters: readonly unknown[]) => Promise<{ affectedRows: number }>;
-    };
-
-    if (!writable.execute) {
-      throw new Error('This executor cannot report affected rows, so a publish cannot be verified.');
-    }
+    const writable = writerFor(this.executor, 'a publish');
 
     const targets = [change.promote.themeId, ...(change.demote ? [change.demote.themeId] : [])];
     const now = new Date();

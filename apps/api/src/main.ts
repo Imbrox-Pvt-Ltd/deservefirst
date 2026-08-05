@@ -347,6 +347,46 @@ async function start(): Promise<void> {
   });
 
   /**
+   * The hostnames the platform serves its OWN application on.
+   *
+   * A closed set, and that is what makes the dispatch below possible. Once
+   * merchants can connect their own domains, storefront traffic arrives on
+   * hostnames nobody can enumerate in advance — so the question cannot be "is
+   * this a storefront host", which has no finite answer. It has to be "is this
+   * one of ours", which does.
+   *
+   * The development hosts are in the set because the admin and the storefront
+   * share a port locally. Without them `localhost` would be read as somebody's
+   * shop and the entire admin API would answer with a store-not-found page.
+   */
+  const platformHosts = new Set(
+    [
+      branding.domains.marketing,
+      branding.domains.accounts,
+      branding.domains.admin,
+      branding.domains.partners,
+      branding.domains.developers,
+      branding.domains.api,
+      ...(process.env.DF_PLATFORM_HOSTS?.split(',') ?? ['localhost', '127.0.0.1', '[::1]']),
+    ].map((entry) => entry.trim().toLowerCase()).filter(Boolean),
+  );
+
+  /**
+   * Whether this request belongs to a storefront rather than to the admin.
+   *
+   * Anything that is not one of ours is treated as a shop, and a hostname no
+   * store has connected gets the branded 404 the handler already renders. That
+   * is the right answer for a multi-tenant platform: an unknown host is a
+   * mistyped shop, not a reason to expose the admin.
+   */
+  const isStorefrontHost = (rawHost: string): boolean => {
+    // The port is dropped before comparing, or `localhost:4000` matches nothing.
+    const host = rawHost.split(',')[0]!.trim().toLowerCase().replace(/:\d+$/, '');
+    if (host === '') return false;
+    return !platformHosts.has(host);
+  };
+
+  /**
    * The public storefront, dispatched by Host before anything else runs.
    *
    * An `onRequest` hook rather than a route, because a storefront answers every
@@ -360,7 +400,7 @@ async function start(): Promise<void> {
    */
   app.addHook('onRequest', async (request, reply) => {
     const host = String(request.headers.host ?? '');
-    if (!host.toLowerCase().includes(branding.domains.storefront)) return;
+    if (!isStorefrontHost(host)) return;
 
     const url = new URL(request.url, 'http://internal');
 

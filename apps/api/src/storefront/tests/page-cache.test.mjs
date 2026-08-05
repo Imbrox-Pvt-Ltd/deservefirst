@@ -403,3 +403,64 @@ test('a platform-scoped event clears nothing', async () => {
   await events.emit(CATALOG_EVENTS.productUpdated, {}, { storeId: null });
   assert.equal(cache.epochFor('store_1'), 0);
 });
+
+// ------------------------------------------------------- one page, one URL
+
+test('a request on a non-primary host redirects to the primary', async () => {
+  /**
+   * Two hostnames serving identical pages split the search ranking between
+   * them, which costs the merchant the traffic they connected a domain to get.
+   */
+  const store = { ...storeWith(themeFor(`<p>x</p>`)), primaryHost: 'acme-brand.co' };
+  const handler = new StorefrontHandler({ resolve: async () => store }, {});
+
+  const response = await handler.handle({
+    host: 'demo.stores.deservefirst.example', path: '/products/hat', query: 'variant=red', method: 'GET',
+  });
+
+  assert.equal(response.status, 301);
+  assert.equal(response.headers.location, 'https://acme-brand.co/products/hat?variant=red');
+  assert.equal(response.body, '', 'nothing was rendered — a discarded page is 86 KB nobody reads');
+});
+
+test('a POST to an alias keeps its method and body', async () => {
+  // A 301 would turn a form submission into a GET and lose what the customer
+  // typed; 308 is the one that preserves both.
+  const store = { ...storeWith(themeFor(`<p>x</p>`)), primaryHost: 'acme-brand.co' };
+  const handler = new StorefrontHandler({ resolve: async () => store }, {});
+
+  const response = await handler.handle({
+    host: 'demo.stores.deservefirst.example', path: '/contact', query: '', method: 'POST',
+  });
+
+  assert.equal(response.status, 308);
+});
+
+test('the primary host itself is served, not redirected', async () => {
+  const store = { ...storeWith(themeFor(`<p>x</p>`)), primaryHost: 'shop.test' };
+  const handler = new StorefrontHandler({ resolve: async () => store }, {});
+
+  const response = await handler.handle({ host: 'shop.test', path: '/', query: '', method: 'GET' });
+  assert.equal(response.status, 200);
+});
+
+test('a store with no primary is never redirected', async () => {
+  // Every store starts here, and a redirect loop on day one would be fatal.
+  const store = storeWith(themeFor(`<p>x</p>`));
+  const handler = new StorefrontHandler({ resolve: async () => store }, {});
+
+  const response = await handler.handle({ host: 'shop.test', path: '/', query: '', method: 'GET' });
+  assert.equal(response.status, 200);
+});
+
+test('the redirect is not cached under the alias', async () => {
+  /**
+   * A redirect cached against a store's page key would be replayed to the
+   * primary host too, and every request would bounce forever.
+   */
+  const store = { ...storeWith(themeFor(`<p>x</p>`)), primaryHost: 'acme-brand.co' };
+  const handler = new StorefrontHandler({ resolve: async () => store }, { pageCache: new MemoryPageCache() });
+
+  const response = await handler.handle({ host: 'other.test', path: '/', query: '', method: 'GET' });
+  assert.equal(response.cacheKey, null);
+});
