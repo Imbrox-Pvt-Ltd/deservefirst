@@ -1235,6 +1235,86 @@ async function start(): Promise<void> {
    * It exists because a customer cancelling a subscription should not have to
    * ask their merchant to tidy up afterwards.
    */
+  /**
+   * An app asking a merchant to pay, and recording what they used.
+   *
+   * Authorised by the token rather than a store permission: it names one app
+   * and one store, so an app can only ever raise a charge against the store it
+   * was installed on. Asking is not taking — the charge is `pending` and worth
+   * nothing until the merchant approves it on their own screen.
+   */
+  const appBilling = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    run: (appId: string, storeId: StoreId) => Promise<unknown>,
+  ) => {
+    const context = await contextFor(request as never);
+    if (context.actorType !== 'app' || !context.appId || context.storeId === null) {
+      return reply.status(403).send(
+        failure(
+          [apiError('forbidden', 'For apps only', 'Only an installed app can raise a charge.')],
+          { requestId: context.requestId },
+        ),
+      );
+    }
+
+    const payload = await withRequestContext(context, () =>
+      run(context.appId as string, context.storeId as StoreId),
+    );
+    return success(payload, { requestId: context.requestId });
+  };
+
+  app.post(`/${API_VERSION}/billing/charges`, async (request, reply) =>
+    appBilling(request, reply, async (appId, storeId) => {
+      const body = request.body as Record<string, unknown>;
+      const priceIn = (body.price ?? {}) as Record<string, unknown>;
+      const price = moneyFromDecimalString(
+        String(priceIn.amount ?? '0'),
+        String(priceIn.currency ?? 'USD'),
+      );
+      const capIn = body.cappedAmount as Record<string, unknown> | undefined;
+
+      const charge = await platform.billing.create({
+        appId,
+        storeId,
+        kind: (body.kind as 'recurring' | 'usage' | 'one_time') ?? 'recurring',
+        name: String(body.name ?? ''),
+        price,
+        interval: (body.interval as 'every_30_days' | 'annual' | null) ?? null,
+        cappedAmount: capIn
+          ? moneyFromDecimalString(
+              String(capIn.amount ?? '0'),
+              String(capIn.currency ?? price.currency),
+            )
+          : null,
+        trialDays: Number(body.trialDays ?? 0),
+        isTest: body.isTest === true,
+      });
+
+      return { id: charge.id, name: charge.name, status: charge.status };
+    }),
+  );
+
+  app.post(`/${API_VERSION}/billing/charges/:id/usage`, async (request, reply) =>
+    appBilling(request, reply, async (appId) => {
+      const body = request.body as Record<string, unknown>;
+      const amountIn = (body.amount ?? {}) as Record<string, unknown>;
+      const { id } = request.params as { id: string };
+
+      const charge = await platform.billing.recordUsage(
+        id,
+        appId,
+        moneyFromDecimalString(String(amountIn.amount ?? '0'), String(amountIn.currency ?? 'USD')),
+      );
+
+      return {
+        id: charge.id,
+        balanceUsed: toDecimalString(charge.balanceUsed),
+        currency: charge.balanceUsed.currency,
+      };
+    }),
+  );
+
   app.delete(`/${API_VERSION}/apps/installations/self`, async (request, reply) => {
     const context = await contextFor(request as never);
 

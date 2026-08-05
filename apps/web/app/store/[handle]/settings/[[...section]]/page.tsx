@@ -15,6 +15,7 @@ import type {
   ResolvedSettingDto,
   SettingDto,
   WebhookDeliveryDto,
+  AppChargeDto,
   InstalledAppDto,
   PartnerAccessDto,
   WebhookEventDto,
@@ -107,6 +108,15 @@ export default async function SettingsPage({
     }
   }
 
+  let charges: AppChargeDto[] = [];
+  if (active === 'billing') {
+    try {
+      charges = (await apiFetch<AppChargeDto[]>('/billing/charges')).data;
+    } catch {
+      charges = [];
+    }
+  }
+
   return (
     <StoreSettings
       handle={handle}
@@ -125,6 +135,8 @@ export default async function SettingsPage({
       canManagePartners={session.permissions.includes('store.partners.manage')}
       installedApps={installedApps}
       canManageApps={session.permissions.includes('store.apps.manage')}
+      charges={charges}
+      canApproveCharges={session.permissions.includes('store.billing.approve')}
     />
   );
 }

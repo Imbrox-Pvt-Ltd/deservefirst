@@ -593,3 +593,25 @@ export interface AppVersionDto {
   readonly releasedAt: string | null;
   readonly createdAt: string | null;
 }
+
+export interface ChargeAmountDto {
+  readonly amount: string;
+  readonly currency: string;
+}
+
+export interface AppChargeDto {
+  readonly id: string;
+  readonly appId: string;
+  readonly kind: 'recurring' | 'usage' | 'one_time';
+  readonly name: string;
+  readonly status: 'pending' | 'active' | 'declined' | 'cancelled' | 'expired';
+  readonly price: ChargeAmountDto;
+  readonly interval: 'every_30_days' | 'annual' | null;
+  readonly cappedAmount: ChargeAmountDto | null;
+  readonly balanceUsed: ChargeAmountDto;
+  readonly remaining: ChargeAmountDto | null;
+  readonly due: ChargeAmountDto;
+  readonly trialDays: number;
+  readonly isTest: boolean;
+  readonly version: number;
+}

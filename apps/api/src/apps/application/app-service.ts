@@ -82,6 +82,13 @@ export interface AppServicePorts {
    * forgot to subscribe is exactly the app that will keep calling with a dead
    * token until somebody investigates the 401s.
    */
+  /**
+   * Cancels everything this app has running on the store.
+   *
+   * An uninstalled app that keeps billing is the worst failure the billing
+   * module has, because the merchant has no screen left on which to notice it.
+   */
+  readonly cancelBillingFor: (appId: string, storeId: StoreId) => Promise<number>;
   readonly ensureAppSubscription: (input: {
     appId: string;
     storeId: StoreId;
@@ -473,6 +480,9 @@ export class AppService {
       uninstalledAt: at,
     });
     await this.ports.apps.revokeTokensFor(appId, storeId, at);
+    // Before the event, so a subscriber reacting to the uninstall never sees a
+    // removed app with a live subscription.
+    await this.ports.cancelBillingFor(appId, storeId);
 
     /**
      * Emitted AFTER the revoke and after the row is saved.

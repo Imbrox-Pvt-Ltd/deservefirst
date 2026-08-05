@@ -29,6 +29,8 @@ import { webhooksController } from './core/webhooks/webhooks.controller';
 import { partnerController } from './auth/api/partner.controller';
 import { appsController } from './apps/api/apps.controller';
 import { appsManifest } from './apps/apps.manifest';
+import { billingManifest } from './billing/billing.manifest';
+import { billingController } from './billing/api/billing.controller';
 
 /**
  * Stands in for a module's services while its routes are read.
@@ -63,6 +65,7 @@ export function describePlatform(): {
     contentManifest,
     inventoryManifest,
     appsManifest,
+    billingManifest,
   ]) {
     registry.register(manifest);
   }
@@ -81,6 +84,7 @@ export function describePlatform(): {
       webhooksController(unused),
       partnerController(unused),
       appsController(unused),
+      billingController(unused),
     ],
   };
 }
