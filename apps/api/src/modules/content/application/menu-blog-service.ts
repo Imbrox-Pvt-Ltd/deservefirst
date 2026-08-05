@@ -13,8 +13,10 @@ import { randomUUID } from 'node:crypto';
 import type { Connection, ListQuery } from '@deservefirst/contracts';
 
 import {
+  assertBlogValid,
   assertMenuValid,
   assertPostValid,
+  type Blog,
   type BlogPost,
   type Menu,
 } from '../domain';
@@ -101,7 +103,49 @@ export class MenuService {
 }
 
 export class BlogPostService {
-  constructor(private readonly posts: Store<BlogPost>) {}
+  constructor(
+    private readonly posts: Store<BlogPost>,
+    private readonly blogs: Store<Blog>,
+  ) {}
+
+  /**
+   * The blog a post goes in when nobody said.
+   *
+   * The captured admin has no blogs screen — a merchant writes posts, and the
+   * blog is scaffolding. So the first post creates "News" rather than making
+   * somebody set up a container first, and it is resolved lazily rather than
+   * seeded at store creation, which means stores that already exist get one the
+   * moment they need it instead of needing a backfill.
+   */
+  private async defaultBlog(): Promise<Blog> {
+    // A complete ListQuery, not a partial cast: the list engine iterates
+    // `filters` and `columns`, so a convincing-looking `{ first: 1 }` fails at
+    // runtime rather than at the type boundary.
+    const existing = await this.blogs.list({
+      savedViewId: null,
+      text: '',
+      filters: [],
+      sort: null,
+      columns: [],
+      cursor: null,
+      before: null,
+      limit: 1,
+      selectedId: null,
+      dialog: null,
+    });
+    const first = existing.nodes[0];
+    if (first) return first;
+
+    const blog: Blog = {
+      id: randomUUID(),
+      title: 'News',
+      handle: 'news',
+      commentPolicy: 'moderated',
+      version: 1,
+    };
+    assertBlogValid(blog);
+    return this.blogs.insert(blog);
+  }
 
   list(query: ListQuery): Promise<Connection<BlogPost>> {
     return this.posts.list(query);
@@ -114,14 +158,16 @@ export class BlogPostService {
   }
 
   async create(input: {
-    blogId: string;
+    blogId?: string;
     title: string;
     body?: string;
     handle?: string;
   }): Promise<BlogPost> {
+    const blogId = input.blogId?.trim() || (await this.defaultBlog()).id;
+
     const post: BlogPost = {
       id: randomUUID(),
-      blogId: input.blogId.trim(),
+      blogId,
       title: input.title.trim(),
       handle: (input.handle ?? slug(input.title)).trim().toLowerCase(),
       body: input.body ?? '',

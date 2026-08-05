@@ -158,7 +158,7 @@ export async function createMenu(
 
 export async function createBlogPost(
   storeHandle: string,
-  input: { blogId: string; title: string; body: string },
+  input: { title: string; body: string },
 ) {
   // A draft with no date. Publishing is a separate decision, and a post that
   // went live the moment it was created is the wrong default in every case.

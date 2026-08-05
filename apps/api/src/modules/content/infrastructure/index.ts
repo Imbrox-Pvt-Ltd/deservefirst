@@ -16,12 +16,14 @@ import { type Connection, type ListQuery, type ResourceDefinition } from '@deser
 import { SqlAggregateRepository, parseJsonArray, parseJsonColumn } from '../../../core/database';
 import {
   blogPostResource,
+  blogResource,
   menuResource,
   metaobjectDefinitionResource,
   metaobjectEntryResource,
   pageResource,
 } from '../contracts';
 import type {
+  Blog,
   BlogPost,
   Menu,
   MetaobjectDefinition,
@@ -121,6 +123,38 @@ export class SqlMenuRepository extends SqlAggregateRepository<Menu, MenuRow> {
       handle: entity.handle,
       title: entity.title,
       items: JSON.stringify(entity.items),
+    };
+  }
+}
+
+interface BlogRow extends Record<string, unknown> {
+  id: string;
+  handle: string;
+  title: string;
+  comment_policy: string;
+  version: number;
+}
+
+export class SqlBlogRepository extends SqlAggregateRepository<Blog, BlogRow> {
+  protected readonly tableName = 'blogs';
+  protected readonly resource: ResourceDefinition = blogResource;
+  protected readonly operation = 'content.blogs';
+
+  protected toDomain(row: BlogRow): Blog {
+    return {
+      id: row.id,
+      handle: row.handle,
+      title: row.title,
+      commentPolicy: row.comment_policy as Blog['commentPolicy'],
+      version: Number(row.version),
+    };
+  }
+
+  protected toColumns(entity: Blog): Record<string, unknown> {
+    return {
+      handle: entity.handle,
+      title: entity.title,
+      comment_policy: entity.commentPolicy,
     };
   }
 }

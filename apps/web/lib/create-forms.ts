@@ -161,7 +161,6 @@ export const CREATE_FORMS: Readonly<Record<CreateKind, CreateFormSpec>> = {
     detailPath: (h, id) => `${store(h)}/blogs/${id}`,
     fields: [
       { name: 'title', label: 'Title', required: true, placeholder: 'Our new collection' },
-      { name: 'blogId', label: 'Blog', required: true, helpText: 'Which blog this post belongs to.' },
       {
         name: 'body',
         label: 'Content',

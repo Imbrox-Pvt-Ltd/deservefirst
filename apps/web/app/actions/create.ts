@@ -88,8 +88,11 @@ export async function createRecord(
     }
 
     case 'blog-post': {
+      // No blog asked for: the API puts it in the store's default one, and
+      // creates that on the first post. The reference admin has no blogs
+      // screen, so making a merchant pick a container first would be a field
+      // this product does not have.
       const result = await createBlogPost(handle, {
-        blogId: text('blogId'),
         title: text('title'),
         body: text('body'),
       });

@@ -130,7 +130,9 @@ export function contentController(services: ContentServices): ModuleController {
       handle: async (request) => {
         const { body } = request;
         return services.blogPosts.create({
-          blogId: String(body.blogId ?? ''),
+          // Optional: with no blog named, the service puts it in the store's
+          // default one and creates that if it does not exist yet.
+          blogId: body.blogId === undefined ? undefined : String(body.blogId),
           title: String(body.title ?? ''),
           body: body.body === undefined ? undefined : String(body.body),
           handle: body.handle === undefined ? undefined : String(body.handle),
