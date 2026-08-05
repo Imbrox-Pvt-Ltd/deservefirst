@@ -928,6 +928,128 @@ async function start(): Promise<void> {
    * app author's own data, and making them ask an operator to see whether their
    * own integration is failing would be absurd.
    */
+  /**
+   * Every extension point the installed modules declare (§22.3).
+   *
+   * Read off the manifests rather than listed, so a module exposing a new
+   * decision is offerable the day it declares one — and a point the form offers
+   * that nothing calls is a function an author waits forever to see run.
+   */
+  app.get(`/${API_VERSION}/functions/points`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    return success(
+      platform.registry.all().flatMap((entry) =>
+        (entry.manifest.functionPoints ?? []).map((point) => ({
+          key: point.key,
+          label: point.label,
+          description: point.description,
+          onFailure: point.onFailure,
+          inputExample: point.inputExample,
+          moduleId: entry.manifest.id,
+        })),
+      ),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/functions`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const owned = await platform.apps.appsForPartner(partnerId);
+    if (!owned.some((entry) => entry.id === appId)) {
+      return reply.status(404).send(
+        failure([apiError('not_found', 'Not found', 'No such app.')], {
+          requestId: context.requestId,
+        }),
+      );
+    }
+
+    const deployed = await platform.functions.forApp(appId);
+    return success(
+      deployed.map((entry) => ({
+        id: entry.id,
+        point: entry.point,
+        name: entry.name,
+        status: entry.status,
+        disabledReason: entry.disabledReason,
+        timeoutMs: entry.timeoutMs,
+        memoryPages: entry.memoryPages,
+        // The artefact itself is never returned — it is somebody's compiled
+        // source, and a list screen has no use for megabytes of it.
+        sizeBytes: Math.floor((entry.wasmBase64.length * 3) / 4),
+      })),
+      { requestId: context.requestId },
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/apps/:appId/functions`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId } = request.params as { partnerId: string; appId: string };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const owned = await platform.apps.appsForPartner(partnerId);
+    if (!owned.some((entry) => entry.id === appId)) {
+      return reply.status(404).send(
+        failure([apiError('not_found', 'Not found', 'No such app.')], {
+          requestId: context.requestId,
+        }),
+      );
+    }
+
+    const body = request.body as Record<string, unknown>;
+    const wasm = Buffer.from(String(body.wasmBase64 ?? ''), 'base64');
+
+    /**
+     * Refused here rather than at first run.
+     *
+     * `deploy` compiles the module and reads its import table before storing
+     * anything, so an author learns their module wants a filesystem while they
+     * are looking at the deploy screen — not weeks later inside a merchant's
+     * checkout.
+     */
+    const deployment = await platform.functions.deploy({
+      appId,
+      point: String(body.point ?? ''),
+      name: String(body.name ?? ''),
+      wasm: new Uint8Array(wasm),
+      limits: {
+        ...(typeof body.timeoutMs === 'number' ? { timeoutMs: body.timeoutMs } : {}),
+        ...(typeof body.memoryPages === 'number' ? { memoryPages: body.memoryPages } : {}),
+      },
+    });
+
+    return reply.status(201).send(
+      success({ id: deployment.id, point: deployment.point, name: deployment.name }, {
+        requestId: context.requestId,
+      }),
+    );
+  });
+
+  app.post(`/${API_VERSION}/partners/:partnerId/apps/:appId/functions/:id/disable`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+
+    const { partnerId, appId, id } = request.params as {
+      partnerId: string;
+      appId: string;
+      id: string;
+    };
+    await platform.partners.get(partnerId as PartnerId, context.userId as UserId);
+
+    const body = request.body as Record<string, unknown>;
+    await platform.functions.disable(id, appId, String(body.reason ?? 'Disabled by the partner.'));
+
+    return success({ id, disabled: true }, { requestId: context.requestId });
+  });
+
   app.get(`/${API_VERSION}/partners/:partnerId/apps/:appId/versions`, async (request, reply) => {
     const context = await requireUser(request, reply);
     if (!context) return reply;

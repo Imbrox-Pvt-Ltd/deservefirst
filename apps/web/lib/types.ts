@@ -615,3 +615,24 @@ export interface AppChargeDto {
   readonly isTest: boolean;
   readonly version: number;
 }
+
+export interface FunctionPointDto {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  /** What happens when a deployed function breaks — see the declaration. */
+  readonly onFailure: 'allow' | 'deny';
+  readonly inputExample: string;
+  readonly moduleId: string;
+}
+
+export interface FunctionDeploymentDto {
+  readonly id: string;
+  readonly point: string;
+  readonly name: string;
+  readonly status: 'active' | 'disabled';
+  readonly disabledReason: string | null;
+  readonly timeoutMs: number;
+  readonly memoryPages: number;
+  readonly sizeBytes: number;
+}

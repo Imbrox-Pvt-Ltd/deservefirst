@@ -156,6 +156,12 @@ export function PartnerApps({ partnerId, apps, scopes }: PartnerAppsProps) {
                     >
                       Versions
                     </Button>
+                    <Button
+                      variant="plain"
+                      onClick={() => router.push(`/partners/${partnerId}/apps/${entry.id}/functions`)}
+                    >
+                      Functions
+                    </Button>
                   {entry.status === 'draft' ? (
                     <Button
                       disabled={pending}

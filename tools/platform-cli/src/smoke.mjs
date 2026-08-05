@@ -218,6 +218,7 @@ async function partnerDestinations(apiUrl, cookie) {
         if (first) {
           paths.push(`/partners/${partner.id}/apps/${first.id}/monitoring/api_health`);
           paths.push(`/partners/${partner.id}/apps/${first.id}/versions`);
+          paths.push(`/partners/${partner.id}/apps/${first.id}/functions`);
         }
       } catch {
         // No apps, or the endpoint is down. The rest of the walk still runs.
