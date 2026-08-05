@@ -8,3 +8,5 @@ export {};
 export * from './page-renderer';
 
 export * from './content-for-header';
+
+export * from './platform-page';

@@ -143,11 +143,61 @@ test('one store cannot reach another store through the Host header', async () =>
   assert.ok(onBeta.body.includes('Beta Secret Widget'), onBeta.body);
 });
 
-test('an unknown host gets nothing, and reveals nothing', async () => {
+test('an unknown host gets our own page, and reveals nothing', async () => {
   const response = await get('someone-elses.test', '/');
+
+  assert.equal(response.status, 404, 'still a 404 — nothing is published here');
+  assert.match(response.headers['content-type'], /text\/html/);
+  assert.ok(response.body.startsWith('<!doctype html>'), response.body.slice(0, 80));
+
+  // Branded and useful rather than a bare string on our own domain.
+  assert.ok(response.body.includes('no store at this address'), response.body.slice(0, 400));
+
+  /**
+   * And it must not become a store directory. A "did you mean" here would let
+   * anyone enumerate which shops exist by trying names.
+   */
+  assert.ok(!response.body.includes('alpha'), 'leaked a store name');
+  assert.ok(!response.body.includes('beta'), 'leaked a store name');
+});
+
+test('the platform page is never indexed', async () => {
+  /**
+   * It answers on thousands of hostnames with nothing behind them. Without
+   * this a search engine would collect every one of them under our domain.
+   */
+  const response = await get('nothing-here.test', '/');
+  assert.equal(response.headers['x-robots-tag'], 'noindex, nofollow');
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.ok(response.body.includes('noindex'), 'the meta tag is missing too');
+});
+
+test('the Host header is escaped before it is shown back', async () => {
+  /**
+   * The page echoes the address that was asked for, so the typo is visible —
+   * and the Host header is attacker-controlled. A link with a crafted Host is
+   * the classic way this becomes reflected script on the platform's own domain.
+   */
+  const response = await storefront.handle({
+    host: '<script>alert(1)</script>.test',
+    path: '/',
+    query: '',
+    method: 'GET',
+  });
+
+  assert.ok(!response.body.includes('<script>alert(1)</script>'), response.body);
+  assert.ok(response.body.includes('&lt;script&gt;'), 'it should be shown, escaped');
+});
+
+test('the platform page needs no database', async () => {
+  // It is the answer when lookup found nothing, and what a flood of requests to
+  // random subdomains hits. Querying on the way out would make that expensive.
+  const exploding = new StorefrontHandler({
+    resolve: async () => null,
+  });
+  const response = await exploding.handle({ host: 'x.test', path: '/', query: '', method: 'GET' });
   assert.equal(response.status, 404);
-  // No hint that alpha or beta exist.
-  assert.ok(!response.body.includes('alpha'), response.body);
+  assert.ok(response.body.length > 500, 'the full page should render');
 });
 
 test('the host is matched after the port is dropped and case is folded', async () => {

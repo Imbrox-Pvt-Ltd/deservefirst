@@ -52,7 +52,7 @@ import {
   type PageType,
   type RouteMatch,
 } from '../domain';
-import { PageRenderer, renderContentForHeader } from '../application';
+import { PageRenderer, renderContentForHeader, renderStoreNotFoundPage } from '../application';
 import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
 import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
 import type { ResolvedStore, StorefrontData, StoreResolver } from './storefront-ports';
@@ -127,9 +127,29 @@ export class StorefrontHandler {
     );
 
     if (!store) {
-      // Not a host we serve. No store's content, and nothing that reveals
-      // which hosts do exist.
-      return text(404, 'Not found');
+      /**
+       * A branded page rather than bare text.
+       *
+       * Someone here has almost always mistyped a store name or followed a link
+       * to a shop that closed, and this is our own domain — leaving them on an
+       * unstyled "Not found" serves nobody.
+       *
+       * It stays a 404 and carries `noindex`: the page answers on thousands of
+       * hostnames with nothing behind them, and a 200 would have search engines
+       * collect every one of them. It says nothing about which stores DO exist,
+       * because a helpful hint here is a store-enumeration oracle.
+       */
+      return {
+        status: 404,
+        headers: {
+          ...SECURITY_HEADERS,
+          'content-type': 'text/html; charset=utf-8',
+          'x-robots-tag': 'noindex, nofollow',
+          'cache-control': 'no-store',
+        },
+        body: renderStoreNotFoundPage({ host: normaliseHost(input.host) }),
+        cacheKey: null,
+      };
     }
 
     return withRequestContext(storefrontContext(store.storeId), () => this.serve(store, input));
