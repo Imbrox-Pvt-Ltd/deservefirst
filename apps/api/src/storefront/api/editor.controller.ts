@@ -46,6 +46,8 @@ export interface EditorServices {
   resolveResources(type: SearchableType, handles: readonly string[]): Promise<readonly ResourceMatch[]>;
   /** Installs a theme from an archive. Never publishes it. */
   installTheme(storeId: string, archive: Buffer, name?: string): Promise<unknown>;
+  /** Every theme on this store, live one first. */
+  listThemes(storeId: string): Promise<readonly unknown[]>;
 }
 
 /** Turns an editor refusal into the status it deserves. */
@@ -226,6 +228,23 @@ export function editorController(services: EditorServices): ModuleController {
         await services.editor.discard(session, request.query.get('template') ?? '');
         return { discarded: true };
       },
+    },
+
+    {
+      /**
+       * The themes this store has.
+       *
+       * Its own endpoint rather than the generic resource surface, for the same
+       * reason the domains list is: what a merchant needs beside each theme is
+       * which one is live and whether it can be edited, and a generic list of
+       * rows answers neither without the caller knowing the role vocabulary.
+       */
+      method: 'GET',
+      path: '/editor/themes',
+      permission: 'store.themes.read',
+      handle: async (request: RouteRequest) => ({
+        themes: await services.listThemes(request.storeId),
+      }),
     },
 
     {

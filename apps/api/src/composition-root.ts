@@ -802,6 +802,15 @@ export async function bootstrap(): Promise<Platform> {
      * a config file that ships with the platform, and re-reading it for every
      * install would make a theme's verdict depend on when it was uploaded.
      */
+    listThemes: async (storeId: string) =>
+      withRequestContext(storefrontContext(storeId), async () => {
+        const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());
+        const themes = await repository.all();
+        // Live first: it is the one a merchant is looking for, and the one
+        // whose name they need to be sure about before publishing another.
+        return [...themes].sort((a, b) => (a.role === 'main' ? -1 : b.role === 'main' ? 1 : 0));
+      }),
+
     installTheme: async (storeId: string, archive: Buffer, name?: string) =>
       withRequestContext(storefrontContext(storeId), () => {
         const repository = new SqlThemeRepository(executor, dialect, () => randomUUID());

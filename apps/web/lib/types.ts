@@ -23,6 +23,8 @@ export interface ApiResponse<T> {
     readonly title: string;
     readonly detail: string;
     readonly status: number;
+    /** Which field or file this one is about, when it is about one. */
+    readonly pointer?: string;
   }[];
 }
 

@@ -18,6 +18,15 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     detail: string,
+    /**
+     * The rest of the envelope's errors, when there were several.
+     *
+     * `errors` is an array precisely so one refusal can name several problems —
+     * a theme archive with four unacceptable files should produce four lines a
+     * developer fixes in one pass. Keeping only the first would put that back
+     * to one complaint at a time.
+     */
+    readonly problems: readonly { detail: string; pointer?: string }[] = [],
   ) {
     super(detail);
     this.name = 'ApiError';
@@ -56,6 +65,9 @@ export async function apiFetch<T>(
       response.status,
       error?.code ?? 'internal_error',
       error?.detail ?? `Request to ${path} failed with ${response.status}`,
+      // The first error is the summary and is already the message; the rest are
+      // the individual problems.
+      body.errors.slice(1).map((entry) => ({ detail: entry.detail, pointer: entry.pointer })),
     );
   }
 
