@@ -54,6 +54,16 @@ export interface RenderContext {
 
   /** The routes a theme links to, exposed to it as `routes.*`. */
   readonly routes: Readonly<Record<string, string>>;
+
+  /**
+   * The per-render CSP nonce, or null when no policy is being sent.
+   *
+   * Every tag that emits inline code stamps this on it. That is the whole
+   * mechanism: the platform's own inline script and style carry the nonce
+   * because the platform wrote them, and a `<script>` that arrived inside a
+   * product title does not, because nothing on the platform did.
+   */
+  readonly nonce?: string | null;
 }
 
 /**
@@ -75,6 +85,7 @@ export function defaultContext(over: Partial<RenderContext> = {}): RenderContext
     },
     locale: 'en',
     translations: {},
+    nonce: null,
     routes: {
       root_url: '/',
       cart_url: '/cart',

@@ -51,14 +51,22 @@ const docTag: TagDefinition = {
 const javascriptTag: TagDefinition = {
   name: 'javascript',
   kind: 'raw',
-  render: (body) => `<script>${body}</script>`,
+  // Nonced, so it survives a CSP that forbids inline script. A theme's own
+  // JavaScript is code the platform chose to emit; injected script is not.
+  render: (body, _args, context) => `<script${nonceAttr(context)}>${body}</script>`,
 };
 
 const stylesheetTag: TagDefinition = {
   name: 'stylesheet',
   kind: 'raw',
-  render: (body) => `<style>${body}</style>`,
+  render: (body, _args, context) => `<style${nonceAttr(context)}>${body}</style>`,
 };
+
+/** The nonce attribute, or nothing when no policy is being sent. */
+function nonceAttr(context: { render: { nonce?: string | null } }): string {
+  const nonce = context.render.nonce;
+  return nonce ? ` nonce="${escapeHtml(nonce)}"` : '';
+}
 
 /**
  * `{% style %}` wraps its body in a style element, having rendered it.
@@ -76,7 +84,7 @@ const stylesheetTag: TagDefinition = {
 const styleTag: TagDefinition = {
   name: 'style',
   kind: 'block',
-  open: () => ({ before: '<style>', after: '</style>' }),
+  open: (_args, context) => ({ before: `<style${nonceAttr(context)}>`, after: '</style>' }),
 };
 
 /**

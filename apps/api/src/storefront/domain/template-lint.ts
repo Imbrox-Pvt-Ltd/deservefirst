@@ -124,6 +124,42 @@ const RULES: readonly Rule[] = [
 ];
 
 /**
+ * Inline script a Content-Security-Policy would block.
+ *
+ * Not a Liquid mistake — it is valid and works today — but it stops working the
+ * moment the policy is enforced, and the failure is a silent one: the page
+ * renders and the behaviour is gone.
+ *
+ * Reported by `theme:check` rather than left for a merchant to discover, with
+ * the fix in the message. The reference theme has thirteen of these.
+ */
+const CSP_RULES: readonly ((source: string) => readonly Omit<TemplateFinding, 'file'>[])[] = [
+  (source) => {
+    const findings: Omit<TemplateFinding, 'file'>[] = [];
+
+    for (const match of source.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>/g)) {
+      const attributes = match[1] ?? '';
+      // Already nonced, or a type the browser never executes.
+      if (/\bnonce\b/.test(attributes)) continue;
+
+      findings.push({
+        line: source.slice(0, match.index).split('\n').length,
+        rule: 'inline-script-needs-nonce',
+        severity: 'warning',
+        message:
+          'This inline script has no nonce, so it will stop running when a ' +
+          'Content-Security-Policy is enforced — silently, with the page still rendering.',
+        suggestion:
+          'Use {% javascript %}, which is nonced for you, or add ' +
+          'nonce="{{ content_security_policy_nonce }}" to the tag.',
+      });
+    }
+
+    return findings;
+  },
+];
+
+/**
  * Rules that cannot be decided from one tag in isolation.
  *
  * Kept separate because they need state the per-tag rules do not have, and
@@ -262,6 +298,11 @@ export function lintTemplate(file: string, source: string): readonly TemplateFin
     for (const found of rule(statements, source)) {
       findings.push({ file, ...found });
     }
+  }
+
+  // Markup rules, which look at the file rather than at its Liquid.
+  for (const rule of CSP_RULES) {
+    for (const found of rule(source)) findings.push({ file, ...found });
   }
 
   return findings;

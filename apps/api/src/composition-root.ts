@@ -762,10 +762,30 @@ export async function bootstrap(): Promise<Platform> {
       () => Date.now(),
       dialect,
     ),
-    // A section failure explains itself in the markup outside production,
-    // where it is exactly what a theme developer needs and exactly what a
-    // customer must never see.
-    { explainFailures: config.env !== 'production' },
+    {
+      // A section failure explains itself in the markup outside production,
+      // where it is exactly what a theme developer needs and exactly what a
+      // customer must never see.
+      explainFailures: config.env !== 'production',
+
+      /**
+       * A CSP, report-only until it has been measured.
+       *
+       * On by default because a storefront renders untrusted third-party code
+       * on a merchant's domain — and report-only because a policy switched
+       * straight to enforcing takes existing storefronts down on the day it
+       * ships. `DF_CSP_ENFORCE` is how a store graduates.
+       */
+      csp: {
+        enabled: process.env.DF_CSP !== 'off',
+        enforce: process.env.DF_CSP_ENFORCE === 'true',
+        reportUri: process.env.DF_CSP_REPORT_URI ?? null,
+      },
+
+      // The admin frames a storefront to preview a theme, which is why
+      // X-Frame-Options is absent: it cannot express this.
+      frameAncestors: [`https://${branding.domains.admin}`, "'self'"],
+    },
   );
 
   return {

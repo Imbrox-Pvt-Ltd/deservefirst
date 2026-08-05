@@ -20,4 +20,5 @@ export * from './structured-data';
 export * from './editor';
 export * from './publishing';
 export * from './form-submission';
+export * from './csp';
 export * from './drops';

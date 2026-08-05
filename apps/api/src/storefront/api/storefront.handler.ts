@@ -27,8 +27,10 @@
 
 import {
   admitSubmission,
+  buildCsp,
   cacheKeyFor,
   canonicalPath,
+  cspHeaderName,
   formDrop,
   formStateFor,
   collectionDrop,
@@ -58,6 +60,8 @@ import {
 } from '../domain';
 import { PageRenderer, renderContentForHeader, renderStoreNotFoundPage } from '../application';
 import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
+import { randomUUID } from 'node:crypto';
+
 import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
 import type { ResolvedStore, StorefrontData, StoreResolver } from './storefront-ports';
 
@@ -97,6 +101,16 @@ export interface StorefrontOptions {
    * it launches. Optional in the type only so a test can render without one.
    */
   readonly submissionLimit?: (key: string) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+  /**
+   * Send a Content-Security-Policy, and whether to enforce it.
+   *
+   * Report-only by default, deliberately. A policy switched straight to
+   * enforcing is one that takes existing storefronts down on the day it ships —
+   * measuring first is how it becomes enforceable without a support queue.
+   */
+  readonly csp?: { readonly enabled: boolean; readonly enforce?: boolean; readonly reportUri?: string | null };
+  /** Hosts allowed to frame a storefront — the admin, for the theme editor. */
+  readonly frameAncestors?: readonly string[];
 }
 
 /**
@@ -405,11 +419,21 @@ export class StorefrontHandler {
     const access = readableParams(input.query);
     const budget = createLookupBudget();
 
+    /**
+     * One nonce per render, and never reused.
+     *
+     * A nonce a theme could predict is not a nonce, so it comes from
+     * `randomUUID` rather than anything derived from the request — two visitors
+     * on the same cached path must not share one.
+     */
+    const nonce = this.options.csp?.enabled ? randomUUID().replace(/-/g, '') : null;
+
     const engineContext: RenderContext = defaultContext({
       currency: shop.currency as never,
       assetBaseUrl: `https://${shop.domain}/assets`,
       cdnBaseUrl: `https://${shop.domain}/files`,
       platformAssetBaseUrl: `https://${shop.domain}/platform`,
+      nonce,
     });
 
     const drops = createDropContext({
@@ -425,6 +449,21 @@ export class StorefrontHandler {
     // A failed submission puts the theme's own error rendering back in front of
     // the customer, through the SAME drop a theme reads on any other page.
     if (formState) scope.form = formDrop(formState as never, drops);
+
+    /**
+     * The nonce, so a theme can mark its own inline script as its own.
+     *
+     * Consistent with the threat model rather than a hole in it: a theme is
+     * installed code that can already emit whatever it likes through
+     * `{% javascript %}`. What the policy protects against is INJECTED content —
+     * a reflected parameter, a product title carrying markup — and none of that
+     * can reach this value.
+     *
+     * Without it, every theme writing `<script>` directly stops working the day
+     * the policy is enforced, and the only fix would be rewriting other
+     * people's themes. `theme:check` reports the ones that need it.
+     */
+    scope.content_security_policy_nonce = nonce ?? '';
 
     /**
      * The drops are GLOBALS, not render scope.
@@ -487,7 +526,27 @@ export class StorefrontHandler {
         'content-type': 'text/html; charset=utf-8',
         link: `<${canonical}>; rel="canonical"`,
         'cache-control': status === 200 ? 'public, max-age=0, s-maxage=60' : 'no-store',
+        ...(nonce
+          ? {
+              [cspHeaderName(!this.options.csp?.enforce)]: buildCsp({
+                nonce,
+                assetHosts: [`https://${shop.domain}`],
+                frameAncestors: this.options.frameAncestors,
+                reportOnly: !this.options.csp?.enforce,
+                reportUri: this.options.csp?.reportUri ?? null,
+              }),
+            }
+          : {}),
       },
+      /**
+       * A nonced page cannot be cached as it stands.
+       *
+       * Every response carries a different nonce, so a cache that replayed the
+       * body would serve a nonce the header no longer matches — and the whole
+       * page would stop executing. Caching nonced HTML needs the nonce
+       * substituted on the way out, which is a cache concern rather than a
+       * render one.
+       */
       body: page.html,
       /**
        * The key includes exactly the parameters this render read.
@@ -496,7 +555,7 @@ export class StorefrontHandler {
        * caches per variant. Without this the first visitor's parameters would
        * be served to everyone after them.
        */
-      cacheKey: status === 200 ? cacheKeyFor(path, input.query, access.readKeys()) : null,
+      cacheKey: status === 200 && !nonce ? cacheKeyFor(path, input.query, access.readKeys()) : null,
     };
   }
 
