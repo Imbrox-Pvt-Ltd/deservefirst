@@ -67,13 +67,24 @@ export class FilesystemThemeSource implements ThemeSource {
   }
 
   async read(path: string): Promise<string | null> {
+    const bytes = await this.readBytes(path);
+    return bytes === null ? null : bytes.toString('utf8');
+  }
+
+  /**
+   * The bytes, which is what everything else here is built on.
+   *
+   * `read` decodes these rather than reading the file twice, so a template and
+   * an asset cannot disagree about what is on disk.
+   */
+  async readBytes(path: string): Promise<Buffer | null> {
     const located = await this.locate(path);
     if (!located) return null;
     try {
       const info = await stat(located);
       // A directory read would otherwise throw EISDIR from inside a render.
       if (!info.isFile()) return null;
-      return await readFile(located, 'utf8');
+      return await readFile(located);
     } catch {
       return null;
     }
@@ -138,6 +149,19 @@ export class InMemoryThemeSource implements ThemeSource {
   async read(path: string): Promise<string | null> {
     const confined = this.confine(path);
     return confined ? (this.files[confined] ?? null) : null;
+  }
+
+  /**
+   * The same files as bytes.
+   *
+   * This source holds strings, so there is nothing binary to preserve — but
+   * without it the editor's preview serves no assets at all, because the
+   * transport asks for bytes and a source that cannot answer serves nothing.
+   * A preview with no stylesheet is a preview that lies about the page.
+   */
+  async readBytes(path: string): Promise<Buffer | null> {
+    const contents = await this.read(path);
+    return contents === null ? null : Buffer.from(contents, 'utf8');
   }
 
   async exists(path: string): Promise<boolean> {

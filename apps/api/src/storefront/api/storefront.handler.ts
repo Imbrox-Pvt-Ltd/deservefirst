@@ -28,6 +28,8 @@
 import {
   admitSubmission,
   buildCsp,
+  assetPathFor,
+  assetResponseFor,
   cacheKeyFor,
   canonicalPath,
   canonicalRedirect,
@@ -80,7 +82,15 @@ import type {
 export interface StorefrontResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
-  readonly body: string;
+  /**
+   * A Buffer for an asset, a string for a page.
+   *
+   * Widened rather than given a second field, because every caller already
+   * hands this to the transport unchanged — and an asset that travelled in a
+   * different field would be one every caller had to learn about, with the
+   * ones that did not silently serving nothing.
+   */
+  readonly body: string | Buffer;
   /** What this response should be cached under, or null if it must not be. */
   readonly cacheKey: string | null;
   /**
@@ -335,6 +345,16 @@ export class StorefrontHandler {
     const swap = (value: string): string =>
       placeholder && response.nonce ? substitute(value, response.nonce, placeholder) : value;
 
+    /**
+     * Only a rendered page reaches here.
+     *
+     * `decideCacheable` refuses anything that is not `text/html`, so an asset's
+     * Buffer never arrives — this states that rather than casting it away, so a
+     * future caller that starts caching assets fails loudly instead of storing
+     * a body the nonce substitution would corrupt.
+     */
+    if (typeof response.body !== 'string') return;
+
     const ttl = (this.options.pageCacheTtlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
     const expiresAt = Date.now() + ttl;
 
@@ -365,6 +385,17 @@ export class StorefrontHandler {
     input: StorefrontRequestInput,
   ): Promise<StorefrontResponse> {
     const path = input.path.split('?')[0] ?? '/';
+
+    /**
+     * A theme's own files, before anything else looks at the path.
+     *
+     * Before redirects and before routing, because an asset is not a page: a
+     * merchant's redirect rule for `/assets/old.css` would otherwise intercept
+     * a file the theme is asking for, and `matchRoute` would spend a database
+     * lookup deciding that `/assets/theme.css` is not a product.
+     */
+    const assetPath = assetPathFor(path);
+    if (assetPath !== null) return this.asset(store, assetPath);
 
     if (path === '/robots.txt') return this.robots(store, input.host);
     if (path === '/sitemap.xml') return this.sitemapIndex(store, input.host);
@@ -853,6 +884,50 @@ export class StorefrontHandler {
       default:
         return { scope: base, found: true };
     }
+  }
+
+  /**
+   * One of the theme's files, as bytes.
+   *
+   * Read through `readBytes` rather than `read`: a PNG decoded as UTF-8 has
+   * every invalid byte sequence replaced, so what reaches the browser is not
+   * what is on disk. A source that cannot do that serves nothing rather than
+   * serving something corrupt.
+   */
+  private async asset(store: ResolvedStore, themePath: string): Promise<StorefrontResponse> {
+    const source = store.theme;
+    if (!source.readBytes) {
+      return text(404, 'Not found');
+    }
+
+    let bytes: Buffer | null;
+    try {
+      bytes = await source.readBytes(themePath);
+    } catch {
+      // `confinePath` throws for a name that is not a theme path. A request for
+      // one is a 404 rather than a 500: it is a URL that does not exist here.
+      return text(404, 'Not found');
+    }
+
+    if (bytes === null) return text(404, 'Not found');
+
+    const decided = assetResponseFor(themePath);
+
+    return {
+      status: 200,
+      headers: {
+        ...SECURITY_HEADERS,
+        'content-type': decided.contentType,
+        'cache-control': decided.cacheControl,
+        ...(decided.inline
+          ? {}
+          : { 'content-disposition': 'attachment' }),
+      },
+      body: bytes,
+      // Cached by the URL alone: an asset does not vary on anything, and its
+      // path is the whole of its identity.
+      cacheKey: themePath,
+    };
   }
 
   private async robots(store: ResolvedStore, host: string): Promise<StorefrontResponse> {

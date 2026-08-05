@@ -132,6 +132,17 @@ export function isThemePath(path: string): boolean {
  */
 export interface ThemeSource {
   read(path: string): Promise<string | null>;
+  /**
+   * The same file as BYTES, for serving rather than rendering.
+   *
+   * Optional because rendering never needs it — a template is text and `read`
+   * is what the engine calls. Serving an asset is the other half: a PNG read
+   * through `read` is decoded as UTF-8, and every invalid byte sequence becomes
+   * the same replacement character, so the image that reaches the browser is
+   * not the image on disk. An implementation without this can still render a
+   * theme; it just cannot serve one's images.
+   */
+  readBytes?(path: string): Promise<Buffer | null>;
   exists(path: string): Promise<boolean>;
   /** File names within one theme directory, without the directory prefix. */
   list(directory: string): Promise<readonly string[]>;
