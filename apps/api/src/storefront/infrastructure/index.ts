@@ -11,3 +11,5 @@ export * from './sql-storefront-data';
 export * from './sql-store-resolver';
 
 export * from './storefront-submissions';
+
+export * from './message-status';

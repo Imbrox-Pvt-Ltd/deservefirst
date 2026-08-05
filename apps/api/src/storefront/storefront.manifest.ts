@@ -10,6 +10,8 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
+import { contactMessageResource } from './contracts';
+
 const STOREFRONT_TOOLKIT = {
   metafields: false,
   metaobjects: false,
@@ -40,7 +42,7 @@ export const storefrontManifest: ModuleManifest = {
    * gets screens nobody can reach, which is why the validator refuses it rather
    * than composing half a module.
    */
-  capabilities: ['entities', 'permissions', 'events', 'routes', 'navigation'],
+  capabilities: ['entities', 'resources', 'permissions', 'events', 'routes', 'navigation'],
 
   entities: [
     {
@@ -122,6 +124,15 @@ export const storefrontManifest: ModuleManifest = {
       ],
     },
   ],
+
+  /**
+   * Declared here, and the generic read surface does the rest.
+   *
+   * A list and a get come from the declaration alone — writing a controller for
+   * them would be a second way into the same rows, and the two would eventually
+   * disagree about filtering.
+   */
+  resources: [contactMessageResource],
 
   permissions: [
     {

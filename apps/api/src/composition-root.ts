@@ -19,8 +19,8 @@ import { authManifest } from './auth/auth.manifest';
 import { appsManifest } from './apps/apps.manifest';
 import { billingManifest } from './billing/billing.manifest';
 import { storefrontManifest } from './storefront/storefront.manifest';
-import { SqlStorefrontSubmissions, SqlStoreResolver } from './storefront/infrastructure';
-import { StorefrontHandler } from './storefront/api';
+import { SqlMessageStatus, SqlStorefrontSubmissions, SqlStoreResolver } from './storefront/infrastructure';
+import { messagesController, StorefrontHandler } from './storefront/api';
 import { functionsManifest } from './functions/functions.manifest';
 import { FunctionRegistry } from './functions/application';
 import { SqlDeploymentRepository } from './functions/infrastructure';
@@ -881,6 +881,7 @@ export async function bootstrap(): Promise<Platform> {
       // The merchant's half of the partner gate: store-scoped, so it mounts with
       // the modules. The partner's own half is not store-scoped and does not.
       appsController({ apps: appService }),
+      messagesController(new SqlMessageStatus(executor, dialect) as never),
       billingController({ billing: billingService }),
       partnerController({
         partners: partnerService,

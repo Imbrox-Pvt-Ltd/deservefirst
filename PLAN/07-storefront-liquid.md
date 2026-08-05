@@ -781,6 +781,43 @@ both timestamps, giving **seven placeholders and six values**. A positional
 dialect would have caught it; the `?` dialect reported a syntax error near the
 end of the statement. Pinned by a test that counts placeholders against values.
 
+### The messages screen
+
+A form that stores a message nobody can read is a form that loses it. `/store/:handle/messages`
+is where a merchant finds out somebody asked whether they ship to Ireland.
+
+Reading it needed **no controller**: declaring `contactMessageResource` gives the
+generic read surface a list and a get from the declaration alone. Writing one
+would have been a second way into the same rows, and the two would eventually
+disagree about filtering.
+
+The message is a **visible column**, not something behind a click — the decision
+"does this need an answer" is made by reading the first line, and a list ordered
+by metadata is one people scan past. Views lead with **New**, because an inbox is
+only useful if it can be emptied.
+
+**Nothing is ever deleted.** A message a merchant believes is spam is *marked*
+spam, so it can be found again when a customer says "but I did write to you".
+
+### A write that could not be verified
+
+Cross-tenant triage was **refused correctly and reported success**. The row was
+never touched — `store_id` in the WHERE clause saw to that — but the caller was
+told it worked.
+
+`executor.query` returns rows, and MySQL answers an UPDATE with a *header*
+rather than an array, so reading `affectedRows` off the result was `undefined`
+and the zero-row check never fired. Nothing leaked; the answer was simply a lie,
+which is its own kind of bug.
+
+The platform already had the right contract: `execute()` reports affected rows,
+and `SqlAggregateRepository` **refuses to run at all** on an executor that
+cannot. The same stance now applies here — a write you cannot count is a write
+you cannot verify.
+
+Found by running the thing rather than reading it, and pinned by a test verified
+to fail against the old behaviour.
+
 ## SEO — built
 
 All four gaps below are now closed, in `domain/`. Every one is a file or a
