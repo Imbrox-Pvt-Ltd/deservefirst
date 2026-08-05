@@ -233,6 +233,19 @@ export class SqlStorefrontData implements StorefrontData {
     ).then((rows) => rows.map(toVariant)) as unknown as readonly VariantRow[];
   }
 
+  /**
+   * A product's images — from a table that does not exist yet.
+   *
+   * `product_images` is queried here and declared by no manifest, so it is
+   * absent from the schema. Pages render today only because the reference theme
+   * falls back to its placeholder graphic without ever awaiting this promise;
+   * the query throws the moment anything actually reads `product.images`.
+   *
+   * Left as a query rather than as an empty array on purpose: returning `[]`
+   * would make a missing feature look like a merchant with no photographs, and
+   * the failure would then only appear once somebody uploaded one. A product
+   * image entity on the catalogue manifest is the fix.
+   */
   imagesOfProduct(productId: string): readonly ImageRow[] {
     return this.executor.query<Row>(
       `SELECT * FROM ${this.q('product_images')}
