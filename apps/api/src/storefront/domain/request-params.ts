@@ -104,6 +104,18 @@ export interface ParamAccess {
  * Values are escaped up front — the proxy does not do the escaping, so a key
  * read twice cannot be escaped twice.
  */
+/**
+ * Names the template engine probes for, which no theme is asking about.
+ *
+ * A render asks whether a value is thenable, whether it can turn itself into a
+ * Liquid value, and how to iterate it. Recording those as parameters put three
+ * phantom entries into every cache key.
+ */
+const ENGINE_PROBES: ReadonlySet<string> = new Set([
+  'then', 'toLiquid', 'toJSON', 'toString', 'valueOf', 'next', 'length',
+  'constructor', 'inspect', 'nodeType', 'size', 'value',
+]);
+
 export function readableParams(query: URLSearchParams | string): ParamAccess {
   const search = typeof query === 'string' ? new URLSearchParams(query) : query;
 
@@ -129,20 +141,32 @@ export function readableParams(query: URLSearchParams | string): ParamAccess {
 
   const params = new Proxy(Object.freeze({ ...safe }), {
     /**
-     * Records a read only when the key is genuinely a parameter.
+     * Records a read whenever a template asks for a parameter — present or not.
      *
-     * The engine probes objects it renders for `then`, `next` and `toLiquid`,
-     * and recording those put three phantom entries in every cache key. Only
-     * own properties count — which is also correct for caching: a key absent
-     * from this URL cannot vary the page rendered from it, and a URL that does
-     * carry it produces a different key anyway.
+     * This used to record only keys the URL actually carried, reasoning that "a
+     * key absent from this URL cannot vary the page rendered from it". That is
+     * true of a key computed per request, and false once a CACHE learns the
+     * list from one render and reuses it for others: the first request to `/`
+     * carried no `page`, so `page` was never recorded, the vary list for that
+     * path became empty, and every subsequent `/?page=2` was served the cached
+     * copy of page one.
+     *
+     * Asking for a parameter is the dependency. Absence is one of its values.
+     *
+     * The engine probes objects it renders for `then`, `toLiquid` and friends,
+     * so those are excluded by name — recording them put phantom entries in
+     * every cache key, which is what the original narrow rule was really for.
      */
     get(target, key) {
       if (typeof key !== 'string') return undefined;
+
       if (Object.hasOwn(target, key)) {
         read.add(key);
         return Reflect.get(target, key);
       }
+
+      if (!ENGINE_PROBES.has(key) && /^[A-Za-z_][\w.-]{0,63}$/.test(key)) read.add(key);
+
       // Empty rather than undefined: a theme printing an absent parameter
       // should render nothing, not the word "undefined".
       return '';

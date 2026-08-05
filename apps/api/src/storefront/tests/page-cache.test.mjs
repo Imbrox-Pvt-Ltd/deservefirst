@@ -464,3 +464,41 @@ test('the redirect is not cached under the alias', async () => {
   const response = await handler.handle({ host: 'other.test', path: '/', query: '', method: 'GET' });
   assert.equal(response.cacheKey, null);
 });
+
+// -------------------------------------- a parameter asked for but absent
+
+test('asking for a parameter is a dependency even when the URL lacks it', async () => {
+  /**
+   * The bug this pins, and it served the wrong page to real visitors.
+   *
+   * The proxy used to record a read only when the URL actually carried the key,
+   * reasoning that an absent key cannot vary the page. True of a key computed
+   * per request; false once the cache LEARNS the list from one render and
+   * reuses it. The first request to `/` carried no `page`, so the vary list for
+   * that path became empty — and every `/?page=2` after it was served the
+   * cached copy of page one.
+   */
+  const { handler } = handlerFor(`<p>page {{ request.params.page }}</p>`);
+
+  const first = await get(handler);
+  assert.equal(first.headers['x-cache'], 'miss');
+  assert.deepEqual(first.cacheVary, ['page'], 'the render asked for it, so it varies on it');
+
+  const second = await get(handler, { query: 'page=2' });
+  assert.equal(second.headers['x-cache'], 'miss', 'a different page is a different entry');
+  assert.ok(second.body.includes('page 2'), second.body);
+
+  const again = await get(handler, { query: 'page=2' });
+  assert.equal(again.headers['x-cache'], 'hit');
+  assert.ok(again.body.includes('page 2'));
+});
+
+test('a parameter nothing asks for still does not split the cache', async () => {
+  // The other half. Recording every key would make every campaign link a
+  // separate entry, which is what the read-key design exists to avoid.
+  const { handler } = handlerFor(`<p>static</p>`);
+
+  await get(handler);
+  const tagged = await get(handler, { query: 'utm_source=newsletter' });
+  assert.equal(tagged.headers['x-cache'], 'hit');
+});

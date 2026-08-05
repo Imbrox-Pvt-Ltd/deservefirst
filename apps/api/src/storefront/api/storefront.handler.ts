@@ -30,6 +30,8 @@ import {
   buildCsp,
   assetPathFor,
   assetResponseFor,
+  flattenTranslations,
+  localeFileFor,
   cacheKeyFor,
   canonicalPath,
   canonicalRedirect,
@@ -66,7 +68,12 @@ import {
   type PageType,
   type RouteMatch,
 } from '../domain';
-import { PageRenderer, renderContentForHeader, renderStoreNotFoundPage } from '../application';
+import {
+  PageRenderer,
+  renderContentForHeader,
+  renderStoreNotFoundPage,
+  withTitleFallback,
+} from '../application';
 import { createThemeEngine, defaultContext, type RenderContext } from '../engine';
 import { randomUUID } from 'node:crypto';
 
@@ -181,6 +188,15 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 };
 
 export class StorefrontHandler {
+  /**
+   * Flattened locale files, by theme version.
+   *
+   * Unbounded only in the sense that a platform has finitely many published
+   * theme versions being served at once; an entry is a few hundred short
+   * strings and a publish replaces rather than adds to the working set.
+   */
+  private readonly translations = new Map<string, Record<string, string>>();
+
   constructor(
     private readonly resolver: StoreResolver,
     private readonly options: StorefrontOptions = {},
@@ -638,6 +654,7 @@ export class StorefrontHandler {
       cdnBaseUrl: `https://${shop.domain}/files`,
       platformAssetBaseUrl: `https://${shop.domain}/platform`,
       assetVersion: store.themeVersion ?? undefined,
+      translations: await this.translationsFor(store),
       nonce,
     });
 
@@ -743,7 +760,14 @@ export class StorefrontHandler {
             }
           : {}),
       },
-      body: page.html,
+      /**
+       * A title only if the theme did not write one.
+       *
+       * Applied here rather than in `content_for_header`, because only the
+       * finished document can answer whether a theme emitted one — and every
+       * real theme does, so for them this changes nothing.
+       */
+      body: withTitleFallback(page.html, String(scope.page_title ?? shop.name), shop.name),
       /**
        * The key includes exactly the parameters this render read.
        *
@@ -760,6 +784,40 @@ export class StorefrontHandler {
       cacheVary: access.readKeys(),
       nonce,
     };
+  }
+
+  /**
+   * The theme's own wording, read once per version.
+   *
+   * Cached because a locale file is hundreds of keys and re-reading and
+   * re-flattening it per request would be real work for a value that cannot
+   * change without the version changing. Keyed by version reference for that
+   * reason — a publish produces a new one, so the cache cannot go stale.
+   *
+   * A theme with no locale files renders with none, which is how the storefront
+   * behaved before this existed. Refusing to serve a page over a missing
+   * translation file would be worse than the missing translations.
+   */
+  private async translationsFor(store: ResolvedStore): Promise<Record<string, string>> {
+    const key = store.themeVersion ?? store.storeId;
+    const cached = this.translations.get(key);
+    if (cached) return cached;
+
+    let loaded: Record<string, string> = {};
+    try {
+      const file = localeFileFor(await store.theme.list('locales'), 'en');
+      if (file) {
+        const contents = await store.theme.read(`locales/${file}`);
+        if (contents) loaded = flattenTranslations(JSON.parse(contents));
+      }
+    } catch {
+      // Malformed JSON in one locale file must not take the storefront down.
+      // The page renders with `translation missing`, which says what is wrong.
+      loaded = {};
+    }
+
+    this.translations.set(key, loaded);
+    return loaded;
   }
 
   /** The drops a given page type needs, and whether its record exists. */
@@ -779,8 +837,15 @@ export class StorefrontHandler {
      *
      * `paginate` and `request.page` disagreeing would show page three's
      * products under page two's pagination controls.
+     *
+     * Read through `access.params` rather than from the query string directly,
+     * and that is not a stylistic choice: the proxy is what RECORDS which
+     * parameters a render depended on, and the page cache keys on exactly that
+     * list. Reading the query directly meant `page` was never recorded, so
+     * `?page=2` was served the cached copy of page one — the precise bug the
+     * read-key design exists to prevent, reintroduced by going around it.
      */
-    const requested = Number(new URLSearchParams(input.query).get('page') ?? 1);
+    const requested = Number(access.params.page ?? 1);
     const page = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 1;
 
     const base: Record<string, unknown> = {
@@ -823,6 +888,26 @@ export class StorefrontHandler {
        */
       canonical_url: `https://${shop.domain}${canonicalPath(match)}`,
       page_description: '',
+      /**
+       * The page number, as a GLOBAL and not only inside `request`.
+       *
+       * Themes compare it directly — the reference theme's `<title>` is guarded
+       * by `{% if current_page != 1 %}` — and an undefined value is not equal
+       * to 1, so the guard passed on every page and every title on the site
+       * read "Demo Store – Page {{ page }}". A missing global does not error in
+       * Liquid; it quietly makes a condition true.
+       */
+      current_page: page,
+      /**
+       * The tags a collection is being filtered by.
+       *
+       * Null, NOT an empty array. An empty array is TRUTHY in Liquid, so `[]`
+       * made `{% if current_tags %}` pass and every title on the site gained a
+       * trailing `Tagged ""`. Null is how a theme is told there are none — and
+       * it is what the reference product supplies. Tag filtering itself is not
+       * built yet.
+       */
+      current_tags: null,
       all_products: lookupDrop(
         {
           load: (handle) => syncOf(data.productByHandle(handle)),

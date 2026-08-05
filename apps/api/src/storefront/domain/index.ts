@@ -27,3 +27,4 @@ export * from './domains';
 export * from './resource-search';
 export * from './theme-package';
 export * from './assets';
+export * from './translations';

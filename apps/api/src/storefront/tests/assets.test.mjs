@@ -195,3 +195,82 @@ test('the version is not part of the file it names', async () => {
   });
   assert.equal(response.status, 200);
 });
+
+// ------------------------------------------------ the head the theme owns
+
+import {
+  flattenTranslations,
+  localeFileFor,
+} from '../../../dist/storefront/domain/index.js';
+import {
+  renderContentForHeader,
+  withTitleFallback,
+} from '../../../dist/storefront/application/index.js';
+
+test('content_for_header emits nothing, because the theme owns the head', () => {
+  /**
+   * It used to emit a title, a description, Open Graph tags and JSON-LD, on the
+   * stated premise that themes do not write those. The reference theme writes
+   * all of them, so every page carried two of each — which search engines treat
+   * as conflicting markup exactly as they treat two canonicals.
+   */
+  assert.equal(
+    renderContentForHeader({ title: 'Hat', canonical: 'https://x.test/', shopName: 'Acme' }),
+    '',
+  );
+});
+
+test('a title is added only when the document has none', () => {
+  const bare = withTitleFallback('<html><head></head><body>x</body></html>', 'Hat', 'Acme');
+  assert.match(bare, /<title>Hat – Acme<\/title>/);
+
+  const already = '<html><head><title>Theirs</title></head></html>';
+  assert.equal(withTitleFallback(already, 'Hat', 'Acme'), already, 'untouched');
+});
+
+test('og:title is not mistaken for a title', () => {
+  // Matching the bare word would conclude a theme with no title had one, which
+  // is the failure this fallback exists to prevent.
+  const og = '<html><head><meta property="og:title" content="x"></head></html>';
+  assert.match(withTitleFallback(og, 'Hat', 'Acme'), /<title>/);
+});
+
+// ------------------------------------------------------------ translations
+
+test('locale JSON flattens to the dotted keys a theme asks for', () => {
+  const flat = flattenTranslations({
+    general: { accessibility: { close: 'Close' } },
+    products: { general: { next: 'Next' } },
+  });
+
+  assert.equal(flat['general.accessibility.close'], 'Close');
+  assert.equal(flat['products.general.next'], 'Next');
+});
+
+test('non-string values are dropped rather than stringified', () => {
+  // `[object Object]` where a sentence belongs is harder to spot than a missing
+  // translation, which at least says so.
+  const flat = flattenTranslations({ a: { list: [1, 2], n: 5, ok: 'yes' } });
+  assert.deepEqual(Object.keys(flat), ['a.ok']);
+});
+
+test('the locale file is chosen, not merged', () => {
+  const files = ['en.default.json', 'fr.json', 'de.json', 'en.default.schema.json'];
+
+  assert.equal(localeFileFor(files, 'en'), 'en.default.json');
+  assert.equal(localeFileFor(files, 'fr'), 'fr.json');
+  // A regional tag falls back to its language.
+  assert.equal(localeFileFor(files, 'en-GB'), 'en.default.json');
+  // An unknown language still gets a page, in whatever the theme calls default.
+  assert.equal(localeFileFor(files, 'ja'), 'en.default.json');
+  assert.equal(localeFileFor([], 'en'), null);
+});
+
+test('schema files are never loaded as storefront wording', () => {
+  /**
+   * `*.schema.json` holds the EDITOR's labels for a theme's settings. Loading
+   * it would put "Colour scheme" into the translation table under keys no page
+   * asks for.
+   */
+  assert.equal(localeFileFor(['en.default.schema.json'], 'en'), null);
+});
