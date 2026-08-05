@@ -1066,6 +1066,20 @@ async function start(): Promise<void> {
     return success({ id, revoked: true }, { requestId: context.requestId });
   });
 
+  /**
+   * The generated reference, for the explorer to read.
+   *
+   * The same document `platform docs:api` writes and CI checks, served rather
+   * than re-derived — an explorer describing a different API from the reference
+   * would be worse than no explorer, and the only way to guarantee it does not
+   * is to have one source.
+   */
+  app.get(`/${API_VERSION}/platform/api-reference`, async (request, reply) => {
+    const context = await requireUser(request, reply);
+    if (!context) return reply;
+    return success(generateOpenApi(API_VERSION, ''), { requestId: context.requestId });
+  });
+
   app.get(`/${API_VERSION}/functions/points`, async (request, reply) => {
     const context = await requireUser(request, reply);
     if (!context) return reply;

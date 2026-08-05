@@ -41,6 +41,12 @@ export function OperatorShell({ children }: { children: ReactNode }) {
             permission: 'platform.apps.review',
           },
           {
+            id: 'explorer',
+            label: 'API explorer',
+            path: '/platform/explorer',
+            permission: 'platform.modules.manage',
+          },
+          {
             id: 'modules',
             label: 'Modules',
             path: '/platform/modules',

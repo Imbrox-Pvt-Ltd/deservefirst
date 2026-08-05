@@ -196,7 +196,7 @@ async function chooseStore(apiUrl, cookie, storeId) {
  */
 async function operatorDestinations(apiUrl, cookie) {
   if (!cookie) return [];
-  return ['/platform/apps', '/platform/reviews', '/platform/modules'];
+  return ['/platform/apps', '/platform/reviews', '/platform/modules', '/platform/explorer'];
 }
 
 async function partnerDestinations(apiUrl, cookie) {
