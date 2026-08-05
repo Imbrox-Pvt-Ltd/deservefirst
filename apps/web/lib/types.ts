@@ -529,3 +529,34 @@ export interface PlatformModuleStateDto {
   readonly enabled: boolean;
   readonly disabledReason?: string | null;
 }
+
+export interface MenuItemDto {
+  readonly id: string;
+  readonly title: string;
+  readonly target:
+    | 'home' | 'collection' | 'product' | 'page' | 'blog' | 'policy' | 'search' | 'http';
+  readonly url: string;
+  readonly subjectId: string | null;
+  readonly children: readonly MenuItemDto[];
+}
+
+export interface MenuDto {
+  readonly id: string;
+  readonly title: string;
+  readonly handle: string;
+  readonly items: readonly MenuItemDto[];
+  readonly version: number;
+}
+
+export interface BlogPostDto {
+  readonly id: string;
+  readonly blogId: string;
+  readonly title: string;
+  readonly handle: string;
+  readonly body: string;
+  readonly excerpt: string | null;
+  readonly author: string | null;
+  readonly status: 'draft' | 'published';
+  readonly publishedAt: string | null;
+  readonly version: number;
+}

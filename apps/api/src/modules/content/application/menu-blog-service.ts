@@ -82,7 +82,16 @@ export class MenuService {
       ...current,
       ...defined(patch),
       title: patch.title?.trim() ?? current.title,
-      version,
+      /**
+       * The NEXT version, not the one the caller sent.
+       *
+       * The repository writes `entity.version` and matches on the expected one.
+       * Passing the caller's version for both wrote the same number back, so the
+       * row never advanced and a stale save kept succeeding forever — silently
+       * overwriting whoever saved first, which is the exact failure the version
+       * column exists to prevent.
+       */
+      version: version + 1,
     };
     assertMenuValid(next);
     // The repository decides the outcome from affected rows and throws its own
@@ -134,7 +143,9 @@ export class BlogPostService {
     patch: Partial<Pick<BlogPost, 'title' | 'body' | 'excerpt' | 'author' | 'status' | 'publishedAt'>>,
   ): Promise<BlogPost> {
     const current = await this.get(id);
-    const next: BlogPost = { ...current, ...defined(patch), version };
+    // `version + 1` for the same reason as the menu above: the repository
+    // writes what it is given and matches on what it is told to expect.
+    const next: BlogPost = { ...current, ...defined(patch), version: version + 1 };
 
     // Publishing with no date means "now". Leaving it null would make the post
     // published and permanently invisible, since `isVisible` needs a date.

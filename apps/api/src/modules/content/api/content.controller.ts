@@ -80,6 +80,21 @@ export function contentController(services: ContentServices): ModuleController {
     },
     // --- menus ---------------------------------------------------------------
     {
+      method: 'GET',
+      path: '/menus/:id/detail',
+      permission: 'content.read',
+      handle: async (request) => services.menus.get(request.params.id!),
+    },
+    {
+      method: 'GET',
+      path: '/blog_posts/:id/detail',
+      permission: 'content.read',
+      handle: async (request) => {
+        const post = await services.blogPosts.get(request.params.id!);
+        return { ...post, publishedAt: post.publishedAt?.toISOString() ?? null };
+      },
+    },
+    {
       method: 'POST',
       path: '/menus',
       permission: 'content.manage',
