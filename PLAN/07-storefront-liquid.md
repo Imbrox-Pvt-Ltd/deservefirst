@@ -44,6 +44,60 @@ formatting alone has to go through the `Money` value object (§15.2) rather than
 formatting numbers, or the storefront becomes the one place on the platform
 doing currency maths by hand.
 
+## The engine layer — built
+
+`apps/api/src/storefront/engine/` is the only place liquidjs is imported, and
+`no-direct-liquid` (fitness rule #23) fails the build if that stops being true.
+Everything else — filters, callers — is written against `types.ts` and
+`context.ts`, so swapping engines is a one-file change rather than an ambition.
+
+```
+engine/
+  liquid.ts      ← the ONLY liquidjs import
+  types.ts       ← FilterDefinition, FilterArgs, ThemeEngine
+  context.ts     ← what a filter may know: base URLs, currency, translations
+  markup.ts      ← escaping + the attribute allow-list
+  color.ts       ← colour maths, pure
+  filters/       ← money · string · color · font · url · html · localization · commerce
+```
+
+**The gap was measured, not guessed.** The reference theme uses 92 distinct
+filters; liquidjs provides 43 of them. The other **49 are ours**, and all 49 now
+exist — `filter-coverage.test.mjs` walks the theme, extracts every filter it
+uses, and asserts each one resolves. It reports the gap rather than a count, so
+adding a theme or a filter needs no edit.
+
+### Three things the implementation taught us
+
+**1. liquidjs cannot distinguish a keyword argument from a two-element array.**
+`{{ x | f: width: 200 }}` and `{{ x | f: pair }}` where `pair = ['width', 200]`
+arrive at the filter *identically*. Reading the parsed token disambiguates them —
+a keyword's token is itself an array, a positional's is a single token — so the
+syntax decides and never the shape of the value. Pinned by a test.
+
+**2. Liquid does not escape output**, here or in the reference product. So
+`returnsHtml` is a contract between maintainers, not an engine switch: filters
+that build markup escape their own inputs through `markup.ts`. Auto-escaping
+would have double-escaped every existing theme.
+
+**3. `link_to` escapes its href and not its label**, because the reference theme
+writes `{{ '&larr;' | link_to: url }}` and escaping that renders the literal
+text. The href has no such requirement and refuses `javascript:`.
+
+### Deliberately empty
+
+`payment_button`, `payment_terms` and `login_button` render nothing. There is no
+cart yet (see below). They *exist* because `strictFilters` is on: an absent
+filter fails the whole page, so a missing buy button degrades to a page without
+one rather than to no page. They gain bodies when checkout does.
+
+### Compatibility aliases
+
+`engine/filters/compatibility.ts` is the one file permitted to name a foreign
+filter (`shopify_asset_url`, used 4× by the theme), exempted by `competitor-names`
+on the same grounds as `branding.ts`: a compatibility contract with third-party
+files, not branding. Aliases delegate rather than duplicate, so they cannot drift.
+
 ## The security position
 
 A theme is untrusted third-party code, exactly like an app or a Function.
@@ -61,11 +115,12 @@ somebody exposed for convenience.
 
 ## Staging
 
-1. **Theme model + settings/section schema** — the input types, block
+1. ✅ **Theme model + settings/section schema** — the input types, block
    definitions, JSON templates. Pure domain, no engine dependency.
-2. **Drops** — the object model a theme may see, deliberately small.
-3. **Rendering** — liquidjs behind our interface, strict, plus the Shopify
-   filter library.
+2. **Drops** — the object model a theme may see, deliberately small. ← next
+3. ✅ **Rendering** — liquidjs behind our interface, strict, plus the filter
+   library. *Tags* (`{% render %}`, `{% section %}`, `{% paginate %}`,
+   `{% form %}`) still to come; they need the drops from stage 2 to be useful.
 4. **Storefront routing** — `/`, `/products/{handle}`, `/collections/{handle}`,
    `/pages/{handle}`, `/blogs/{blog}/{post}`, on its own host.
 5. **SEO** — redirects, sitemap, robots, JSON-LD, canonicals. Alongside routing,

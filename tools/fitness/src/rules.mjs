@@ -171,6 +171,18 @@ export const competitorNames = {
       // The aliases table is where these names are *defined*; exempt it.
       if (source.relativePath === 'packages/config/src/branding.ts') continue;
 
+      /**
+       * The theme filter-alias table, exempt for the same reason.
+       *
+       * A theme is a third-party file written against a vocabulary its author
+       * already knows, and `strictFilters` turns an unregistered name into a
+       * page that does not render. These are names we answer to, not names we
+       * show anyone — and confining them to one file is what this rule is for.
+       */
+      if (source.relativePath === 'apps/api/src/storefront/engine/filters/compatibility.ts') {
+        continue;
+      }
+
       // A dependency's package name is not branding — we cannot rename an npm
       // package, and the design system is a decided dependency. What §33.3
       // actually protects is what a user or reader sees, so import specifiers
@@ -398,8 +410,53 @@ export const platformPermissionsAreOperatorOnly = {
   },
 };
 
+/**
+ * liquidjs is imported in exactly one file.
+ *
+ * The storefront engine wraps liquidjs behind our own interface so the choice
+ * stays reversible — PLAN/07 records why that matters: liquidjs is a
+ * third-party port of Liquid rather than the reference implementation, and if
+ * fidelity ever outweighs latency we run the real gem out-of-process instead.
+ * That swap is a one-file change only for as long as this holds.
+ *
+ * It is the kind of boundary that erodes quietly. Somebody needs a `Drop`
+ * subclass, imports the type directly because it is right there, and the
+ * abstraction is load-bearing in name only. So it is a rule rather than a
+ * convention in a README.
+ */
+export const noDirectLiquid = {
+  name: 'no-direct-liquid',
+  description: 'Only the storefront engine boundary may import liquidjs',
+  run(sources) {
+    const violations = [];
+    const allowed = 'apps/api/src/storefront/engine/liquid.ts';
+
+    for (const source of sources) {
+      if (source.relativePath === allowed) continue;
+
+      const match = /(?:from\s+['"]liquidjs['"]|require\(\s*['"]liquidjs['"]\s*\))/.exec(
+        source.text,
+      );
+      if (!match) continue;
+
+      violations.push(
+        violation(
+          source.relativePath,
+          lineOf(source.text, match.index),
+          'no-direct-liquid',
+          `imports liquidjs directly. Only ${allowed} may — import from ` +
+            "'./engine' (or '../engine') instead, and add what you need to its interface.",
+        ),
+      );
+    }
+
+    return violations;
+  },
+};
+
 export const allRules = [
   platformPermissionsAreOperatorOnly,
+  noDirectLiquid,
   fileHeaders,
   moduleBoundaries,
   layerLaw,
