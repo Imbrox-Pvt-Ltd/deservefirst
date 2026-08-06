@@ -1050,19 +1050,27 @@ export class StorefrontHandler {
         const row = await data.collectionByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
         const collection = collectionDrop(row, drops);
+        /**
+         * Awaited here rather than left for the drop to await.
+         *
+         * The loaders are promises behind a synchronous signature, which is
+         * what makes drops lazy — but a promise handed to a drop that the theme
+         * never reads is a promise nobody ever awaits, and a rejected one of
+         * those takes the whole process down rather than failing this request.
+         * That is not theoretical: this exact line crashed the API for every
+         * tenant when the query underneath it was wrong.
+         *
+         * A collection page counts its products to draw pagination, so nothing
+         * is lost by asking now.
+         */
+        const items = await data.productCountOfCollection(row.id);
         return {
           scope: {
             ...base,
             page_title: row.title,
             collection,
             paginate: paginateDrop(
-              {
-                currentPage: page,
-                currentOffset: 0,
-                items: data.productCountOfCollection(row.id),
-                pageSize: 24,
-                basePath: input.path,
-              },
+              { currentPage: page, currentOffset: 0, items, pageSize: 24, basePath: input.path },
               drops,
             ),
           },

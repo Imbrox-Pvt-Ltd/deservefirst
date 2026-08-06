@@ -500,17 +500,9 @@ export class SqlStorefrontData implements StorefrontData {
       ).then((rows) => rows.map(toProduct)) as unknown as readonly ProductRow[];
     }
 
-    return this.executor.query<Row>(
-      `SELECT p.* FROM ${this.q('products')} p
-         JOIN ${this.q('collection_products')} cp ON cp.${this.q('product_id')} = p.${this.q('id')}
-        WHERE p.${this.q('store_id')} = ${this.p(1)}
-          AND cp.${this.q('collection_id')} = ${this.p(2)}
-          AND p.${this.q('status')} = 'active'
-          AND p.${this.q('deleted_at')} IS NULL
-        ORDER BY cp.${this.q('position')} ASC
-        LIMIT 250`,
-      [this.storeId(), collectionId],
-    ).then((rows) => rows.map(toProduct)) as unknown as readonly ProductRow[];
+    return this.membersOf(collectionId, false).then((rows) =>
+      rows.map(toProduct),
+    ) as unknown as readonly ProductRow[];
   }
 
   productCountOfCollection(collectionId: string): number {
@@ -524,15 +516,184 @@ export class SqlStorefrontData implements StorefrontData {
       ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
     }
 
-    return this.executor.query<Row>(
-      `SELECT COUNT(*) AS n FROM ${this.q('collection_products')} cp
-         JOIN ${this.q('products')} p ON p.${this.q('id')} = cp.${this.q('product_id')}
-        WHERE p.${this.q('store_id')} = ${this.p(1)}
-          AND cp.${this.q('collection_id')} = ${this.p(2)}
-          AND p.${this.q('status')} = 'active'
-          AND p.${this.q('deleted_at')} IS NULL`,
+    return this.membersOf(collectionId, true).then(
+      (rows) => rows.length,
+    ) as unknown as number;
+  }
+
+  /**
+   * The products in a collection, however that collection decides.
+   *
+   * There is no join table. A collection carries its own membership: a manual
+   * one lists product ids, an automated one carries conditions — and this
+   * previously queried a `collection_products` table that has never existed in
+   * any migration, so every real collection page threw. It stayed hidden
+   * because the only collection anything rendered was the automatic
+   * "all products" one above, which never reaches here.
+   *
+   * The conditions become SQL rather than a filter over every product, because
+   * the alternative is loading the catalogue into memory to render one page.
+   * The translation mirrors `matchesCondition` in the catalog's domain exactly,
+   * including its unhappy paths — an operator that makes no sense for a field
+   * matches nothing there, and must match nothing here, or the storefront shows
+   * a different collection than the admin does.
+   *
+   * `countOnly` skips the row bodies; the caller needs a number, and a
+   * collection of 250 products should not serialise 250 rows to produce it.
+   */
+  private async membersOf(collectionId: string, countOnly: boolean): Promise<Row[]> {
+    const bind = new Binder(this.dialect);
+    const collections = await this.executor.query<Row>(
+      `SELECT ${this.q('type')}, ${this.q('match')}, ${this.q('conditions')},
+              ${this.q('exclusions')}, ${this.q('product_ids')}
+         FROM ${this.q('collections')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('id')} = ${this.p(2)}
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
       [this.storeId(), collectionId],
-    ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
+    );
+
+    const collection = collections[0];
+    if (!collection) return [];
+
+    const isManual = String(collection.type ?? 'manual') !== 'automated';
+    const productIds = parseIdList(collection.product_ids);
+
+    /**
+     * An empty manual collection is empty, not unfiltered.
+     *
+     * `IN ()` is a syntax error in MySQL and matches nothing in Postgres, so
+     * neither is safe to build — and a predicate omitted entirely would return
+     * the whole catalogue, which is the worst possible answer.
+     */
+    if (isManual && productIds.length === 0) return [];
+
+    const selected = countOnly ? `p.${this.q('id')}` : 'p.*';
+
+    /**
+     * Bound FIRST, because it appears first in the SQL below.
+     *
+     * A binder consumes values in the order they are added and MySQL's `?`
+     * takes the next one, so a value added out of text order is silently given
+     * to the wrong placeholder. The count still matches, nothing throws, and
+     * the query compares a product id to a store id and returns nothing —
+     * which is precisely what happened here before this line moved up.
+     */
+    const store = bind.add(this.storeId());
+    const where: string[] = [];
+
+    if (isManual) {
+      const placeholders = productIds.map((id) => bind.add(id)).join(', ');
+      where.push(`p.${this.q('id')} IN (${placeholders})`);
+    } else {
+      const conditions = parseConditions(collection.conditions);
+      // An automated collection with no conditions selects nothing. The domain
+      // forbids saving one, so this is a row that predates the rule or was
+      // written around it — and the whole catalogue is not a safe reading.
+      if (conditions.length === 0) return [];
+
+      const joiner = String(collection.match ?? 'all') === 'any' ? ' OR ' : ' AND ';
+      where.push(`(${conditions.map((c) => this.predicateFor(c, bind)).join(joiner)})`);
+
+      // Exclusions always win, and each acts alone regardless of the match
+      // mode — "any" applies to inclusion, not to whether an exclusion counts.
+      for (const exclusion of parseConditions(collection.exclusions)) {
+        where.push(`NOT (${this.predicateFor(exclusion, bind)})`);
+      }
+    }
+
+    const sql = `SELECT ${selected} FROM ${this.q('products')} p
+        WHERE p.${this.q('store_id')} = ${store}
+          AND p.${this.q('status')} = 'active'
+          AND p.${this.q('deleted_at')} IS NULL
+          AND ${where.join('\n          AND ')}
+        ORDER BY p.${this.q('created_at')} DESC
+        LIMIT 250`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    /**
+     * A manual collection is ordered by the merchant, and that order lives in
+     * the id array rather than in any column — so it cannot be an ORDER BY
+     * without `FIELD()`/`array_position`, which differ by dialect. Sorting the
+     * page of rows we already hold costs nothing and works on both.
+     */
+    if (isManual && !countOnly) {
+      const position = new Map(productIds.map((id, index) => [id, index]));
+      rows.sort((a, b) => (position.get(String(a.id)) ?? 0) - (position.get(String(b.id)) ?? 0));
+    }
+
+    return rows;
+  }
+
+  /**
+   * One condition, as SQL.
+   *
+   * Mirrors `matchesCondition` in the catalog domain field by field. Where that
+   * function falls through to `false` — "price starts with", "title greater
+   * than" — this produces a predicate that is never true, rather than throwing
+   * or quietly dropping the condition. A dropped condition would widen the
+   * collection, which is the direction that leaks products a merchant meant to
+   * keep out.
+   */
+  private predicateFor(condition: Condition, bind: Binder): string {
+    const { field, operator, value } = condition;
+
+    // Tags are a set, so "contains" asks whether the set holds the tag — not
+    // whether some concatenation of the tags contains the text.
+    if (field === 'tag') {
+      // Decided before anything is bound, for the reason given below.
+      const holds = operator === 'equals' || operator === 'contains';
+      const lacks = operator === 'notEquals' || operator === 'notContains';
+      if (!holds && !lacks) return NEVER;
+
+      const exists = `EXISTS (SELECT 1 FROM ${this.q('products_tags')} t
+             WHERE t.${this.q('owner_id')} = p.${this.q('id')}
+               AND t.${this.q('store_id')} = ${bind.add(this.storeId())}
+               AND LOWER(t.${this.q('tag')}) = LOWER(${bind.add(value)}))`;
+
+      return holds ? exists : `NOT ${exists}`;
+    }
+
+    const numeric = NUMERIC_COLUMNS[field];
+    if (numeric) {
+      const expected = Number(value);
+      // `Number('abc')` is NaN, which loses every comparison in JavaScript. SQL
+      // would compare against NULL and lose them all too, but only by accident
+      // — this says so.
+      if (!Number.isFinite(expected)) return NEVER;
+
+      // A null compare-at price reads as zero, exactly as the domain's
+      // `valueFor` does, so "compare-at price less than 100" includes the
+      // products that have no compare-at price at all.
+      const column = `COALESCE(p.${this.q(numeric)}, 0)`;
+
+      /**
+       * Checked BEFORE the value is bound.
+       *
+       * Binding first and then returning `NEVER` leaves a value in the binder
+       * that no placeholder will ever consume, and `finish` refuses the
+       * statement — so one nonsensical condition took down the whole
+       * collection rather than matching nothing.
+       */
+      const comparison = NUMERIC_OPERATORS[operator];
+      if (!comparison) return NEVER;
+      return `${column} ${comparison} ${bind.add(expected)}`;
+    }
+
+    const column = `LOWER(COALESCE(p.${this.q(TEXT_COLUMNS[field]!)}, ''))`;
+    const escaped = escapeLike(value.toLowerCase());
+    switch (operator) {
+      case 'equals': return `${column} = LOWER(${bind.add(value)})`;
+      case 'notEquals': return `${column} <> LOWER(${bind.add(value)})`;
+      case 'contains': return `${column} LIKE ${bind.add(`%${escaped}%`)}`;
+      case 'notContains': return `${column} NOT LIKE ${bind.add(`%${escaped}%`)}`;
+      case 'startsWith': return `${column} LIKE ${bind.add(`${escaped}%`)}`;
+      case 'endsWith': return `${column} LIKE ${bind.add(`%${escaped}`)}`;
+      default: return NEVER;
+    }
   }
 
   image(imageId: string): ImageRow | null {
@@ -652,6 +813,80 @@ function toImage(row: Row): ImageRow {
     alt: row.alt as string | null,
     position: row.position as number | null,
   };
+}
+
+/**
+ * A collection's membership rule, as the catalog module writes it.
+ *
+ * Declared here rather than imported from `modules/catalog`, which a module may
+ * only reach through its contracts. Widening those contracts to export the
+ * matcher would not help: this needs the rule as SQL, not as a predicate over
+ * products already in memory.
+ */
+interface Condition {
+  readonly field: string;
+  readonly operator: string;
+  readonly value: string;
+}
+
+/** A predicate that is never true, for a condition the field cannot answer. */
+const NEVER = '1 = 0';
+
+const TEXT_COLUMNS: Record<string, string | undefined> = {
+  title: 'title',
+  handle: 'handle',
+  type: 'product_type',
+  vendor: 'vendor',
+};
+
+/** The comparisons a number can answer. Anything else matches nothing. */
+const NUMERIC_OPERATORS: Record<string, string | undefined> = {
+  equals: '=',
+  notEquals: '<>',
+  greaterThan: '>',
+  lessThan: '<',
+};
+
+const NUMERIC_COLUMNS: Record<string, string | undefined> = {
+  price: 'price_amount_minor',
+  compareAtPrice: 'compare_at_price_amount_minor',
+  inventoryQuantity: 'inventory_quantity',
+};
+
+/**
+ * Wildcards in a merchant's own condition value, made literal.
+ *
+ * A rule saying the title contains "50%" means those characters. Unescaped, the
+ * `%` matches the rest of the title and the collection quietly swallows
+ * products the merchant never chose.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[%_\\]/g, (character) => `\\${character}`);
+}
+
+/** The ids of a manual collection, ignoring anything that is not one. */
+function parseIdList(value: unknown): string[] {
+  const parsed = parseJson<unknown[]>(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((entry): entry is string => typeof entry === 'string' && entry !== '');
+}
+
+/**
+ * The conditions of an automated collection.
+ *
+ * A malformed entry is dropped rather than guessed at, and the caller treats
+ * "no conditions" as "no products" — so a corrupt rule empties a collection
+ * instead of publishing the whole catalogue under its name.
+ */
+function parseConditions(value: unknown): Condition[] {
+  const parsed = parseJson<unknown[]>(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { field, operator, value: expected } = entry as Record<string, unknown>;
+    if (typeof field !== 'string' || typeof operator !== 'string') return [];
+    return [{ field, operator, value: String(expected ?? '') }];
+  });
 }
 
 /** JSON columns arrive as a string on some drivers and parsed on others. */
