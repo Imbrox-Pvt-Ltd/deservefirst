@@ -19,13 +19,16 @@
  * Layer: infrastructure.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { QueryExecutor } from '../../core/list-engine';
-import { Binder } from '../../core/database/bind';
+import { Binder, writerFor } from '../../core/database/bind';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
 import {
   allProductsCollection,
   isAllProducts,
+  isRequestToken,
   DEFAULT_SORT,
   FILTER_PARAMS,
   NO_FILTERS,
@@ -33,6 +36,7 @@ import {
 import type { StorefrontData } from '../api/storefront-ports';
 import type {
   ArticleRow,
+  CartRow,
   BlogRow,
   CollectionRow,
   FilterCriteria,
@@ -73,6 +77,17 @@ export class SqlStorefrontData implements StorefrontData {
    * otherwise serve whichever store happened to construct it — the exact bug
    * the context exists to make impossible.
    */
+  /**
+   * The current time, as SQL rather than as a value.
+   *
+   * Both dialects accept `CURRENT_TIMESTAMP(3)`, and letting the database
+   * stamp it keeps every row on one clock — an application clock that drifts
+   * puts a request's lines before the request that holds them.
+   */
+  private now(): string {
+    return 'CURRENT_TIMESTAMP(3)';
+  }
+
   private storeId(): string {
     return requireStoreContext('storefront.query').storeId;
   }
@@ -824,6 +839,265 @@ export class SqlStorefrontData implements StorefrontData {
     return counted.map((entry) => entry.value);
   }
 
+  /**
+   * The draft request behind a visitor's token — what a theme calls the cart.
+   *
+   * An empty cart for an unknown or absent token, never null and never an
+   * error. A token can be absent (first visit), stale (the draft was submitted
+   * and is no longer a draft) or forged, and all three mean the same thing to a
+   * shopper: nothing in the cart yet. Answering with an error would break the
+   * header on every page instead.
+   */
+  async draftRequest(token: string | null): Promise<CartRow> {
+    const shop = await this.shop();
+    const empty: CartRow = { items: [], currency: shop.currency };
+    if (!isRequestToken(token)) return empty;
+
+    const request = await this.draftRow(token);
+    if (!request) return empty;
+
+    const bind = new Binder(this.dialect);
+    const sql = `SELECT l.*, p.${this.q('handle')} AS product_handle,
+                        p.${this.q('vendor')} AS vendor
+           FROM ${this.q('request_lines')} l
+           LEFT JOIN ${this.q('products')} p ON p.${this.q('id')} = l.${this.q('product_id')}
+          WHERE l.${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND l.${this.q('request_id')} = ${bind.add(String(request.id))}
+            AND l.${this.q('deleted_at')} IS NULL
+          ORDER BY l.${this.q('position')} ASC, l.${this.q('id')} ASC`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    return {
+      items: rows.map((row) => ({
+        id: String(row.id),
+        productId: String(row.product_id ?? ''),
+        variantId: String(row.variant_id ?? ''),
+        title: String(row.title ?? ''),
+        quantity: Number(row.quantity ?? 0),
+        // The price as it was when the line was added, not today's. A shopper
+        // returning to a week-old list should see what they were quoted.
+        unitPriceMinor: (row.list_price_amount_minor as string | number | null) ?? 0,
+        sku: (row.sku as string | null) ?? null,
+        vendor: (row.vendor as string | null) ?? null,
+        url: row.product_handle ? `/products/${String(row.product_handle)}` : null,
+      })),
+      currency: String(request.currency ?? shop.currency),
+      customerMessage: (request.note as string | null) ?? null,
+    };
+  }
+
+  async addToRequest(
+    token: string | null,
+    variantId: string,
+    quantity: number,
+  ): Promise<{ token: string; added: boolean }> {
+    const writer = writerFor(this.executor, 'adding to a request');
+
+    /**
+     * The variant is read before anything is written, and read through the
+     * store scope.
+     *
+     * A variant id arrives from a form, so it names whatever the sender chose.
+     * Without this a visitor could add another store's product to their list —
+     * and its title and price would render on this store's cart page.
+     */
+    const variant = await this.variantForRequest(variantId);
+    if (!variant) return { token: isRequestToken(token) ? token : '', added: false };
+
+    const existing = isRequestToken(token) ? await this.draftRow(token) : null;
+    const settled = existing ? String(existing.handle) : randomToken();
+    const requestId = existing ? String(existing.id) : `req_${randomToken()}`;
+
+    if (!existing) {
+      const bind = new Binder(this.dialect);
+      const sql = `INSERT INTO ${this.q('requests')}
+          (${this.q('id')}, ${this.q('store_id')}, ${this.q('handle')},
+           ${this.q('created_at')}, ${this.q('updated_at')}, ${this.q('version')},
+           ${this.q('reference')}, ${this.q('status')}, ${this.q('currency')},
+           ${this.q('line_count')}, ${this.q('published_channels')})
+        VALUES (${bind.add(requestId)}, ${bind.add(this.storeId())}, ${bind.add(settled)},
+                ${this.now()}, ${this.now()}, 1,
+                ${bind.add(referenceFor(settled))}, 'draft',
+                ${bind.add(String((await this.shop()).currency))}, 0, '[]')`;
+      const statement = bind.finish(sql);
+      await writer.execute(statement.sql, statement.parameters);
+    }
+
+    /**
+     * One line per variant: asking for two more of something you already asked
+     * for is a quantity, not a second line. Themes rely on this — a cart that
+     * grows a new row per click looks broken.
+     */
+    const line = await this.lineForVariant(requestId, variantId);
+    if (line) {
+      await this.setRequestLine(settled, String(line.id), Number(line.quantity ?? 0) + quantity);
+      return { token: settled, added: true };
+    }
+
+    const bind = new Binder(this.dialect);
+    const sql = `INSERT INTO ${this.q('request_lines')}
+        (${this.q('id')}, ${this.q('store_id')}, ${this.q('handle')},
+         ${this.q('created_at')}, ${this.q('updated_at')}, ${this.q('version')},
+         ${this.q('request_id')}, ${this.q('product_id')}, ${this.q('variant_id')},
+         ${this.q('title')}, ${this.q('sku')}, ${this.q('quantity')},
+         ${this.q('list_price_amount_minor')}, ${this.q('list_price_currency')},
+         ${this.q('position')}, ${this.q('published_channels')})
+      VALUES (${bind.add(`rln_${randomToken()}`)}, ${bind.add(this.storeId())},
+              ${bind.add(randomToken())}, ${this.now()}, ${this.now()}, 1,
+              ${bind.add(requestId)}, ${bind.add(String(variant.product_id ?? ''))},
+              ${bind.add(variantId)}, ${bind.add(titleFor(variant))},
+              ${bind.add((variant.sku as string | null) ?? '')}, ${bind.add(quantity)},
+              ${bind.add(Number(variant.price_amount_minor ?? 0))},
+              ${bind.add(String(variant.price_currency ?? 'USD'))},
+              ${bind.add(await this.nextPosition(requestId))}, '[]')`;
+
+    const statement = bind.finish(sql);
+    await writer.execute(statement.sql, statement.parameters);
+    await this.recountRequest(requestId);
+    return { token: settled, added: true };
+  }
+
+  async setRequestLine(token: string, lineId: string, quantity: number): Promise<void> {
+    const request = isRequestToken(token) ? await this.draftRow(token) : null;
+    if (!request) return;
+
+    const writer = writerFor(this.executor, 'changing a request line');
+    const bind = new Binder(this.dialect);
+
+    /**
+     * Scoped to THIS request as well as to the store.
+     *
+     * A line id comes from a form. Without the request in the WHERE, one
+     * visitor could set the quantity of a line in somebody else's cart — the
+     * store scope alone does not stop that, because both carts belong to the
+     * same store.
+     */
+    const sql = quantity <= 0
+      ? `UPDATE ${this.q('request_lines')}
+            SET ${this.q('deleted_at')} = ${this.now()}, ${this.q('updated_at')} = ${this.now()}
+          WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND ${this.q('request_id')} = ${bind.add(String(request.id))}
+            AND ${this.q('id')} = ${bind.add(lineId)}`
+      : `UPDATE ${this.q('request_lines')}
+            SET ${this.q('quantity')} = ${bind.add(quantity)},
+                ${this.q('updated_at')} = ${this.now()}
+          WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND ${this.q('request_id')} = ${bind.add(String(request.id))}
+            AND ${this.q('id')} = ${bind.add(lineId)}`;
+
+    const statement = bind.finish(sql);
+    await writer.execute(statement.sql, statement.parameters);
+    await this.recountRequest(String(request.id));
+  }
+
+  async clearRequest(token: string): Promise<void> {
+    const request = isRequestToken(token) ? await this.draftRow(token) : null;
+    if (!request) return;
+
+    const writer = writerFor(this.executor, 'clearing a request');
+    const bind = new Binder(this.dialect);
+    const sql = `UPDATE ${this.q('request_lines')}
+          SET ${this.q('deleted_at')} = ${this.now()}, ${this.q('updated_at')} = ${this.now()}
+        WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+          AND ${this.q('request_id')} = ${bind.add(String(request.id))}
+          AND ${this.q('deleted_at')} IS NULL`;
+    const statement = bind.finish(sql);
+    await writer.execute(statement.sql, statement.parameters);
+    await this.recountRequest(String(request.id));
+  }
+
+  /** The draft row for a token, or null if there is not one. */
+  private async draftRow(token: string): Promise<Row | null> {
+    const bind = new Binder(this.dialect);
+    const sql = `SELECT * FROM ${this.q('requests')}
+        WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+          AND ${this.q('handle')} = ${bind.add(token)}
+          AND ${this.q('status')} = 'draft'
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`;
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return rows[0] ?? null;
+  }
+
+  /** A variant, looked up inside this store so a forged id cannot cross stores. */
+  private async variantForRequest(variantId: string): Promise<Row | null> {
+    const bind = new Binder(this.dialect);
+    /**
+     * The product's title comes back with the variant.
+     *
+     * A variant has no title of its own — only `option_values` — so a line
+     * built from the variant row alone would be a nameless entry in the cart.
+     */
+    const sql = `SELECT v.*, p.${this.q('title')} AS product_title,
+                        p.${this.q('handle')} AS product_handle
+             FROM ${this.q('product_variants')} v
+             JOIN ${this.q('products')} p ON p.${this.q('id')} = v.${this.q('product_id')}
+          WHERE v.${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND v.${this.q('id')} = ${bind.add(variantId)}
+            AND v.${this.q('deleted_at')} IS NULL
+            AND p.${this.q('status')} = 'active'
+            AND p.${this.q('deleted_at')} IS NULL
+          LIMIT 1`;
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return rows[0] ?? null;
+  }
+
+  private async lineForVariant(requestId: string, variantId: string): Promise<Row | null> {
+    const bind = new Binder(this.dialect);
+    const sql = `SELECT * FROM ${this.q('request_lines')}
+        WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+          AND ${this.q('request_id')} = ${bind.add(requestId)}
+          AND ${this.q('variant_id')} = ${bind.add(variantId)}
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`;
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return rows[0] ?? null;
+  }
+
+  private async nextPosition(requestId: string): Promise<number> {
+    const bind = new Binder(this.dialect);
+    const sql = `SELECT COALESCE(MAX(${this.q('position')}), 0) + 1 AS n
+        FROM ${this.q('request_lines')}
+        WHERE ${this.q('store_id')} = ${bind.add(this.storeId())}
+          AND ${this.q('request_id')} = ${bind.add(requestId)}`;
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return Number(rows[0]?.n ?? 1);
+  }
+
+  /**
+   * Keeps the stored counts honest after every change.
+   *
+   * Derived rather than incremented: an increment that runs twice, or not at
+   * all, leaves a number nobody can explain and which a merchant sees in the
+   * admin. Recomputing is one extra query on an action a shopper takes by hand.
+   */
+  private async recountRequest(requestId: string): Promise<void> {
+    const writer = writerFor(this.executor, 'recounting a request');
+    const bind = new Binder(this.dialect);
+    const store = bind.add(this.storeId());
+    const sql = `UPDATE ${this.q('requests')} r
+        SET ${this.q('line_count')} = (
+              SELECT COUNT(*) FROM ${this.q('request_lines')} l
+               WHERE l.${this.q('request_id')} = r.${this.q('id')}
+                 AND l.${this.q('deleted_at')} IS NULL),
+            ${this.q('subtotal_amount_minor')} = (
+              SELECT COALESCE(SUM(l.${this.q('quantity')} * l.${this.q('list_price_amount_minor')}), 0)
+                FROM ${this.q('request_lines')} l
+               WHERE l.${this.q('request_id')} = r.${this.q('id')}
+                 AND l.${this.q('deleted_at')} IS NULL),
+            ${this.q('updated_at')} = ${this.now()}
+      WHERE r.${this.q('store_id')} = ${store}
+        AND r.${this.q('id')} = ${bind.add(requestId)}`;
+    const statement = bind.finish(sql);
+    await writer.execute(statement.sql, statement.parameters);
+  }
+
   /** One column's distinct values and how many products each would leave. */
   private async facetCounts(
     collection: CollectionRule,
@@ -1365,6 +1639,44 @@ function parseConditions(value: unknown): Condition[] {
     if (typeof field !== 'string' || typeof operator !== 'string') return [];
     return [{ field, operator, value: String(expected ?? '') }];
   });
+}
+
+/**
+ * What a cart line is called.
+ *
+ * The product's title, with the variant's own options after it when there is
+ * more than the implicit single variant — "Linen Shirt · Medium". A variant
+ * carries no title of its own, so building the line from the variant row alone
+ * produces a nameless entry.
+ */
+function titleFor(variant: Row): string {
+  const product = String(variant.product_title ?? '');
+  const options = parseJson<unknown[]>(variant.option_values);
+  if (!Array.isArray(options) || options.length === 0) return product;
+  const labels = options.map((value) => String(value ?? '').trim()).filter(Boolean);
+  return labels.length > 0 ? `${product} · ${labels.join(' / ')}` : product;
+}
+
+/**
+ * An unguessable name for a draft request.
+ *
+ * This is the value that ends up in a cookie and is the only thing standing
+ * between one shopper's list and another's, so it comes from the platform's
+ * random source rather than from a counter or a timestamp.
+ */
+function randomToken(): string {
+  return randomUUID().replace(/-/g, '');
+}
+
+/**
+ * What a merchant sees instead of the token.
+ *
+ * The token must never be shown: it is a session secret, and a merchant
+ * reading it out of an admin screen could open somebody's cart. This is a
+ * short, stable label derived from it for display only.
+ */
+function referenceFor(token: string): string {
+  return `R-${token.slice(0, 8).toUpperCase()}`;
 }
 
 /** JSON columns arrive as a string on some drivers and parsed on others. */

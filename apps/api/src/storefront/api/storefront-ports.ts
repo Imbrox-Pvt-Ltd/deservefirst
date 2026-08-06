@@ -17,6 +17,7 @@
 import type {
   ArticleRow,
   BlogRow,
+  CartRow,
   CollectionRow,
   FilterCriteria,
   FilterRow,
@@ -108,6 +109,34 @@ export interface StorefrontData {
   /** The same, narrowed to one collection. */
   productTypesOfCollection(collectionId: string): readonly string[];
   productVendorsOfCollection(collectionId: string): readonly string[];
+
+  /**
+   * The draft request this visitor is building — what a theme calls the cart.
+   *
+   * Phase 1 sells nothing (§25): a shopper assembles a Request/RFQ and the
+   * merchant answers it. Returns an empty one rather than null, because every
+   * page renders `cart.item_count` and a missing cart is a broken header.
+   */
+  draftRequest(token: string | null): Promise<CartRow>;
+
+  /**
+   * Adds to the draft, creating it if this is the first thing added.
+   *
+   * Returns the token, which the caller sets as a cookie — the row cannot be
+   * found again otherwise, and creating one per request would give every
+   * shopper a new empty cart on every page.
+   */
+  addToRequest(
+    token: string | null,
+    variantId: string,
+    quantity: number,
+  ): Promise<{ token: string; added: boolean }>;
+
+  /** Sets one line's quantity; zero removes it. */
+  setRequestLine(token: string, lineId: string, quantity: number): Promise<void>;
+
+  /** Empties the draft without deleting it, so the token stays valid. */
+  clearRequest(token: string): Promise<void>;
 
   /** The filters this collection offers, with counts for the current selection. */
   facetsOfCollection(

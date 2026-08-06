@@ -34,3 +34,4 @@ export * from './all-products';
 export * from './font-handle';
 export * from './theme-coverage';
 export * from './facets';
+export * from './request-session';

@@ -35,6 +35,10 @@ import {
   resolveThemeSettings,
   cacheKeyFor,
   canonicalPath,
+  cartDrop,
+  normaliseQuantity,
+  requestCookieHeader,
+  requestTokenFrom,
   canonicalRedirect,
   cspHeaderName,
   decideCacheable,
@@ -153,6 +157,22 @@ export interface StorefrontRequestInput {
   readonly origin?: string | null;
   /** Whoever is asking, for the rate limit. */
   readonly clientIp?: string;
+  /**
+   * The raw Cookie header, for the draft request a visitor is carrying.
+   *
+   * Raw rather than parsed, so the storefront decides what it will read. A
+   * parsed bag invites the next caller to trust whatever is in it.
+   */
+  readonly cookies?: string | null;
+  /**
+   * Whether this arrived over HTTPS.
+   *
+   * Decides `Secure` and the `__Host-` cookie prefix, which cannot be guessed
+   * from the hostname: development serves real store hostnames over plain
+   * HTTP, and a browser silently DROPS a Secure cookie there — so the whole
+   * flow would appear to work and never persist a single line.
+   */
+  readonly secure?: boolean;
   readonly hasSession?: boolean;
   readonly tokenValid?: boolean;
 }
@@ -235,6 +255,47 @@ const DROP_AUDIT: ((dropName: string, property: string) => void) | undefined =
         };
       })()
     : undefined;
+
+/**
+ * Whether a render has read data belonging to one visitor.
+ *
+ * A Proxy rather than a flag set where the drop is built, because building it
+ * is not the problem — a page that never prints the cart is perfectly
+ * shareable, and marking every page personal because the object was in scope
+ * would turn the page cache off for the whole platform.
+ */
+interface PersonalData {
+  watch<T extends object>(value: T): T;
+  touched(): boolean;
+}
+
+function watchPersonalData(): PersonalData {
+  let seen = false;
+  return {
+    watch(value) {
+      return new Proxy(value, {
+        get(target, key, receiver) {
+          // Engine probes are not reads of anybody's data; liquidjs asks every
+          // value whether it is a promise before doing anything with it.
+          if (key !== 'then' && key !== 'toLiquid') seen = true;
+          return Reflect.get(target, key, receiver);
+        },
+      });
+    },
+    touched: () => seen,
+  };
+}
+
+/** For the render paths that have no cache and no visitor data to protect. */
+function neverPersonal(): PersonalData {
+  return { watch: (value) => value, touched: () => false };
+}
+
+/** The path without its query, for matching an endpoint. */
+function canonicalPathOf(path: string): string {
+  const index = path.indexOf('?');
+  return index === -1 ? path : path.slice(0, index);
+}
 
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'x-content-type-options': 'nosniff',
@@ -338,7 +399,11 @@ export class StorefrontHandler {
     }
 
     return withRequestContext(storefrontContext(store.storeId), () =>
-      input.method === 'POST' ? this.submit(store, input) : this.serveCached(store, input),
+      input.method === 'POST'
+        ? input.path.startsWith('/cart/')
+          ? this.mutateRequest(store, input, canonicalPathOf(input.path))
+          : this.submit(store, input)
+        : this.serveCached(store, input),
     );
   }
 
@@ -769,6 +834,18 @@ export class StorefrontHandler {
       collectionId: null,
     };
 
+    /**
+     * Watches whether this render read anything belonging to one visitor.
+     *
+     * The reference theme's header prints `data-cart-count="{{ cart.item_count }}"`
+     * on EVERY page, so the markup of an ordinary product page contains one
+     * shopper's cart. A shared cache entry built from that would hand the next
+     * visitor somebody else's basket count — so a page that touched the cart is
+     * not cacheable, and the flag has to come from the render itself rather
+     * than from a guess about which pages are personal.
+     */
+    const personal = watchPersonalData();
+
     const drops = createDropContext({
       onMissingProperty: DROP_AUDIT,
       currency: shop.currency,
@@ -778,7 +855,9 @@ export class StorefrontHandler {
     });
 
     // Built before the engine, because the drops become its globals.
-    const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access, view);
+    const { scope, found } = await this.scopeFor(
+      store, match, drops, budget, shop, input, access, view, personal,
+    );
 
     // A failed submission puts the theme's own error rendering back in front of
     // the customer, through the SAME drop a theme reads on any other page.
@@ -899,7 +978,12 @@ export class StorefrontHandler {
          * the catalogue behind it.
          */
         ...(facetsAreActive(view.criteria) ? { 'x-robots-tag': 'noindex, follow' } : {}),
-        'cache-control': status === 200 ? 'public, max-age=0, s-maxage=60' : 'no-store',
+        'cache-control':
+          status !== 200
+            ? 'no-store'
+            : personal.touched()
+              ? 'private, no-store'
+              : 'public, max-age=0, s-maxage=60',
         ...(nonce
           ? {
               [cspHeaderName(!this.options.csp?.enforce)]: buildCsp({
@@ -939,7 +1023,14 @@ export class StorefrontHandler {
        * records them as a dependency — and without them here a filtered page
        * is stored under the unfiltered key and served to everyone.
        */
-      cacheKey: status === 200 ? cacheKeyFor(path, input.query, varyKeys) : null,
+      /**
+       * Never cached once the render has read this visitor's own data.
+       *
+       * `private` rather than `public` for the same reason: a proxy between us
+       * and the browser must not keep it either.
+       */
+      cacheKey:
+        status === 200 && !personal.touched() ? cacheKeyFor(path, input.query, varyKeys) : null,
       cacheVary: varyKeys,
       nonce,
     };
@@ -1020,6 +1111,7 @@ export class StorefrontHandler {
     input: StorefrontRequestInput,
     access: ReturnType<typeof readableParams>,
     view?: CollectionView,
+    personal: PersonalData = neverPersonal(),
   ): Promise<{ scope: Record<string, unknown>; found: boolean }> {
     const data = store.data;
 
@@ -1095,6 +1187,28 @@ export class StorefrontHandler {
        * fetching `''`, which is the current page.
        */
       routes: routesDrop({}, drops),
+      /**
+       * The list this visitor has been building, on EVERY page.
+       *
+       * The header renders `cart.item_count` everywhere, so a cart that only
+       * existed on `/cart` would be a badge reading zero on every other page.
+       */
+      /**
+       * An absent implementation means an empty cart, not a broken page.
+       *
+       * The same rule the drops follow for every other loader: the theme
+       * editor and the tests render without a full data source behind them,
+       * and a header that throws takes the whole page with it.
+       */
+      cart: personal.watch(
+        cartDrop(
+          (await data.draftRequest?.(requestTokenFrom(input.cookies))) ?? {
+            items: [],
+            currency: shop.currency,
+          },
+          drops,
+        ),
+      ),
       /**
        * Asked: no.
        *
@@ -1546,6 +1660,101 @@ export class StorefrontHandler {
       // Never cached — see the note above the method.
       cacheKey: null,
     };
+  }
+
+  /**
+   * Adding to, changing or emptying the draft request.
+   *
+   * Phase 1 sells nothing (§25), so this assembles a Request/RFQ rather than a
+   * cart that leads to a checkout. Themes address it as the cart because that
+   * is the object their markup already knows.
+   *
+   * Answers with a redirect rather than JSON. The theme's own scripts expect
+   * JSON from these paths and will be given it when the endpoints are wired to
+   * them; a redirect is what a plain HTML form needs, and it is the version
+   * that works with JavaScript switched off — which is the one worth having
+   * first, because it is the one that cannot silently stop working.
+   */
+  private async mutateRequest(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+    path: string,
+  ): Promise<StorefrontResponse> {
+    /**
+     * A cross-site POST is refused outright.
+     *
+     * A browser sends `Origin` on every POST and cannot be made to lie about
+     * it, so comparing it to the host this store answers on is the whole check.
+     * Without it, any page anywhere could empty a shopper's list.
+     */
+    const origin = (input.origin ?? '').trim();
+    if (origin !== '') {
+      const host = normaliseHost(input.host);
+      let originHost = '';
+      try {
+        originHost = new URL(origin).host.toLowerCase().replace(/:\d+$/, '');
+      } catch {
+        originHost = '';
+      }
+      if (originHost !== host) return text(403, 'That request did not come from this store.');
+    }
+
+    const fields = input.form ?? {};
+    const token = requestTokenFrom(input.cookies);
+    let settled = token;
+
+    if (path === '/cart/add') {
+      const variantId = String(fields.id ?? fields.variant_id ?? '').trim();
+      // Absent quantity means one, which is what an "Add to list" button sends.
+      const quantity = fields.quantity === undefined ? 1 : normaliseQuantity(fields.quantity);
+      if (variantId === '' || quantity <= 0) {
+        return text(422, 'A variant and a quantity are required.');
+      }
+      const result = await store.data.addToRequest(token, variantId, quantity);
+      /**
+       * A variant this store does not have is refused, not ignored.
+       *
+       * The id came from a form, so it names whatever the sender chose — and
+       * silently succeeding would leave a shopper looking at a list that did
+       * not gain the thing they asked for.
+       */
+      if (!result.added) return text(422, 'That product is not available.');
+      settled = result.token;
+    } else if (path === '/cart/change' || path === '/cart/update') {
+      const lineId = String(fields.line ?? fields.id ?? '').trim();
+      if (token && lineId !== '') {
+        await store.data.setRequestLine(token, lineId, normaliseQuantity(fields.quantity));
+      }
+    } else if (path === '/cart/clear') {
+      if (token) await store.data.clearRequest(token);
+    } else {
+      return text(404, 'No such endpoint.');
+    }
+
+    const back = typeof fields.return_to === 'string' && fields.return_to.startsWith('/')
+      ? fields.return_to
+      : '/cart';
+
+    const headers: Record<string, string> = {
+      ...SECURITY_HEADERS,
+      location: back,
+      // Never cached: this is one visitor's list, and the response carries the
+      // cookie that names it.
+      'cache-control': 'no-store',
+    };
+
+    /**
+     * The cookie is set only when there is a token to set.
+     *
+     * Re-sending it on every change would refresh its lifetime on each click,
+     * which is harmless — but sending one for a visitor who has no draft at all
+     * hands out an identifier for nothing.
+     */
+    if (settled) {
+      headers['set-cookie'] = requestCookieHeader(settled, input.secure ?? false);
+    }
+
+    return { status: 303, headers, body: '', cacheKey: null };
   }
 
   private async robots(store: ResolvedStore, host: string): Promise<StorefrontResponse> {

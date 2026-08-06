@@ -144,6 +144,70 @@ function cookieFrom(header: string | null): string | null {
   return null;
 }
 
+/**
+ * Reads and parses a storefront POST body from the raw stream.
+ *
+ * The storefront answers from an `onRequest` hook, which runs BEFORE Fastify
+ * parses a body — so `request.body` is always undefined there. Every
+ * `<form method="post">` on a storefront therefore arrived with no fields at
+ * all: the contact form, the quote request and the cart alike. Nothing errored,
+ * because an empty field set is indistinguishable from a shopper submitting a
+ * blank form, so each one reported that required fields were missing.
+ *
+ * Moving the hook later is not the fix — running first is what keeps storefront
+ * traffic out of session resolution and the admin routes — so the body is read
+ * here instead, from the stream Fastify has not touched yet.
+ *
+ * Bounded, because this is the one place an anonymous stranger sends us bytes.
+ */
+async function storefrontFormBody(request: {
+  raw: NodeJS.ReadableStream;
+  headers: Record<string, unknown>;
+}): Promise<Record<string, string> | undefined> {
+  const type = String(request.headers['content-type'] ?? '').toLowerCase();
+  const isForm = type.startsWith('application/x-www-form-urlencoded');
+  const isJson = type.startsWith('application/json');
+  if (!isForm && !isJson) return undefined;
+
+  const LIMIT = 128 * 1024;
+  const chunks: Buffer[] = [];
+  let size = 0;
+
+  for await (const chunk of request.raw) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    size += buffer.length;
+    // Stopping at the limit rather than buffering the rest and then rejecting:
+    // the point of a limit is not to hold the bytes in the first place.
+    if (size > LIMIT) return undefined;
+    chunks.push(buffer);
+  }
+
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (text === '') return {};
+
+  if (isJson) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object') return {};
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [
+          key,
+          String(value ?? ''),
+        ]),
+      );
+    } catch {
+      return {};
+    }
+  }
+
+  const fields: Record<string, string> = {};
+  for (const [key, value] of new URLSearchParams(text)) {
+    // First value wins, matching how the storefront reads a form elsewhere.
+    if (!(key in fields)) fields[key] = value;
+  }
+  return fields;
+}
+
 async function start(): Promise<void> {
   const platform = await bootstrap();
   const app = Fastify({ logger: false });
@@ -165,6 +229,33 @@ async function start(): Promise<void> {
       } catch (error) {
         done(error as Error, undefined);
       }
+    },
+  );
+
+  /**
+   * The body an ordinary HTML form sends.
+   *
+   * Fastify parses JSON out of the box and nothing else, so without this every
+   * `<form method="post">` on a storefront arrived with no body at all — the
+   * contact form, the quote request and the cart alike. They did not error;
+   * they read an empty field set and reported that required fields were
+   * missing, which is indistinguishable from a shopper submitting a blank form.
+   *
+   * Bounded, because this is the one place an anonymous stranger sends us
+   * bytes. A body larger than this is not a form somebody filled in.
+   */
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string', bodyLimit: 128 * 1024 },
+    (_request, body, done) => {
+      const text = typeof body === 'string' ? body : '';
+      const fields: Record<string, string> = {};
+      for (const [key, value] of new URLSearchParams(text)) {
+        // First value wins, matching how the storefront reads a form
+        // elsewhere: a repeated field is a theme's mistake, not a list.
+        if (!(key in fields)) fields[key] = value;
+      }
+      done(null, fields);
     },
   );
 
@@ -418,9 +509,21 @@ async function start(): Promise<void> {
        * read ourselves, so a forwarded-for header cannot be used to reset
        * somebody else's budget.
        */
-      form: request.body as Record<string, string> | undefined,
+      form: await storefrontFormBody(request as never),
       origin: (request.headers.origin as string | undefined) ?? null,
       clientIp: request.ip,
+      /**
+       * Raw, for the draft request a visitor carries.
+       *
+       * The storefront parses what it will read rather than being handed a bag
+       * of everything — an admin session cookie has no business reaching a
+       * public page render.
+       */
+      cookies: (request.headers.cookie as string | undefined) ?? null,
+      // From the connection rather than the hostname: a real store hostname
+      // served over plain HTTP in development must not be sent a Secure cookie,
+      // because the browser would drop it and nothing would ever persist.
+      secure: request.protocol === 'https',
     });
 
     for (const [name, value] of Object.entries(response.headers)) reply.header(name, value);
