@@ -55,6 +55,11 @@ import {
   paginateDrop,
   productDrop,
   productJsonLd,
+  recommendationsDrop,
+  routesDrop,
+  normaliseIntent,
+  normaliseLimit,
+  NOT_PERFORMED,
   articleDrop,
   blogDrop,
   readableParams,
@@ -431,6 +436,16 @@ export class StorefrontHandler {
       // A `v=` in the query means the URL identifies one version of the file,
       // which is what makes an immutable cache safe.
       return this.asset(store, assetPath, new URLSearchParams(input.query).has('v'));
+    }
+
+    /**
+     * The section-rendering endpoint a theme's JavaScript fetches.
+     *
+     * Before routing, because `/recommendations/products` is not a page and
+     * `matchRoute` would spend a lookup deciding it is not a product either.
+     */
+    if (path === '/recommendations/products') {
+      return this.recommendations(store, input);
     }
 
     if (path === '/robots.txt') return this.robots(store, input.host);
@@ -945,6 +960,20 @@ export class StorefrontHandler {
       canonical_url: `https://${shop.domain}${canonicalPath(match)}`,
       page_description: '',
       /**
+       * Where things live, which themes never hardcode.
+       *
+       * Absent, every `{{ routes.cart_url }}` rendered empty — and the theme
+       * puts them into a JavaScript config on every page, so its scripts were
+       * fetching `''`, which is the current page.
+       */
+      routes: routesDrop({}, drops),
+      /**
+       * Asked: no.
+       *
+       * An answer rather than an absence — see `drops/recommendations.ts`.
+       */
+      recommendations: recommendationsDrop(NOT_PERFORMED, drops),
+      /**
        * The page number, as a GLOBAL and not only inside `request`.
        *
        * Themes compare it directly — the reference theme's `<title>` is guarded
@@ -1077,6 +1106,89 @@ export class StorefrontHandler {
       // Cached by the URL alone: an asset does not vary on anything, and its
       // path is the whole of its identity.
       cacheKey: themePath,
+    };
+  }
+
+  /**
+   * Products worth showing beside another one, as rendered markup.
+   *
+   * HTML rather than JSON because that is what the theme asks for: its script
+   * fetches this, parses the response as a document and lifts one element out
+   * of it. Returning JSON would mean every theme rewriting its own carousel.
+   *
+   * The section is named by the CALLER, which is the interesting part — a theme
+   * decides which of its own sections renders the answer, so the platform never
+   * needs to know what a recommendation looks like.
+   */
+  private async recommendations(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+  ): Promise<StorefrontResponse> {
+    const query = new URLSearchParams(input.query);
+    const productId = (query.get('product_id') ?? '').trim();
+    const sectionId = (query.get('section_id') ?? '').trim();
+
+    if (productId === '' || sectionId === '') {
+      return text(422, 'A product_id and a section_id are required.');
+    }
+
+    const shop = await store.data.shop();
+    const limit = normaliseLimit(query.get('limit'));
+    const intent = normaliseIntent(query.get('intent'));
+
+    const products = await store.data.recommendedProducts(productId, limit);
+
+    const drops = createDropContext({
+      currency: shop.currency,
+      locale: 'en',
+      baseUrl: `https://${shop.domain}`,
+      load: loadersFor(store.data),
+    });
+
+    const engineContext: RenderContext = defaultContext({
+      currency: shop.currency as never,
+      assetBaseUrl: `https://${shop.domain}/assets`,
+      cdnBaseUrl: `https://${shop.domain}/files`,
+      platformAssetBaseUrl: `https://${shop.domain}/platform`,
+      assetVersion: store.themeVersion ?? undefined,
+      translations: await this.translationsFor(store),
+    });
+
+    const scope: Record<string, unknown> = {
+      shop: shopDrop(shop, drops),
+      settings: await this.settingsFor(store),
+      routes: routesDrop({}, drops),
+      /**
+       * `performed: true` is the whole point of the request.
+       *
+       * The same theme template renders on the product page, where nobody has
+       * asked, and here, where somebody has. Without this it cannot tell an
+       * unasked question from an empty answer.
+       */
+      recommendations: recommendationsDrop({ performed: true, intent, products }, drops),
+    };
+
+    const engine = createThemeEngine(engineContext, { source: store.theme, globals: scope });
+    const renderer = new PageRenderer(engine, store.theme, {
+      explainFailures: this.options.explainFailures ?? false,
+      linkSchemes: this.options.linkSchemes ?? [],
+    });
+
+    const { html, found } = await renderer.renderSectionAlone(sectionId, scope);
+    if (!found) return text(404, 'No such section.');
+
+    return {
+      status: 200,
+      headers: {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/html; charset=utf-8',
+        // Recommendations follow the catalogue, so they are cached briefly and
+        // revalidated rather than held for the page's lifetime.
+        'cache-control': 'public, max-age=60, must-revalidate',
+      },
+      body: html,
+      // Keyed by everything that changes the answer.
+      cacheKey: `/recommendations/products?p=${productId}&s=${sectionId}&l=${limit}&i=${intent}`,
     };
   }
 

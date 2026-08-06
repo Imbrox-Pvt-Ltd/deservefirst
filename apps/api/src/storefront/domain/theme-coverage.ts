@@ -224,6 +224,7 @@ export function knownObjects(): readonly string[] {
 
     // Put in scope by the transport for every render.
     'settings', 'template', 'request', 'routes', 'section', 'block',
+    'recommendations',
     'canonical_url', 'page_title', 'page_description', 'current_page',
     'current_tags', 'all_products', 'content_for_layout', 'content_for_header',
     'content_security_policy_nonce', 'handle', 'theme', 'localization',

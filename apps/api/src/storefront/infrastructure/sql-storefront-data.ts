@@ -20,6 +20,7 @@
  */
 
 import type { QueryExecutor } from '../../core/list-engine';
+import { Binder } from '../../core/database/bind';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
 import { allProductsCollection, isAllProducts } from '../domain';
@@ -267,6 +268,69 @@ export class SqlStorefrontData implements StorefrontData {
         ORDER BY ${this.q('position')} ASC`,
       [this.storeId(), productId],
     ).then((rows) => rows.map(toImage)) as unknown as readonly ImageRow[];
+  }
+
+  /**
+   * Products worth showing beside this one.
+   *
+   * "Same product type, else same vendor, else anything recent", ranked in that
+   * order by a CASE rather than by three queries — one round trip, and the
+   * ordering is the ranking.
+   *
+   * Deliberately naive, and worth being honest about: it is not personalised,
+   * it does not learn, and it has no idea what sells together. It is the
+   * difference between a product page with an empty carousel and one with a
+   * plausible row of products, which is the whole gap that matters today. A
+   * real recommender replaces this function and nothing else.
+   */
+  async recommendedProducts(productId: string, limit: number): Promise<readonly ProductRow[]> {
+    /**
+     * Built through a `Binder`, because this statement names the same two
+     * values four times.
+     *
+     * Written with positional helpers first — `p(1)` for the store twice and
+     * `p(2)` for the product twice — which produced four `?` and two values.
+     * On Postgres that is correct, because `$1` names a value; on MySQL every
+     * `?` takes the NEXT one, so the statement was two parameters short and
+     * failed to parse.
+     *
+     * Then, using `Binder` but calling `add` into NAMED CONSTS above the
+     * statement, the count matched and the order did not: the first `?` in the
+     * text was the product and the first value added was the store, so the join
+     * compared a product id to a store id and matched nothing. No error — an
+     * empty carousel.
+     *
+     * So the calls are inlined where the placeholders appear. Order is then a
+     * property of the text rather than something to keep in step by hand, which
+     * is the only version of this that stays correct.
+     */
+    const bind = new Binder(this.dialect);
+    const storeId = this.storeId();
+
+    const sql = `SELECT p.*,
+              CASE
+                WHEN p.${this.q('product_type')} = s.${this.q('product_type')}
+                     AND s.${this.q('product_type')} IS NOT NULL
+                     AND s.${this.q('product_type')} <> '' THEN 0
+                WHEN p.${this.q('vendor')} = s.${this.q('vendor')}
+                     AND s.${this.q('vendor')} IS NOT NULL
+                     AND s.${this.q('vendor')} <> '' THEN 1
+                ELSE 2
+              END AS rank_order
+         FROM ${this.q('products')} p
+         JOIN ${this.q('products')} s
+           ON s.${this.q('id')} = ${bind.add(productId)}
+          AND s.${this.q('store_id')} = ${bind.add(storeId)}
+        WHERE p.${this.q('store_id')} = ${bind.add(storeId)}
+          AND p.${this.q('id')} <> ${bind.add(productId)}
+          AND p.${this.q('status')} = 'active'
+          AND p.${this.q('deleted_at')} IS NULL
+        ORDER BY rank_order ASC, p.${this.q('created_at')} DESC
+        LIMIT ${Math.max(1, Math.min(Math.floor(limit), 50))}`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return rows.map(toProduct);
   }
 
   productsOfCollection(collectionId: string): readonly ProductRow[] {

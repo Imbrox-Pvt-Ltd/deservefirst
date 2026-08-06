@@ -191,6 +191,47 @@ export class PageRenderer {
     return { html, failures };
   }
 
+  /**
+   * One section on its own, for the section-rendering endpoint.
+   *
+   * A theme's JavaScript fetches a URL with `?section_id=…` and drops the
+   * response into the page — the related-products carousel, a cart drawer after
+   * an add, a facet result. It is how a theme updates part of a page without
+   * building the markup twice, once in Liquid and once in JavaScript.
+   *
+   * Rendered WITHOUT the layout, deliberately: the caller is splicing this into
+   * a document that already has a `<head>`, and returning one would put a
+   * second `<html>` inside the first.
+   *
+   * The section id is attacker-controlled — it arrives in a query string — so it
+   * goes through `confinePath` like every other theme read rather than being
+   * concatenated into a filename.
+   */
+  async renderSectionAlone(
+    type: string,
+    scope: Record<string, unknown>,
+  ): Promise<{ html: string; found: boolean }> {
+    const path = `sections/${type}.liquid`;
+
+    let exists = false;
+    try {
+      exists = await this.source.exists(path);
+    } catch {
+      // `confinePath` refused the name: not a section, so not found.
+      return { html: '', found: false };
+    }
+    if (!exists) return { html: '', found: false };
+
+    const failures: SectionFailure[] = [];
+    const html = await this.renderSections(
+      [{ id: type, type, settings: {}, blocks: [], disabled: false }],
+      scope,
+      failures,
+    );
+
+    return { html, found: true };
+  }
+
   private async renderSections(
     sections: readonly TemplateSection[],
     scope: Record<string, unknown>,

@@ -53,6 +53,17 @@ export interface StorefrontData {
   productCountOfCollection(collectionId: string): number;
   image(imageId: string): ImageRow | null;
 
+  /**
+   * Products worth showing beside this one.
+   *
+   * Async and by id, unlike the relation loaders above, because this is not a
+   * relation — nothing links these rows together. It is a query with an
+   * opinion, and the opinion will change: the first one is "same type, then
+   * same vendor", and a better one later must not require every caller to
+   * learn a new shape.
+   */
+  recommendedProducts(productId: string, limit: number): Promise<readonly ProductRow[]>;
+
   redirects(): Promise<readonly RedirectRule[]>;
   /** URLs for the sitemap, by kind. */
   sitemapEntries(kind: string): Promise<readonly SitemapEntry[]>;
