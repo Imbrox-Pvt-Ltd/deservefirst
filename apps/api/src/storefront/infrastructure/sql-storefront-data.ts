@@ -45,6 +45,7 @@ import type {
   MetafieldTree,
   ImageRow,
   PageRow,
+  PolicyRow,
   ProductRow,
   RedirectRule,
   SearchResults,
@@ -943,6 +944,46 @@ export class SqlStorefrontData implements StorefrontData {
       };
     }
     return tree;
+  }
+
+  /**
+   * A store's policies, keyed by kind.
+   *
+   * A policy with no body is left out entirely. Themes link a policy from the
+   * footer and from a product page, and an unwritten one appearing as a link to
+   * an empty page is worse than it simply not being offered — so "not written"
+   * and "not present" are deliberately the same thing here.
+   */
+  async policies(): Promise<Readonly<Record<string, PolicyRow>>> {
+    const rows = await this.executor.query<Row>(
+      `SELECT * FROM ${this.q('policies')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('deleted_at')} IS NULL`,
+      [this.storeId()],
+    );
+
+    const byKind: Record<string, PolicyRow> = {};
+    for (const row of rows) {
+      const body = (row.body as string | null) ?? '';
+      if (body.trim() === '') continue;
+      byKind[String(row.policy_type ?? '')] = toPolicy(row);
+    }
+    return byKind;
+  }
+
+  async policyByHandle(handle: string): Promise<PolicyRow | null> {
+    const rows = await this.executor.query<Row>(
+      `SELECT * FROM ${this.q('policies')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('handle')} = ${this.p(2)}
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [this.storeId(), handle],
+    );
+    const row = rows[0];
+    // An unwritten policy is not a page: it 404s rather than rendering blank.
+    if (!row || String((row.body as string | null) ?? '').trim() === '') return null;
+    return toPolicy(row);
   }
 
   collectionsOfProduct(productId: string): readonly CollectionRow[] {
@@ -1867,6 +1908,16 @@ function metafieldValue(raw: unknown, valueType: string): unknown {
   if (!valueType.startsWith('json') && !valueType.startsWith('list.')) return String(raw);
   const parsed = parseJson<unknown>(raw);
   return parsed ?? String(raw);
+}
+
+function toPolicy(row: Row): PolicyRow {
+  return {
+    id: String(row.id),
+    policyType: String(row.policy_type ?? ''),
+    handle: String(row.handle),
+    title: String(row.title),
+    body: (row.body as string | null) ?? null,
+  };
 }
 
 /** A JSON array column as strings, ignoring anything that is not one. */

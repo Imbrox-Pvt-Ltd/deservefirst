@@ -48,10 +48,12 @@ export {
   blogDrop,
   commentDrop,
   pageDrop,
+  policyDrop,
   type ArticleRow,
   type BlogRow,
   type CommentRow,
   type PageRow,
+  type PolicyRow,
 } from './content';
 
 export {

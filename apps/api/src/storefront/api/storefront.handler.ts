@@ -299,6 +299,26 @@ function neverPersonal(): PersonalData {
   return { watch: (value) => value, touched: () => false };
 }
 
+/**
+ * A policy in the shape the page template expects.
+ *
+ * Null for one that has not been written: an unwritten policy is not a blank
+ * page a shopper should be able to land on, it is a page that does not exist.
+ */
+async function policyAsPage(data: StorefrontData, handle: string) {
+  const policy = await data.policyByHandle(handle);
+  if (!policy) return null;
+  return {
+    id: policy.id,
+    handle: policy.handle,
+    title: policy.title,
+    body: policy.body ?? '',
+    templateSuffix: null,
+    publishedAt: null,
+    updatedAt: null,
+  };
+}
+
 /** The path without its query, for matching an endpoint. */
 function canonicalPathOf(path: string): string {
   const index = path.indexOf('?');
@@ -1362,7 +1382,15 @@ export class StorefrontHandler {
         };
       }
       case 'page': {
-        const row = await data.pageByHandle(match.handle ?? '');
+        /**
+         * A policy is loaded as a page, because that is what a theme renders
+         * it with — see the router. The `policy` object exists separately for
+         * `shop.refund_policy`; this is the page a shopper lands on.
+         */
+        const row =
+          match.parentHandle === 'policies'
+            ? await policyAsPage(data, match.handle ?? '')
+            : await data.pageByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
         return { scope: { ...base, page: pageDrop(row, drops), page_title: row.title }, found: true };
       }
@@ -1938,6 +1966,7 @@ function loadersFor(
     productTypes: (() => data.productTypes()) as never,
     productVendors: (() => data.productVendors()) as never,
     collectionsOfProduct: ((id: string) => data.collectionsOfProduct(id)) as never,
+    policies: (() => data.policies()) as never,
     metafieldsOf: ((ownerEntity: string, ownerId: string) =>
       data.metafieldsOf(ownerEntity, ownerId)) as never,
     productTypesOfCollection: ((id: string) => data.productTypesOfCollection(id)) as never,

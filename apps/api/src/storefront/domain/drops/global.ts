@@ -15,7 +15,8 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList, type DropFactory, pending } from './define';
+import { defineDrop, dropList, type DropFactory, pending, type DropContext } from './define';
+import { policyDrop, type PolicyRow } from './content';
 
 export interface ShopRow {
   readonly id: string;
@@ -103,7 +104,14 @@ function moneyFormatFor(currency: string): string {
  * Null rather than an empty object: a theme links to `.url`, and inventing a
  * URL to a page that does not exist puts a broken link in every footer.
  */
-const POLICY = pending('Store policies are not modelled as records yet.', null);
+/** One policy by kind, or null when the merchant has not written it. */
+async function policyOf(kind: string, context: DropContext): Promise<unknown> {
+  const load = context.load.policies as
+    | (() => Promise<Readonly<Record<string, PolicyRow>>>)
+    | undefined;
+  const found = (await load?.())?.[kind];
+  return found ? policyDrop(found, context) : null;
+}
 
 export const shopDrop = defineDrop<ShopRow>('shop', {
   id: (shop) => shop.id,
@@ -171,10 +179,18 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
    * to `shop.shipping_policy.url`, and inventing a URL to a page that does not
    * exist puts a broken link in a footer on every page.
    */
-  privacy_policy: POLICY,
-  refund_policy: POLICY,
-  shipping_policy: POLICY,
-  terms_of_service: POLICY,
+  /**
+   * The store's published policies.
+   *
+   * Null for one a merchant has not written — themes test
+   * `shop.refund_policy.body != blank` before linking, and an unwritten policy
+   * appearing as a link to an empty page is worse than not being offered.
+   */
+  privacy_policy: (_shop, context) => policyOf('privacy', context),
+  refund_policy: (_shop, context) => policyOf('refund', context),
+  shipping_policy: (_shop, context) => policyOf('shipping', context),
+  terms_of_service: (_shop, context) => policyOf('terms_of_service', context),
+  subscription_policy: (_shop, context) => policyOf('subscription', context),
 
   /**
    * How money is written, for the theme's own JavaScript.

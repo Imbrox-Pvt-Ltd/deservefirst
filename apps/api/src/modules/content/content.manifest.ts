@@ -16,6 +16,7 @@ import {
   metaobjectDefinitionResource,
   metaobjectEntryResource,
   pageResource,
+  policyResource,
   menuResource,
   blogResource,
   blogPostResource,
@@ -40,6 +41,13 @@ export const contentManifest: ModuleManifest = {
       name: 'Page',
       tableName: 'pages',
       // The one entity so far that genuinely needs SEO.
+      toolkit: { seo: true },
+      translatableFields: ['title', 'body', 'handle'],
+    },
+    {
+      name: 'Policy',
+      tableName: 'policies',
+      // A policy is a page a shopper lands on, so it gets the same SEO surface.
       toolkit: { seo: true },
       translatableFields: ['title', 'body', 'handle'],
     },
@@ -76,6 +84,7 @@ export const contentManifest: ModuleManifest = {
 
   resources: [
     pageResource,
+    policyResource,
     menuResource,
     blogResource,
     blogPostResource,
@@ -93,6 +102,16 @@ export const contentManifest: ModuleManifest = {
     { path: '/store/:handle/pages', screen: 'ListScreen', entity: 'Page', permission: 'content.read' },
     { path: '/store/:handle/pages/new', screen: 'CreateScreen', entity: 'Page', permission: 'content.manage' },
     { path: '/store/:handle/pages/:id', screen: 'DetailScreen', entity: 'Page', permission: 'content.read' },
+    /**
+     * Policies are listed and edited, never created or deleted from here.
+     *
+     * Which policies exist is decided by the platform, not by a merchant — a
+     * theme asks for `shop.refund_policy` by name, so a merchant inventing a
+     * seventh kind would produce a record nothing could ever read. Writing the
+     * body is the merchant's job; deciding the set is not.
+     */
+    { path: '/store/:handle/settings/policies', screen: 'ListScreen', entity: 'Policy', permission: 'content.read' },
+    { path: '/store/:handle/settings/policies/:id', screen: 'DetailScreen', entity: 'Policy', permission: 'content.read' },
     // Metaobjects are browsed definition-first: a merchant thinks "edit an
     // Author", not "edit entry 41". The definition id is therefore part of the
     // path rather than a filter on a flat entry list.

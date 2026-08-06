@@ -725,6 +725,51 @@
           }
         }
       },
+      "Policy": {
+        "type": "object",
+        "description": "Policies — declared by the Policy entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "policyType": {
+            "type": "string",
+            "enum": [
+              "refund",
+              "privacy",
+              "terms_of_service",
+              "shipping",
+              "subscription",
+              "contact"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "Menu": {
         "type": "object",
         "description": "Menus — declared by the Menu entity.",
@@ -3423,6 +3468,161 @@
           },
           "422": {
             "description": "A domain rule refused this."
+          }
+        }
+      }
+    },
+    "/2026-01/content/policies": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "List policies",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of policies.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Policy"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/content/policies/{id}": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Get one policy",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "content.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Policy"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
           }
         }
       }

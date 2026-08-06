@@ -203,6 +203,12 @@ Also answers to, for themes written elsewhere:
 
 `current_page`, `current_offset`, `items`, `page_size`, `pages`, `previous`, `next`, `parts`
 
+## `policy`
+
+5 implemented, 0 pending.
+
+`id`, `title`, `body`, `handle`, `url`
+
 ## `predictive_search`
 
 3 implemented, 0 pending.
@@ -271,18 +277,14 @@ Also answers to, for themes written elsewhere:
 
 ## `shop`
 
-19 implemented, 6 pending.
+24 implemented, 2 pending.
 
-`id`, `name`, `description`, `domain`, `permanent_domain`, `url`, `secure_url`, `currency`, `enabled_currencies`, `enabled_locales`, `email`, `phone`, `address`, `money_format`, `money_with_currency_format`, `products_count`, `collections_count`, `types`, `vendors`
+`id`, `name`, `description`, `domain`, `permanent_domain`, `url`, `secure_url`, `currency`, `enabled_currencies`, `enabled_locales`, `email`, `phone`, `address`, `privacy_policy`, `refund_policy`, `shipping_policy`, `terms_of_service`, `subscription_policy`, `money_format`, `money_with_currency_format`, `products_count`, `collections_count`, `types`, `vendors`
 
 | Pending | Why |
 | --- | --- |
 | `customer_accounts_enabled` | Shoppers have no accounts yet: no credential storage, no storefront session, and /account/* is handed back to the platform rather than to a theme. |
 | `enabled_payment_types` | Phase 1 takes no payments (§25), so no method is enabled. Declared rather than missing because themes count this before drawing a row of icons. |
-| `privacy_policy` | Store policies are not modelled as records yet. |
-| `refund_policy` | Store policies are not modelled as records yet. |
-| `shipping_policy` | Store policies are not modelled as records yet. |
-| `terms_of_service` | Store policies are not modelled as records yet. |
 
 ## `sort_option`
 

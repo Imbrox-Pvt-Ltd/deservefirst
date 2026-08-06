@@ -225,6 +225,24 @@ async function adjacentOf(
   return (await load?.(blog.id, blog.currentArticleId)) ?? { previous: null, next: null };
 }
 
+export interface PolicyRow {
+  readonly id: string;
+  /** Which policy this is — themes address them by kind, not by handle. */
+  readonly policyType: string;
+  readonly handle: string;
+  readonly title: string;
+  readonly body?: string | null;
+}
+
+export const policyDrop = defineDrop<PolicyRow>('policy', {
+  id: (policy) => policy.id,
+  title: (policy) => policy.title,
+  /** The rendered policy. Themes test it for blank before linking. */
+  body: (policy) => policy.body ?? '',
+  handle: (policy) => policy.handle,
+  url: (policy) => `/policies/${policy.handle}`,
+});
+
 export const blogDrop = defineDrop<BlogRow>('blog', {
   id: (blog) => blog.id,
   handle: (blog) => blog.handle,

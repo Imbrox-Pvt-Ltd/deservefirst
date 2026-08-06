@@ -24,6 +24,7 @@ import type {
   MetafieldTree,
   ImageRow,
   PageRow,
+  PolicyRow,
   ProductRow,
   RedirectRule,
   SearchResults,
@@ -127,6 +128,17 @@ export interface StorefrontData {
    * page because nobody remembered to hide it.
    */
   metafieldsOf(ownerEntity: string, ownerId: string): Promise<MetafieldTree>;
+
+  /**
+   * A store's published policies, by kind.
+   *
+   * All of them in one call: a theme's footer links every policy it has, so
+   * fetching them one at a time would be four queries to render one list.
+   */
+  policies(): Promise<Readonly<Record<string, PolicyRow>>>;
+
+  /** One policy by handle, for the page a shopper lands on. */
+  policyByHandle(handle: string): Promise<PolicyRow | null>;
 
   /** Which collections hold this product, for a theme's breadcrumbs. */
   collectionsOfProduct(productId: string): readonly CollectionRow[];

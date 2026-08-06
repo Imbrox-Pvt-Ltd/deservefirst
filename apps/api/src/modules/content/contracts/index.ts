@@ -47,6 +47,59 @@ export const pageResource: ResourceDefinition = {
   permissions: { read: 'content.read', write: 'content.manage', delete: 'content.manage' },
 };
 
+/**
+ * A store's published policies — refund, privacy, terms, shipping.
+ *
+ * A content record like a page, not a settings field, because that is what one
+ * is: a title and a body a merchant writes, that a shopper reads at a URL and
+ * that a theme links to from a footer and a product page.
+ *
+ * Modelled separately from `Page` even though the shape is nearly identical,
+ * for one reason a shared table would lose: which policy a record IS matters.
+ * A theme asks for `shop.refund_policy` by name, so the KIND has to be a
+ * closed set the platform understands, not a handle a merchant can rename into
+ * something no theme will find.
+ */
+export const policyResource: ResourceDefinition = {
+  name: 'Policy',
+  entity: 'Policy',
+  pluralName: 'Policies',
+  urlSegment: 'policies',
+  aggregateRoot: 'Policy',
+  fields: [
+    { name: 'id', type: 'id' },
+    // Closed, because themes address these by name.
+    {
+      name: 'policyType',
+      type: 'enum',
+      values: ['refund', 'privacy', 'terms_of_service', 'shipping', 'subscription', 'contact'],
+      required: true,
+      indexed: true,
+      filterable: true,
+    },
+    { name: 'title', type: 'string', required: true, filterable: true, searchable: true, translatable: true },
+    { name: 'handle', type: 'handle', unique: true, indexed: true, filterable: true, translatable: true },
+    { name: 'body', type: 'richtext', searchable: true, translatable: true },
+    /**
+     * A policy with no body is one the merchant has not written.
+     *
+     * Themes test `shop.refund_policy.body != blank` before linking to it,
+     * which is the behaviour we want: an unwritten policy should not appear in
+     * a footer as a link to an empty page.
+     */
+    { name: 'createdAt', type: 'datetime', sortable: true },
+    { name: 'updatedAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'public' },
+  screens: ['list', 'detail'],
+  columns: [
+    { field: 'title', label: 'Title', defaultVisible: true, position: 0 },
+    { field: 'policyType', label: 'Kind', defaultVisible: true, position: 1 },
+    { field: 'updatedAt', label: 'Updated', defaultVisible: true, position: 2 },
+  ],
+  permissions: { read: 'content.read', write: 'content.manage', delete: 'content.manage' },
+};
+
 export const metaobjectDefinitionResource: ResourceDefinition = {
   name: 'MetaobjectDefinition',
   entity: 'MetaobjectDefinition',

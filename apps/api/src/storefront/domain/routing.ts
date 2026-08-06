@@ -115,6 +115,25 @@ export function matchRoute(path: string): RouteMatch {
       return { pageType: 'page', handle: name, ...(format ? { format } : {}) };
     }
 
+    /**
+     * A policy renders as a page, deliberately.
+     *
+     * Themes ship `templates/page.liquid` and no policy template, so giving
+     * this its own page kind would leave every store with an unrenderable URL
+     * until every theme was updated. The record is different; the shape a
+     * theme receives is not.
+     */
+    case 'policies': {
+      if (!second) return { pageType: '404' };
+      const { name, format } = splitFormat(second);
+      return {
+        pageType: 'page',
+        handle: name,
+        parentHandle: 'policies',
+        ...(format ? { format } : {}),
+      };
+    }
+
     case 'blogs': {
       if (!second) return { pageType: '404' };
       const blog = splitFormat(second);
@@ -169,7 +188,9 @@ export function canonicalPath(match: RouteMatch): string {
     case 'list-collections':
       return '/collections';
     case 'page':
-      return `/pages/${match.handle}`;
+      return match.parentHandle === 'policies'
+        ? `/policies/${match.handle}`
+        : `/pages/${match.handle}`;
     case 'blog':
       return `/blogs/${match.handle}`;
     case 'article':
