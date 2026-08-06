@@ -23,7 +23,7 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList } from './define';
+import { defineDrop, dropList, pending } from './define';
 
 export interface LineItemRow {
   readonly id: string;
@@ -122,6 +122,14 @@ function isoOrNull(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+/**
+ * Price per unit of measure, for goods sold by weight or volume.
+ *
+ * Null is what a theme tests for. Reporting the item price here would print
+ * "£4.50 per" with no unit after it.
+ */
+const PER_UNIT = pending('Products carry no unit of measure yet.', null);
+
 export const lineItemDrop = defineDrop<LineItemRow>('line_item', {
   id: (line) => line.id,
   key: (line) => line.id,
@@ -219,12 +227,15 @@ export const lineItemDrop = defineDrop<LineItemRow>('line_item', {
    * Null until products carry a unit, and null is the answer a theme tests
    * for. Reporting the item price here would print "£4.50 per" with no unit.
    */
-  unit_price: () => null,
-  unit_price_measurement: () => null,
+  unit_price: PER_UNIT,
+  unit_price_measurement: PER_UNIT,
 
   /** No discounts and no subscriptions in Phase 1 (§25). */
-  line_level_discount_allocations: () => [],
-  selling_plan_allocation: () => null,
+  line_level_discount_allocations: pending(
+    'Discounts are Phase 3 (§25).',
+    [] as readonly unknown[],
+  ),
+  selling_plan_allocation: pending('Subscriptions are Phase 4 (§25).', null),
 });
 
 export const cartDrop = defineDrop<CartRow>('cart', {
@@ -258,11 +269,17 @@ export const cartDrop = defineDrop<CartRow>('cart', {
    * claiming true would put a statement about tax on a storefront that has
    * calculated none.
    */
-  taxes_included: () => false,
-  duties_included: () => false,
+  taxes_included: pending(
+    'No tax engine in Phase 1 (§25), so no price here has had tax applied to it.',
+    false,
+  ),
+  duties_included: pending('No duty is calculated in Phase 1 (§25).', false),
 
   /** No discounts in Phase 1, so nothing has been applied to this cart. */
-  discount_applications: () => [],
+  discount_applications: pending(
+    'Discounts are Phase 3 (§25), so nothing has been applied to this cart.',
+    [] as readonly unknown[],
+  ),
 });
 
 export const addressDrop = defineDrop<AddressRow>('address', {

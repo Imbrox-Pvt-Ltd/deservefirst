@@ -14,7 +14,7 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList } from './define';
+import { defineDrop, dropList, pending } from './define';
 
 export interface FilterValueRow {
   readonly value: string;
@@ -89,6 +89,16 @@ function urlWith(
   return rendered === '' ? path : `${path}?${rendered}`;
 }
 
+/**
+ * The colour or image shown instead of a filter value's name.
+ *
+ * Null is the CORRECT answer here rather than a stand-in for one: a swatch
+ * exists only where a filter is presented as swatches and the merchant has
+ * saved colour or image content. Marked all the same, so the reference can say
+ * why it is empty rather than leaving a reader to guess.
+ */
+const SWATCH = pending('No swatch content is modelled; themes fall back to the label.', null);
+
 export const filterValueDrop = defineDrop<FilterValueRow & { currentUrl: string }>('filter_value', {
   value: (row) => row.value,
   label: (row) => row.label,
@@ -115,8 +125,8 @@ export const filterValueDrop = defineDrop<FilterValueRow & { currentUrl: string 
    * there is genuinely nothing to show, and a theme reading this falls back to
    * the label — which is what it should do.
    */
-  swatch: () => null,
-  image: () => null,
+  swatch: SWATCH,
+  image: SWATCH,
 });
 
 export const filterDrop = defineDrop<FilterRow & { currentUrl: string }>('filter', {

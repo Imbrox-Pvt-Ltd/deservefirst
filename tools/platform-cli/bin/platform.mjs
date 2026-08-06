@@ -18,7 +18,12 @@ import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
 import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { writeApiDocument } from '../src/api-docs.mjs';
-import { auditThemeProperties, checkTheme, portTheme } from '../src/theme.mjs';
+import {
+  auditThemeProperties,
+  checkTheme,
+  generateObjectReference,
+  portTheme,
+} from '../src/theme.mjs';
 import { createMigration, generateMigration, markApplied, migrate, migrateStatus } from '../src/migrate.mjs';
 import { seed } from '../src/seed.mjs';
 import { formatTimestampReport, reportTimestamps } from '../src/timestamps.mjs';
@@ -87,6 +92,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('module:states')}          Show what is enabled, and where the decision was made
   ${cyan('theme:check')} <dir>   What in this theme will not run here, and why
   ${cyan('theme:properties')} <dir>  Which properties it reads that no drop declares
+  ${cyan('storefront:objects')}      The object reference, generated from the drops
   ${cyan('theme:port')} <dir>    Rewrite another platform's names to ours [--dry-run]
   ${cyan('docs:api')}              Regenerate the API reference from the declarations
 
@@ -353,6 +359,18 @@ switch (command) {
       process.exit(result.gaps >= 0 ? 0 : 1);
     } catch (error) {
       console.error(red(`\ntheme:properties failed: ${error.message}`));
+      process.exit(1);
+    }
+    break;
+  }
+  case 'storefront:objects': {
+    try {
+      await generateObjectReference(ROOT, { green, red, dim, yellow }, {
+        write: args.includes('--write'),
+      });
+      process.exit(0);
+    } catch (error) {
+      console.error(red(`\nstorefront:objects failed: ${error.message}`));
       process.exit(1);
     }
     break;

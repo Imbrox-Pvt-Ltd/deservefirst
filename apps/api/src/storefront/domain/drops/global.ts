@@ -15,7 +15,7 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList, type DropFactory } from './define';
+import { defineDrop, dropList, type DropFactory, pending } from './define';
 
 export interface ShopRow {
   readonly id: string;
@@ -97,6 +97,14 @@ function moneyFormatFor(currency: string): string {
   return symbol ? `${symbol}{{amount}}` : `{{amount}} ${currency.toUpperCase()}`;
 }
 
+/**
+ * A policy a merchant has published — refund, privacy, terms, shipping.
+ *
+ * Null rather than an empty object: a theme links to `.url`, and inventing a
+ * URL to a page that does not exist puts a broken link in every footer.
+ */
+const POLICY = pending('Store policies are not modelled as records yet.', null);
+
 export const shopDrop = defineDrop<ShopRow>('shop', {
   id: (shop) => shop.id,
   name: (shop) => shop.name,
@@ -135,7 +143,11 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
    * this, and claiming true would put a link to a page that does not exist in
    * every header.
    */
-  customer_accounts_enabled: () => false,
+  customer_accounts_enabled: pending(
+    'Shoppers have no accounts yet: no credential storage, no storefront session, '
+    + 'and /account/* is handed back to the platform rather than to a theme.',
+    false,
+  ),
 
   /**
    * The payment methods a shopper can use, as short codes a theme turns into
@@ -146,7 +158,11 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
    * row of icons does arithmetic on it, and arithmetic on a missing value is
    * how the product gallery disappeared once already.
    */
-  enabled_payment_types: () => [],
+  enabled_payment_types: pending(
+    'Phase 1 takes no payments (§25), so no method is enabled. Declared rather '
+    + 'than missing because themes count this before drawing a row of icons.',
+    [] as readonly string[],
+  ),
 
   /**
    * The store's published policies — refund, privacy, terms, shipping.
@@ -155,10 +171,10 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
    * to `shop.shipping_policy.url`, and inventing a URL to a page that does not
    * exist puts a broken link in a footer on every page.
    */
-  privacy_policy: () => null,
-  refund_policy: () => null,
-  shipping_policy: () => null,
-  terms_of_service: () => null,
+  privacy_policy: POLICY,
+  refund_policy: POLICY,
+  shipping_policy: POLICY,
+  terms_of_service: POLICY,
 
   /**
    * How money is written, for the theme's own JavaScript.

@@ -371,3 +371,44 @@ export async function auditThemeProperties(root, themeDir, colours) {
 
   return { gaps: rows.length };
 }
+
+/**
+ * The storefront object reference, generated from the drops themselves.
+ *
+ * One document describing every object a theme can address, what it exposes,
+ * and — the part that cannot be answered by reading the code — which
+ * properties are declared but not yet answered from real data, and why.
+ *
+ * Generated rather than written, because a hand-kept list is wrong the first
+ * time somebody adds a property and does not update it, and a reference nobody
+ * trusts is worse than none. The drops are the source of truth; this only
+ * arranges what they already declare.
+ */
+export async function generateObjectReference(root, colours, { write }) {
+  const { green, dim } = colours;
+  const { declaredDrops, resolveCompatMap, renderObjectReference } = await domain(root);
+  const { branding } = await import(`file://${join(root, 'packages/config/dist/index.js')}`);
+  const { raw } = compatMapFrom(root, branding.slug);
+
+  // The registry's factories already have the shape the renderer describes.
+  const drops = [...declaredDrops().values()];
+  const { markdown, counts } = renderObjectReference(
+    drops,
+    resolveCompatMap(raw, branding.slug).properties,
+  );
+
+  const target = join(root, 'docs', 'storefront-objects.md');
+  if (write) {
+    writeFileSync(target, markdown, 'utf8');
+    console.log(green(`\nWrote ${relative(root, target)}`));
+  }
+
+  console.log(
+    dim(
+      `\n  ${counts.objects} objects · ${counts.implemented} properties implemented · ` +
+        `${counts.pending} pending\n`,
+    ),
+  );
+
+  return { ...counts, markdown };
+}

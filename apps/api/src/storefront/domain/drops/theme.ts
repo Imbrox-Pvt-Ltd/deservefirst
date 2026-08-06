@@ -17,7 +17,7 @@
  */
 
 import { defaultValueFor, type SettingDefinition } from '../settings-schema';
-import { defineDrop, dropList } from './define';
+import { defineDrop, dropList, pending } from './define';
 import { sortOptionDrop } from './faceting';
 import { DEFAULT_SORT, sortOptionsFor } from '../facets';
 
@@ -195,5 +195,9 @@ export const searchDrop = defineDrop<SearchState>('search', {
    * facet counts computed across three kinds of record at once, which the
    * collection facets do not do.
    */
-  filters: () => [],
+  filters: pending(
+    'Faceting a search result needs counts across products, pages and articles '
+    + 'at once, which the collection facets do not compute.',
+    [] as readonly unknown[],
+  ),
 });

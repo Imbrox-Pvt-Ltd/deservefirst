@@ -11,6 +11,15 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
+
+/**
+ * The compiled drops are CommonJS and this file is a module.
+ *
+ * Built once here rather than inside the rule: a rule that constructs its own
+ * loader on every run is a rule that pays for it on every run.
+ */
+const load = createRequire(import.meta.url);
 
 import { API_DOC_PATH, apiDocumentIsCurrent } from '../../platform-cli/src/api-docs.mjs';
 
@@ -160,4 +169,64 @@ export const manifestsAreRegistered = {
   },
 };
 
-export const docsRules = [apiReferenceCurrent, controllersAreDescribed, manifestsAreRegistered];
+/**
+ * §26.2 again, for the storefront vocabulary.
+ *
+ * The object reference is generated from the drops, which means it is correct
+ * the moment it is written and wrong the moment somebody adds a property
+ * without regenerating. A reference people have learned not to trust is worse
+ * than none: they stop reading it and go back to the source, which is the
+ * situation it exists to fix.
+ *
+ * Synchronous and dependency-free on purpose — it re-renders from the compiled
+ * drops and compares, so there is no second copy of the format to drift.
+ */
+export const storefrontObjectsCurrent = {
+  name: 'storefront-objects-current',
+  description: 'The committed storefront object reference matches the drops (§26.2)',
+  run(_sources, rootDir) {
+    const dropsPath = join(rootDir, 'apps/api/dist/storefront/domain/index.js');
+    // Nothing to compare against before a build; the build runs first in CI.
+    if (!existsSync(dropsPath)) return [];
+
+    const docPath = 'docs/storefront-objects.md';
+    const target = join(rootDir, docPath);
+
+    let expected;
+    try {
+      const domain = load(dropsPath);
+      const compatPath = join(rootDir, 'apps/api/src/storefront/config/theme-compat.json');
+      const raw = JSON.parse(readFileSync(compatPath, 'utf8'));
+      const { branding } = load(join(rootDir, 'packages/config/dist/index.js'));
+      const aliases = domain.resolveCompatMap(raw, branding.slug).properties;
+      expected = domain.renderObjectReference([...domain.declaredDrops().values()], aliases).markdown;
+    } catch (error) {
+      return [
+        { file: docPath, line: 1, rule: 'storefront-objects-current',
+          message: `could not be generated: ${error.message}` },
+      ];
+    }
+
+    if (!existsSync(target)) {
+      return [
+        { file: docPath, line: 1, rule: 'storefront-objects-current',
+          message: 'is missing — run `platform storefront:objects --write`' },
+      ];
+    }
+
+    if (readFileSync(target, 'utf8') === expected) return [];
+
+    return [
+      { file: docPath, line: 1, rule: 'storefront-objects-current',
+        message: 'is out of date — run `platform storefront:objects --write`' },
+    ];
+  },
+};
+
+export const docsRules = [
+  apiReferenceCurrent,
+  controllersAreDescribed,
+  manifestsAreRegistered,
+  storefrontObjectsCurrent,
+];
+

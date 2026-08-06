@@ -85,6 +85,20 @@ export interface DropFactory<Source> {
   readonly dropName: string;
   /** Exactly the properties a theme can see. Read by the audit. */
   readonly properties: readonly string[];
+  /**
+   * Properties that are DECLARED but not yet answered from real data, and why.
+   *
+   * A placeholder and an implementation are indistinguishable from the outside:
+   * both are a function on the spec, and in Liquid an empty answer and a
+   * missing one render the same. That makes "what does this platform actually
+   * provide?" unanswerable by reading the code, which is the question everyone
+   * asks first.
+   *
+   * Marking them is not bookkeeping — it is the difference between "we return
+   * nothing because there is nothing" and "we return nothing because nobody has
+   * built it yet". Only the second is a backlog item.
+   */
+  readonly pending: Readonly<Record<string, string>>;
   (source: Source, context: DropContext): Record<string, unknown>;
 }
 
@@ -132,8 +146,35 @@ function aliasesFor(
   return found;
 }
 
+/**
+ * Marks a property as declared but not yet real, with the reason.
+ *
+ * The value is still the honest one a theme should receive — an empty list, a
+ * null, a false — so behaviour is identical to writing the accessor by hand.
+ * What this adds is that the registry, and therefore the generated reference,
+ * can tell the two apart.
+ *
+ * The reason is required and is a sentence, not a ticket number: whoever reads
+ * the reference next needs to know WHY it is empty, and "not implemented" tells
+ * them nothing they could act on.
+ */
+export function pending<T>(reason: string, value: T): () => T {
+  const accessor = (): T => value;
+  Object.defineProperty(accessor, PENDING_REASON, { value: reason });
+  return accessor;
+}
+
+/** Where `pending` records its reason, out of the way of any real property. */
+const PENDING_REASON = Symbol('df.pending');
+
 export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFactory<Source> {
   const properties = Object.keys(spec);
+
+  const notYetReal: Record<string, string> = {};
+  for (const [property, accessor] of Object.entries(spec)) {
+    const reason = (accessor as unknown as Record<symbol, string>)[PENDING_REASON];
+    if (typeof reason === 'string') notYetReal[property] = reason;
+  }
 
   if (REGISTRY.has(name)) {
     // Two drops of one name means whichever loaded second wins, and which that
@@ -190,6 +231,7 @@ export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFa
 
   Object.defineProperty(factory, 'dropName', { value: name, enumerable: true });
   Object.defineProperty(factory, 'properties', { value: Object.freeze(properties), enumerable: true });
+  Object.defineProperty(factory, 'pending', { value: Object.freeze(notYetReal), enumerable: true });
 
   REGISTRY.set(name, factory as DropFactory<never>);
   return factory;

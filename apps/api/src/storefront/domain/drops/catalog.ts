@@ -15,7 +15,7 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList, type DropContext } from './define';
+import { defineDrop, dropList, type DropContext, pending } from './define';
 import { filterDrop, sortOptionDrop, type FilterRow } from './faceting';
 import { DEFAULT_SORT, sortOptionsFor } from '../facets';
 import { storeAvailabilityDrop, type StoreAvailabilityRow } from './availability';
@@ -132,7 +132,11 @@ export const imageDrop = defineDrop<ImageRow>('image', {
    * Null until presentation is modelled. Themes test it before reading a focal
    * point and centre the image when it is absent, which is the right default.
    */
-  presentation: () => null,
+  presentation: pending(
+    'Image presentation — focal point and cropping — is not modelled, so a '
+    + 'theme centres the image, which is the right default.',
+    null,
+  ),
 
   preview_image: (image) => ({
     src: image.src ?? '',
@@ -336,7 +340,7 @@ export const productDrop = defineDrop<ProductRow>('product', {
    * and an absent value reads as neither true nor false in a way that has
    * already bitten elsewhere. False is the honest answer, not a placeholder.
    */
-  gift_card: () => false,
+  gift_card: pending('Gift cards are Phase 4 (§25).', false),
 
   available: (product) => (product.inventoryQuantity ?? 0) > 0,
   options: (product) => product.optionNames ?? [],
