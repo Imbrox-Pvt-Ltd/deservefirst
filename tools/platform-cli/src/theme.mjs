@@ -49,6 +49,12 @@ async function domain(root) {
   return import(`file://${path}`);
 }
 
+/** The render engine, which owns the Liquid parser and the filter registry. */
+async function engine(root) {
+  const path = join(root, 'apps', 'api', 'dist', 'storefront', 'engine', 'index.js');
+  return import(`file://${path}`);
+}
+
 function compatMapFrom(root, slug) {
   const path = join(root, 'apps', 'api', 'src', 'storefront', 'config', 'theme-compat.json');
   return { raw: JSON.parse(readFileSync(path, 'utf8')), slug };
@@ -66,11 +72,29 @@ export async function checkTheme(root, themeDir, colours) {
   const foreign = [];
   const lint = [];
 
+  /**
+   * What the theme reaches for, gathered while everything else is scanned.
+   *
+   * The engine does the parsing: only it may import the Liquid parser, and only
+   * a parser gets this right. The first attempt used a regular expression and
+   * reported a filter called `sizes` from `replace: '|||sizes|||'`.
+   */
+  const { createThemeEngine, defaultContext } = await engine(root);
+  const reader = createThemeEngine(defaultContext());
+  const usage = { filters: [], tags: [], objects: [] };
+  const bound = new Set();
+
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
     const name = relative(themeDir, file);
     foreign.push(...findForeignNames(name, source, map));
     lint.push(...lintTemplate(name, source));
+
+    const used = reader.analyse(name, source);
+    usage.filters.push(...used.filters);
+    usage.tags.push(...used.tags);
+    usage.objects.push(...used.objects);
+    for (const name of used.bound) bound.add(name);
   }
 
   console.log(`\n${files.length} templates scanned in ${relative(root, themeDir) || themeDir}\n`);
@@ -120,6 +144,10 @@ export async function checkTheme(root, themeDir, colours) {
       : green('\nNothing here will break a render.'),
   );
 
+  // Always, not only when something else was wrong: a theme can speak our
+  // vocabulary perfectly and still use a filter this platform has not built.
+  await reportCoverage(root, reader, usage, bound, colours);
+
   return { foreign: foreign.length, errors: errors.length, warnings: warnings.length };
 }
 
@@ -159,4 +187,75 @@ export async function portTheme(root, themeDir, colours, { dryRun }) {
   if (!dryRun) console.log(dim('  Read the diff before committing — this edited the theme in place.'));
 
   return { changedFiles, changes };
+}
+
+/**
+ * What this platform does not provide for this theme.
+ *
+ * The third question `theme:check` answers, and the one that decides whether a
+ * page renders at all. The other two — foreign names, Liquid mistakes — are
+ * about a theme written for somewhere else; this is about a theme written for
+ * a NEWER somewhere else, using something we have not built yet.
+ *
+ * Measured against the theme rather than against a documentation snapshot,
+ * because a snapshot is stale the moment the other platform ships anything and
+ * says nothing about the theme in a developer's hand.
+ */
+async function reportCoverage(root, reader, usage, bound, colours) {
+  const { green, red, dim, yellow } = colours;
+  const { compareCoverage } = await domain(root);
+  const { knownObjects } = await domain(root);
+
+  const surface = {
+    filters: new Set(usage.filters.map((u) => u.name).filter((name) => reader.hasFilter(name))),
+    tags: new Set(usage.tags.map((u) => u.name).filter((name) => reader.hasTag(name))),
+    objects: new Set(knownObjects()),
+  };
+
+  const report = compareCoverage(usage, surface, bound);
+
+  console.log(
+    `\n  ${report.counts.filters} filters, ${report.counts.tags} tags and ` +
+      `${report.counts.objects} objects used by this theme`,
+  );
+
+  if (report.gaps.length === 0) {
+    console.log(green('  Every one of them exists here. This theme will run.'));
+    return;
+  }
+
+  const certain = report.gaps.filter((gap) => gap.certain);
+  const unsure = report.gaps.filter((gap) => !gap.certain);
+
+  const show = (gap) => {
+    const reach = gap.files === 1 ? '1 file' : `${gap.files} files`;
+    console.log(`    ${red(gap.name)}  ${dim(`(${gap.kind}, ${reach})`)}`);
+    console.log(dim(`      first at ${gap.firstSeen.file}:${gap.firstSeen.line}`));
+  };
+
+  if (certain.length === 0) {
+    console.log(green('  Every filter, tag and object it uses exists here.'));
+  } else {
+    console.log(yellow(`\n  ${certain.length} not available on this platform:\n`));
+    certain.forEach(show);
+    console.log(
+      dim('\n  A theme installs with these — the parts that use them render empty.'),
+    );
+  }
+
+  if (unsure.length > 0) {
+    /**
+     * Reported separately rather than dropped or asserted.
+     *
+     * A name read inside a single snippet is very often that snippet's own
+     * optional parameter, and nothing in the theme can prove otherwise. Hiding
+     * them would miss real gaps; listing them as fact would make the section
+     * above untrustworthy.
+     */
+    console.log(
+      dim(`\n  ${unsure.length} name(s) read in one snippet each. Usually that snippet's own`),
+    );
+    console.log(dim('  parameters, which a caller supplies — worth a glance, not a fix:'));
+    console.log(dim(`    ${unsure.map((gap) => gap.name).join(', ')}`));
+  }
 }

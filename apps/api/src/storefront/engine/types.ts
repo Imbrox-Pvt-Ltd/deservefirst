@@ -118,4 +118,30 @@ export interface ThemeEngine {
   /** Whether a filter of this name is available — used by conformance checks. */
   hasFilter(name: string): boolean;
   hasTag(name: string): boolean;
+  /**
+   * What one template reaches for: its filters, tags and object roots.
+   *
+   * Behind the engine because it needs the Liquid PARSER, and only this
+   * boundary may import it. That is not bureaucracy — the first version of this
+   * used a regular expression over the source and reported a filter named
+   * `sizes` from `replace: '|||sizes|||'`, and an object called `general` from
+   * the translation key `'general.meta.page'`. A parser cannot make either
+   * mistake because it knows a string literal when it sees one.
+   */
+  analyse(file: string, source: string): TemplateUsage;
+}
+
+/** What a single template used, with somewhere to look for each. */
+export interface TemplateUsage {
+  readonly filters: readonly { name: string; file: string; line: number }[];
+  readonly tags: readonly { name: string; file: string; line: number }[];
+  readonly objects: readonly { name: string; file: string; line: number }[];
+  /**
+   * Names the template introduced itself.
+   *
+   * Every `{% assign %}`, `{% capture %}` and `{% for %}` binding. A theme's own
+   * variables outnumber the platform's objects several times over, so a report
+   * that did not subtract these would bury the real gaps.
+   */
+  readonly bound: readonly string[];
 }

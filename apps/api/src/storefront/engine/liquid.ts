@@ -22,7 +22,7 @@ import type { RenderContext } from './context';
 import { aliasFilters } from './compat';
 import { allFilters } from './filters';
 import { allTags, type BlockOpening, type TagContext } from './tags';
-import type { FilterArgs, ThemeEngine } from './types';
+import type { FilterArgs, TemplateUsage, ThemeEngine } from './types';
 
 /**
  * The state a tag carries from parse to render.
@@ -408,6 +408,169 @@ class LiquidThemeEngine implements ThemeEngine {
    * liquidjs's per-call globals REPLACE, so passing only `section` would take
    * `shop`, `settings` and every drop away from the snippet at the same time.
    */
+  /**
+   * What one template reaches for.
+   *
+   * Uses the parser rather than a regular expression, which is the whole point:
+   * a regex over `replace: '|||sizes|||'` reports a filter called `sizes`, and
+   * over `{{ 'general.meta.page' | t }}` reports an object called `general`.
+   * The parser knows a string literal from an identifier, so neither mistake is
+   * possible.
+   *
+   * A template that does not parse contributes nothing rather than throwing.
+   * `theme:check` already reports Liquid errors through the linter, and a
+   * coverage report that died on the first malformed file would tell a
+   * developer far less than one that covered the other four hundred.
+   */
+  analyse(file: string, source: string): TemplateUsage {
+    const filters: { name: string; file: string; line: number }[] = [];
+    const tags: { name: string; file: string; line: number }[] = [];
+    const objects: { name: string; file: string; line: number }[] = [];
+    const bound = new Set<string>();
+
+    const lineAt = (offset: number): number => source.slice(0, offset).split('\n').length;
+
+    /** Pulls filters and the root object out of one expression. */
+    const readExpression = (expression: string, line: number): void => {
+      if (expression.trim() === '') return;
+      try {
+        for (const parsed of this.liquid.parse(`{{ ${expression} }}`)) {
+          const value = (parsed as { value?: { filters?: { name: string }[]; initial?: unknown } })
+            .value;
+          if (!value) continue;
+
+          for (const filter of value.filters ?? []) {
+            filters.push({ name: filter.name, file, line });
+          }
+
+          const initial = value.initial as { postfix?: { getText?: () => string }[] } | undefined;
+          const first = initial?.postfix?.[0]?.getText?.();
+          if (typeof first !== 'string') continue;
+
+          /**
+           * The ROOT of the path, not the whole of it.
+           *
+           * `product.featured_image.src` is one question — does `product`
+           * exist — and reporting the full path would list a different gap for
+           * every property a theme happened to read.
+           */
+          const root = first.split('.')[0] as string;
+          // A quoted literal is a value, not a reference to anything.
+          if (/^[A-Za-z_][\w-]*$/.test(root)) objects.push({ name: root, file, line });
+        }
+      } catch {
+        // An expression this engine cannot parse is reported by the linter, not
+        // here.
+      }
+    };
+
+    let templates;
+    try {
+      templates = this.liquid.parse(source);
+    } catch {
+      return { filters: [], tags: [], objects: [], bound: [] };
+    }
+
+    const walk = (nodes: unknown[]): void => {
+      for (const node of nodes) {
+        const token = (node as { token?: { constructor: { name: string } } }).token;
+        if (!token) continue;
+
+        const begin = (token as unknown as { begin?: number }).begin ?? 0;
+        const line = lineAt(begin);
+        const name = (token as unknown as { name?: string }).name;
+
+        if (typeof name === 'string') {
+          tags.push({ name, file, line });
+
+          const args = (token as unknown as { args?: string }).args ?? '';
+
+          /**
+           * A `{% liquid %}` block is many statements, one per line.
+           *
+           * Read as a single tag its arguments are `assign x = …`, so the name
+           * bound is "assign" and `x` looks like an object this platform does
+           * not provide. The reference theme writes most of its logic this way,
+           * and the first report was three quarters the theme's own variables —
+           * which is the failure that makes a checker ignorable.
+           */
+          const statements =
+            name === 'liquid'
+              ? args.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+              : [`${name} ${args}`];
+
+          for (const statement of statements) {
+            const match = /^([a-z_][\w]*)\s*([\s\S]*)$/.exec(statement);
+            if (!match) continue;
+
+            const inner = match[1] as string;
+            const innerArgs = match[2] as string;
+
+            if (name === 'liquid') tags.push({ name: inner, file, line });
+
+            const introduced = boundBy(inner, innerArgs);
+            if (introduced) bound.add(introduced);
+
+            /**
+             * A snippet's parameters are bound by whoever renders it.
+             *
+             * `{% render 'share-button', align: 'left' %}` puts `align` in the
+             * snippet's scope, so the snippet reading `align` is not asking the
+             * platform for anything. Without this every parameter any theme
+             * passes anywhere is reported as a missing object.
+             */
+            if (inner === 'render' || inner === 'include') {
+              for (const parameter of innerArgs.matchAll(/([A-Za-z_][\w-]*)\s*:/g)) {
+                bound.add(parameter[1] as string);
+              }
+            }
+
+            readExpression(expressionOf(inner, innerArgs), line);
+          }
+        } else {
+          // An output token: `{{ … }}`.
+          const value = (node as { value?: { filters?: { name: string }[]; initial?: unknown } })
+            .value;
+          if (value) {
+            for (const filter of value.filters ?? []) filters.push({ name: filter.name, file, line });
+            const initial = value.initial as { postfix?: { getText?: () => string }[] } | undefined;
+            const first = initial?.postfix?.[0]?.getText?.();
+            if (typeof first === 'string') {
+              const root = first.split('.')[0] as string;
+              if (/^[A-Za-z_][\w-]*$/.test(root)) objects.push({ name: root, file, line });
+            }
+          }
+        }
+
+        /**
+         * Into a block tag's body, because that is where most of a theme is.
+         *
+         * Everything inside `{% if %}`, `{% for %}` and `{% case %}` is
+         * otherwise invisible — the large majority of every file in a real
+         * theme. `branches` is the shape that catches people out: its elements
+         * are `{ value, templates }` pairs rather than templates, so walking it
+         * directly finds nothing and silently reports a clean file.
+         */
+        for (const key of ['templates', 'elseTemplates', 'defaultTemplates']) {
+          const children = (node as Record<string, unknown>)[key];
+          if (Array.isArray(children)) walk(children);
+        }
+
+        const branches = (node as Record<string, unknown>).branches;
+        if (Array.isArray(branches)) {
+          for (const branch of branches) {
+            const inner = (branch as { templates?: unknown }).templates;
+            if (Array.isArray(inner)) walk(inner);
+          }
+        }
+      }
+    };
+
+    walk(templates as unknown[]);
+
+    return { filters, tags, objects, bound: [...bound] };
+  }
+
   async renderFile(
     path: string,
     scope: Record<string, unknown>,
@@ -419,6 +582,59 @@ class LiquidThemeEngine implements ThemeEngine {
       globals: { ...(this.options.globals ?? {}), ...ambient },
     });
   }
+}
+
+/**
+ * Names a tag introduces into the scope, and where in its arguments they are.
+ *
+ * `{% assign x = ... %}` binds the first word; `{% for x in y %}` binds the
+ * loop variable; `{% capture x %}` binds its target. Anything a theme defines
+ * for itself is not a gap in the platform, however unfamiliar the name looks.
+ */
+const BINDING_TAGS: Readonly<Record<string, 'first' | 'for'>> = {
+  assign: 'first',
+  capture: 'first',
+  increment: 'first',
+  decrement: 'first',
+  for: 'for',
+  tablerow: 'for',
+};
+
+/**
+ * The expression inside a tag's arguments, if it has one.
+ *
+ * `assign a = b | money` is the value after the `=`; `for x in list` is what
+ * follows `in`. Everything else is already an expression — `if product.available`
+ * — and is used as it stands.
+ */
+function expressionOf(tag: string, args: string): string {
+  if (args.trim() === '') return '';
+
+  /**
+   * Tags whose arguments name a FILE rather than describe a value.
+   *
+   * `{% layout none %}` and `{% section 'header' %}` take a name. Read as an
+   * expression, `none` becomes an object this platform apparently does not
+   * provide — which is how a keyword ended up in a compatibility report.
+   */
+  if (tag === 'layout' || tag === 'section' || tag === 'sections') return '';
+  if (BINDING_TAGS[tag] === 'first') {
+    const at = args.indexOf('=');
+    return at === -1 ? '' : args.slice(at + 1);
+  }
+  if (BINDING_TAGS[tag] === 'for') {
+    const match = /\bin\s+([\s\S]+)$/.exec(args);
+    return match ? (match[1] as string) : '';
+  }
+  return args;
+}
+
+/** The name a binding tag introduces. */
+function boundBy(tag: string, args: string): string | null {
+  const kind = BINDING_TAGS[tag];
+  if (!kind) return null;
+  const match = /^\s*([A-Za-z_][\w-]*)/.exec(args);
+  return match ? (match[1] as string) : null;
 }
 
 export function createThemeEngine(
