@@ -955,6 +955,14 @@
             "type": "boolean",
             "nullable": true
           },
+          "pickupEnabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "pickupTime": {
+            "type": "string",
+            "nullable": true
+          },
           "archivedAt": {
             "type": "string",
             "format": "date-time",

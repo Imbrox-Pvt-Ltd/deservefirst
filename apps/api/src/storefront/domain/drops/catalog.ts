@@ -16,6 +16,7 @@
  */
 
 import { defineDrop, dropList, type DropContext } from './define';
+import { storeAvailabilityDrop, type StoreAvailabilityRow } from './availability';
 import { mediaDrop, type MediaRow } from './media';
 
 /**
@@ -134,6 +135,20 @@ export const variantDrop = defineDrop<VariantRow>('variant', {
   title: (variant) => variant.title ?? '',
   sku: (variant) => variant.sku ?? '',
   barcode: (variant) => variant.barcode ?? '',
+  /**
+   * Where a customer could collect this variant.
+   *
+   * Per variant, not per product: a shop has the medium and not the large, and
+   * an answer about the product would tell somebody they can collect something
+   * they cannot.
+   */
+  store_availabilities: async (variant, context) => {
+    const load = context.load.availabilitiesOfVariant as
+      | ((id: string) => readonly StoreAvailabilityRow[])
+      | undefined;
+    return dropList(storeAvailabilityDrop, await resolved(load?.(variant.id)), context);
+  },
+
   price: (variant) => minorUnits(variant.priceAmountMinor),
   compare_at_price: (variant) => minorUnits(variant.compareAtPriceAmountMinor),
   /** The chosen values in the product's option order — `["S", "Red"]`. */

@@ -122,3 +122,4 @@ export {
 
 export * from './routes';
 export * from './recommendations';
+export * from './availability';

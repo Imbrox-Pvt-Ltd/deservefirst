@@ -34,6 +34,24 @@ export const locationResource: ResourceDefinition = {
     { name: 'address', type: 'text', searchable: true },
     { name: 'countryCode', type: 'string', required: true, filterable: true },
     { name: 'fulfilsOrders', type: 'boolean', filterable: true },
+    /**
+     * Whether customers may collect from here.
+     *
+     * Its own field rather than a reading of `fulfilsOrders`, because the two
+     * are genuinely different: a warehouse fulfils every order and no customer
+     * may walk into it, and a showroom may take collections while shipping
+     * nothing. Deriving one from the other would put a merchant's fulfilment
+     * centre address on their storefront.
+     */
+    { name: 'pickupEnabled', type: 'boolean', filterable: true },
+    /**
+     * What the storefront promises about collection times.
+     *
+     * A merchant's own words — "Usually ready in 24 hours" — because it is a
+     * promise to a customer and no formula the platform could compute would be
+     * one the merchant is willing to make.
+     */
+    { name: 'pickupTime', type: 'string' },
     { name: 'archivedAt', type: 'datetime', filterable: true, sortable: true },
     { name: 'createdAt', type: 'datetime', sortable: true },
   ],

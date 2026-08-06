@@ -55,6 +55,7 @@ import {
   paginateDrop,
   productDrop,
   productJsonLd,
+  variantDrop,
   recommendationsDrop,
   routesDrop,
   normaliseIntent,
@@ -446,6 +447,18 @@ export class StorefrontHandler {
      */
     if (path === '/recommendations/products') {
       return this.recommendations(store, input);
+    }
+
+    /**
+     * `/variants/{id}?section_id=…` — pickup availability for one variant.
+     *
+     * The theme re-fetches this every time a customer picks a different size,
+     * because whether it can be collected is a property of the variant and not
+     * of the product.
+     */
+    const variantMatch = /^\/variants\/([A-Za-z0-9_-]+)\/?$/.exec(path);
+    if (variantMatch) {
+      return this.variantSection(store, input, variantMatch[1] as string);
     }
 
     if (path === '/robots.txt') return this.robots(store, input.host);
@@ -1192,6 +1205,82 @@ export class StorefrontHandler {
     };
   }
 
+  /**
+   * A section rendered for one variant, for the pickup-availability fetch.
+   *
+   * Shares its shape with the recommendations endpoint: the theme names one of
+   * its OWN sections and receives that section's markup, so the platform never
+   * has to know what pickup availability should look like.
+   */
+  private async variantSection(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+    variantId: string,
+  ): Promise<StorefrontResponse> {
+    const sectionId = (new URLSearchParams(input.query).get('section_id') ?? '').trim();
+    if (sectionId === '') return text(422, 'A section_id is required.');
+
+    const shop = await store.data.shop();
+    const drops = createDropContext({
+      currency: shop.currency,
+      locale: 'en',
+      baseUrl: `https://${shop.domain}`,
+      load: loadersFor(store.data),
+    });
+
+    const engineContext: RenderContext = defaultContext({
+      currency: shop.currency as never,
+      assetBaseUrl: `https://${shop.domain}/assets`,
+      cdnBaseUrl: `https://${shop.domain}/files`,
+      platformAssetBaseUrl: `https://${shop.domain}/platform`,
+      assetVersion: store.themeVersion ?? undefined,
+      translations: await this.translationsFor(store),
+    });
+
+    /**
+     * The variant is built from its id alone.
+     *
+     * Everything the section reads hangs off `store_availabilities`, which is
+     * loaded by id — so fetching the variant row first would be a query whose
+     * only purpose was to prove the id exists. A variant that does not exist
+     * has no availabilities, and the section renders nothing, which is the
+     * right answer either way.
+     */
+    const scope: Record<string, unknown> = {
+      shop: shopDrop(shop, drops),
+      settings: await this.settingsFor(store),
+      routes: routesDrop({}, drops),
+      product_variant: variantDrop({ id: variantId, productId: '' }, drops),
+    };
+
+    const engine = createThemeEngine(engineContext, { source: store.theme, globals: scope });
+    const renderer = new PageRenderer(engine, store.theme, {
+      explainFailures: this.options.explainFailures ?? false,
+      linkSchemes: this.options.linkSchemes ?? [],
+    });
+
+    const { html, found } = await renderer.renderSectionAlone(sectionId, scope);
+    if (!found) return text(404, 'No such section.');
+
+    return {
+      status: 200,
+      headers: {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/html; charset=utf-8',
+        /**
+         * Not cached at all.
+         *
+         * Stock changes with every order, and a customer told a shop has one
+         * left drives there. Sixty seconds of staleness is cheap for a
+         * recommendation and expensive for this.
+         */
+        'cache-control': 'no-store',
+      },
+      body: html,
+      cacheKey: null,
+    };
+  }
+
   private async robots(store: ResolvedStore, host: string): Promise<StorefrontResponse> {
     const body = renderRobots({
       closed: store.closed ?? false,
@@ -1309,6 +1398,7 @@ function loadersFor(data: StorefrontData): Record<string, (...args: never[]) => 
     productsOfCollection: ((id: string) => data.productsOfCollection(id)) as never,
     productCountOfCollection: ((id: string) => data.productCountOfCollection(id)) as never,
     image: ((id: string) => data.image(id)) as never,
+    availabilitiesOfVariant: ((id: string) => data.availabilitiesOfVariant(id)) as never,
   };
 }
 

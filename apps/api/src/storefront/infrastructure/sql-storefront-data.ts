@@ -35,6 +35,7 @@ import type {
   RedirectRule,
   ShopRow,
   SitemapEntry,
+  StoreAvailabilityRow,
   VariantRow,
 } from '../domain';
 
@@ -331,6 +332,57 @@ export class SqlStorefrontData implements StorefrontData {
     const statement = bind.finish(sql);
     const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
     return rows.map(toProduct);
+  }
+
+  /**
+   * Where one variant can be collected.
+   *
+   * Joined from the location side rather than the stock side, so a shop that
+   * takes collections and has none of this variant still APPEARS — marked
+   * unavailable. A theme shows "not available at Camden" beside the shops that
+   * do have it, and dropping the row entirely would leave a customer wondering
+   * whether their nearest shop was ever an option.
+   *
+   * Archived locations are excluded outright: a shop that has closed is not an
+   * option a customer should be offered at all.
+   */
+  availabilitiesOfVariant(variantId: string): readonly StoreAvailabilityRow[] {
+    const bind = new Binder(this.dialect);
+
+    const sql = `SELECT l.${this.q('id')} AS location_id,
+                        l.${this.q('name')} AS location_name,
+                        l.${this.q('address')} AS location_address,
+                        l.${this.q('country_code')} AS country_code,
+                        l.${this.q('pickup_enabled')} AS pickup_enabled,
+                        l.${this.q('pickup_time')} AS pickup_time,
+                        COALESCE(v.${this.q('on_hand')}, 0) - COALESCE(v.${this.q('committed')}, 0) AS sellable
+           FROM ${this.q('locations')} l
+           LEFT JOIN ${this.q('inventory_levels')} v
+             ON v.${this.q('location_id')} = l.${this.q('id')}
+            AND v.${this.q('variant_id')} = ${bind.add(variantId)}
+            AND v.${this.q('deleted_at')} IS NULL
+          WHERE l.${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND l.${this.q('deleted_at')} IS NULL
+            AND l.${this.q('archived_at')} IS NULL
+          ORDER BY l.${this.q('name')} ASC`;
+
+    const statement = bind.finish(sql);
+
+    return this.executor.query<Row>(statement.sql, statement.parameters).then((rows) =>
+      rows.map((row) => ({
+        // Sellable stock, not on-hand: a unit already promised to somebody
+        // else's order is not one a customer can collect today.
+        available: Number(row.sellable ?? 0) > 0,
+        pickUpEnabled: row.pickup_enabled === 1 || row.pickup_enabled === true,
+        pickUpTime: (row.pickup_time as string | null) ?? null,
+        location: {
+          id: String(row.location_id),
+          name: String(row.location_name ?? ''),
+          address: (row.location_address as string | null) ?? null,
+          countryCode: (row.country_code as string | null) ?? null,
+        },
+      })),
+    ) as unknown as readonly StoreAvailabilityRow[];
   }
 
   productsOfCollection(collectionId: string): readonly ProductRow[] {

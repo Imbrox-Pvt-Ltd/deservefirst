@@ -24,6 +24,7 @@ import type {
   RedirectRule,
   ShopRow,
   SitemapEntry,
+  StoreAvailabilityRow,
   ThemeSource,
   VariantRow,
 } from '../domain';
@@ -63,6 +64,14 @@ export interface StorefrontData {
    * learn a new shape.
    */
   recommendedProducts(productId: string, limit: number): Promise<readonly ProductRow[]>;
+
+  /**
+   * Where one variant can be collected.
+   *
+   * Synchronous by signature like the other relation loaders, because a drop
+   * reads it during a render — see `syncOf` in the handler.
+   */
+  availabilitiesOfVariant(variantId: string): readonly StoreAvailabilityRow[];
 
   redirects(): Promise<readonly RedirectRule[]>;
   /** URLs for the sitemap, by kind. */
