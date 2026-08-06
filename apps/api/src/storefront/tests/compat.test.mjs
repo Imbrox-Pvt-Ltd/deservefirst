@@ -76,8 +76,24 @@ test('porting a theme that is already ported changes nothing', () => {
 });
 
 test('an unreadable or empty map is an empty map, not a crash', () => {
-  assert.deepEqual(resolveCompatMap(null, 'x'), { filters: {}, objects: {}, tags: {} });
+  assert.deepEqual(resolveCompatMap(null, 'x'), {
+    filters: {},
+    objects: {},
+    tags: {},
+    // Empty rather than absent: a caller iterating the schemes of a map it
+    // could not read should find none, not crash on undefined.
+    linkSchemes: [],
+  });
   assert.deepEqual(resolveCompatMap({ filters: 'nope' }, 'x').filters, {});
+});
+
+test('link schemes are read, and anything that is not a scheme is dropped', () => {
+  // The value decides which URL schemes a theme's internal links may use, so a
+  // malformed entry must not become one.
+  const map = resolveCompatMap({ linkSchemes: ['examplestore', '', 42, null, 'other'] }, 'x');
+  assert.deepEqual(map.linkSchemes, ['examplestore', 'other']);
+
+  assert.deepEqual(resolveCompatMap({ linkSchemes: 'nope' }, 'x').linkSchemes, []);
 });
 
 // ------------------------------------------------ runtime compatibility

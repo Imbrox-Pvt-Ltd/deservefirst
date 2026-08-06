@@ -26,6 +26,7 @@ import {
 import { resolveFontSettings } from '../domain/font-handle';
 import type { ThemeSource } from '../domain/theme-source';
 import { resolveColorSettings, type ThemeEngine } from '../engine';
+import { resolveLinkSettings } from '../domain/internal-links';
 
 export interface PageRequest {
   readonly pageType: PageType;
@@ -59,6 +60,13 @@ export interface PageRendererOptions {
    * customer should never see.
    */
   readonly explainFailures?: boolean;
+  /**
+   * URL schemes other platforms use for internal links in theme settings.
+   *
+   * From `config/theme-compat.json`. Absent, a theme's own links render as an
+   * unknown scheme and do nothing when a customer clicks them.
+   */
+  readonly linkSchemes?: readonly string[];
 }
 
 export class PageRenderer {
@@ -67,6 +75,24 @@ export class PageRenderer {
     private readonly source: ThemeSource & { manifest(): Promise<ReadonlySet<string>> },
     private readonly options: PageRendererOptions = {},
   ) {}
+
+  /**
+   * A section's or block's settings, as a theme expects to read them.
+   *
+   * Three conversions, all the same fault in different clothes: a theme treats
+   * a setting as something richer than the string we store. Fonts become font
+   * objects, colours become colour objects, and an internal link stored with
+   * another platform's URL scheme becomes a path this store actually serves.
+   *
+   * One method rather than three chained calls at each site, because there were
+   * two sites and they had already drifted once.
+   */
+  private resolveSettings(settings: Record<string, unknown>): Record<string, unknown> {
+    return resolveLinkSettings(
+      resolveColorSettings(resolveFontSettings(settings)),
+      this.options.linkSchemes ?? [],
+    );
+  }
 
   async render(request: PageRequest): Promise<RenderedPage> {
     const available = await this.source.manifest();
@@ -199,10 +225,10 @@ export class PageRenderer {
                * typography rendered `font-family: , ;`, which browsers discard.
                * Theme settings alone were not enough.
                */
-              settings: resolveColorSettings(resolveFontSettings(section.settings)),
+              settings: this.resolveSettings(section.settings),
               blocks: section.blocks.map((block, position) => ({
                 ...block,
-                settings: resolveColorSettings(resolveFontSettings(block.settings ?? {})),
+                settings: this.resolveSettings(block.settings ?? {}),
                 index: position,
               })),
               index,

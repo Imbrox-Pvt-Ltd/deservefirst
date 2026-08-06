@@ -987,6 +987,15 @@ export async function bootstrap(): Promise<Platform> {
 
       pageCache,
       pageCacheTtlSeconds: Number(process.env.DF_PAGE_CACHE_TTL ?? 60),
+
+      /**
+       * The URL schemes other platforms use for a theme's internal links.
+       *
+       * From the same compatibility table the installer checks against, so a
+       * theme this platform agrees to install is one whose links it can also
+       * resolve.
+       */
+      linkSchemes: compatMap.linkSchemes,
     },
   );
 

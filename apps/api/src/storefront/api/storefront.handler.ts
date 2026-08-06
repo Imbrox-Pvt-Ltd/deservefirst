@@ -81,6 +81,7 @@ import {
   resolveColorSettings,
   type RenderContext,
 } from '../engine';
+import { resolveLinkSettings } from '../domain';
 import { randomUUID } from 'node:crypto';
 
 import { platformContext, storefrontContext, withRequestContext } from '../../core/tenant-context';
@@ -170,6 +171,13 @@ export interface StorefrontOptions {
   readonly pageCache?: PageCache;
   /** Seconds a cached page stays usable. */
   readonly pageCacheTtlSeconds?: number;
+  /**
+   * URL schemes other platforms use for internal links in theme settings.
+   *
+   * From `config/theme-compat.json`. Without them a theme's own links reach the
+   * browser as an unknown scheme and do nothing when clicked.
+   */
+  readonly linkSchemes?: readonly string[];
 }
 
 /**
@@ -709,6 +717,7 @@ export class StorefrontHandler {
     const engine = createThemeEngine(engineContext, { source: store.theme, globals: scope });
     const renderer = new PageRenderer(engine, store.theme, {
       explainFailures: this.options.explainFailures ?? false,
+      linkSchemes: this.options.linkSchemes ?? [],
     });
 
     // A handle that resolves to nothing renders the theme's own 404 page, with
@@ -843,7 +852,12 @@ export class StorefrontHandler {
     let loaded: Record<string, unknown> = {};
     try {
       const contents = await store.theme.read('config/settings_data.json');
-      if (contents) loaded = resolveColorSettings(resolveThemeSettings(JSON.parse(contents)));
+      if (contents) {
+        loaded = resolveLinkSettings(
+          resolveColorSettings(resolveThemeSettings(JSON.parse(contents))),
+          this.options.linkSchemes ?? [],
+        );
+      }
     } catch {
       // A settings file a merchant has broken costs them their colours, not
       // their storefront: the theme's own defaults are still a page.

@@ -18,6 +18,14 @@ export interface CompatMap {
   readonly filters: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, string>>;
   readonly tags: Readonly<Record<string, string>>;
+  /**
+   * URL schemes other platforms use for internal links inside theme settings.
+   *
+   * A merchant picking "the about page" in an editor produces
+   * `<scheme>://pages/about` in the theme's settings, not a path — see
+   * `internal-links.ts`.
+   */
+  readonly linkSchemes: readonly string[];
 }
 
 export interface CompatFinding {
@@ -30,7 +38,7 @@ export interface CompatFinding {
   readonly kind: 'filter' | 'object' | 'tag';
 }
 
-const EMPTY: CompatMap = { filters: {}, objects: {}, tags: {} };
+const EMPTY: CompatMap = { filters: {}, objects: {}, tags: {}, linkSchemes: [] };
 
 /**
  * Substitutes `{slug}` in every replacement.
@@ -54,7 +62,16 @@ export function resolveCompatMap(raw: unknown, slug: string): CompatMap {
     return out;
   };
 
-  return { filters: section('filters'), objects: section('objects'), tags: section('tags') };
+  const schemes = (raw as Record<string, unknown>).linkSchemes;
+
+  return {
+    filters: section('filters'),
+    objects: section('objects'),
+    tags: section('tags'),
+    linkSchemes: Array.isArray(schemes)
+      ? schemes.filter((scheme): scheme is string => typeof scheme === 'string' && scheme !== '')
+      : [],
+  };
 }
 
 /**

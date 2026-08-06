@@ -16,14 +16,17 @@
     "and a runtime compatibility mode for themes that cannot be ported.",
     "",
     "Adding an entry should feel like a decision: it is a name we agree to answer",
-    "to for as long as themes use it."
+    "to for as long as themes use it.",
+    "linkSchemes: URL schemes other platforms use for internal links inside theme SETTINGS.",
+    "A merchant picks 'the about page' in the editor and the theme stores <scheme>://pages/about.",
+    "Rendered as-is it reaches the browser as an unknown scheme and the link does nothing."
   ],
-
   "filters": {
     "shopify_asset_url": "{slug}_asset_url"
   },
-
   "objects": {},
-
-  "tags": {}
+  "tags": {},
+  "linkSchemes": [
+    "shopify"
+  ]
 }
