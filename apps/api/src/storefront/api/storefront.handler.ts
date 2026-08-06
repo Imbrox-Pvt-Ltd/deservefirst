@@ -1505,6 +1505,10 @@ function loadersFor(data: StorefrontData): Record<string, (...args: never[]) => 
     productCountOfCollection: ((id: string) => data.productCountOfCollection(id)) as never,
     image: ((id: string) => data.image(id)) as never,
     availabilitiesOfVariant: ((id: string) => data.availabilitiesOfVariant(id)) as never,
+    articlesOfBlog: ((id: string) => data.articlesOfBlog(id)) as never,
+    articleCountOfBlog: ((id: string) => data.articleCountOfBlog(id)) as never,
+    blogOfArticle: ((id: string) => data.blogOfArticle(id)) as never,
+    tagsOfBlog: ((id: string) => data.tagsOfBlog(id)) as never,
   };
 }
 

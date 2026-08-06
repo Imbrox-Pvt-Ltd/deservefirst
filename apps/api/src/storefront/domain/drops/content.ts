@@ -128,21 +128,34 @@ export const articleDrop = defineDrop<ArticleRow>('article', {
     return build ? build(image) : image;
   },
 
-  comments: (article, context) => {
+  comments: async (article, context) => {
     const load = context.load.commentsOfArticle as
-      | ((id: string) => readonly CommentRow[])
+      | ((id: string) => readonly CommentRow[] | Promise<readonly CommentRow[]>)
       | undefined;
-    return dropList(commentDrop, load?.(article.id) ?? [], context);
+    return dropList(commentDrop, (await load?.(article.id)) ?? [], context);
   },
   comments_count: (article) => article.commentCount ?? 0,
-  comments_enabled: (article, context) => {
-    const policy = context.load.commentPolicyOfArticle as ((id: string) => string) | undefined;
-    return (policy?.(article.id) ?? 'closed') !== 'closed';
+  comments_enabled: async (article, context) => {
+    const policy = context.load.commentPolicyOfArticle as
+      | ((id: string) => string | Promise<string>)
+      | undefined;
+    return ((await policy?.(article.id)) ?? 'closed') !== 'closed';
   },
 
-  url: (article, context) => {
-    const blog = context.load.blogOfArticle as ((id: string) => BlogRow | null) | undefined;
-    const handle = blog?.(article.blogId)?.handle;
+  /**
+   * An article's address, which comes from its blog rather than from itself.
+   *
+   * Awaited, because the loaders are promises behind a synchronous signature.
+   * Reading `.handle` straight off the returned value took the property off a
+   * Promise, got `undefined` and fell through to `/articles/<handle>` — a route
+   * that does not exist — so every link to a post, from a blog index or from
+   * search, was a 404.
+   */
+  url: async (article, context) => {
+    const load = context.load.blogOfArticle as
+      | ((id: string) => BlogRow | null | Promise<BlogRow | null>)
+      | undefined;
+    const handle = (await load?.(article.blogId))?.handle;
     return handle ? `/blogs/${handle}/${article.handle}` : `/articles/${article.handle}`;
   },
   published_at: (article) => isoOrNull(article.publishedAt),
@@ -160,12 +173,27 @@ export const blogDrop = defineDrop<BlogRow>('blog', {
   comments_enabled: (blog) => (blog.commentPolicy ?? 'closed') !== 'closed',
   moderated: (blog) => blog.commentPolicy === 'moderated',
 
-  articles: (blog, context) => {
-    const load = context.load.articlesOfBlog as ((id: string) => readonly ArticleRow[]) | undefined;
-    return dropList(articleDrop, load?.(blog.id) ?? [], context);
+  /**
+   * The blog's posts. Awaited for the same reason `article.url` is — a
+   * `dropList` built over a Promise is a list of nothing, which is what a blog
+   * index rendered: its title, its layout, and no posts.
+   */
+  articles: async (blog, context) => {
+    const load = context.load.articlesOfBlog as
+      | ((id: string) => readonly ArticleRow[] | Promise<readonly ArticleRow[]>)
+      | undefined;
+    return dropList(articleDrop, (await load?.(blog.id)) ?? [], context);
   },
-  articles_count: (blog, context) =>
-    (context.load.articleCountOfBlog as ((id: string) => number) | undefined)?.(blog.id) ?? 0,
-  all_tags: (blog, context) =>
-    (context.load.tagsOfBlog as ((id: string) => readonly string[]) | undefined)?.(blog.id) ?? [],
+  articles_count: async (blog, context) => {
+    const load = context.load.articleCountOfBlog as
+      | ((id: string) => number | Promise<number>)
+      | undefined;
+    return (await load?.(blog.id)) ?? 0;
+  },
+  all_tags: async (blog, context) => {
+    const load = context.load.tagsOfBlog as
+      | ((id: string) => readonly string[] | Promise<readonly string[]>)
+      | undefined;
+    return (await load?.(blog.id)) ?? [];
+  },
 });

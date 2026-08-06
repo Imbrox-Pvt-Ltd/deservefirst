@@ -50,6 +50,27 @@ export interface StorefrontData {
 
   /** Relations, for the drop loaders. Synchronous: they run inside a render. */
   variantsOfProduct(productId: string): readonly VariantRow[];
+
+  /**
+   * The posts of one blog, newest first.
+   *
+   * Without this a blog's index page rendered its title, its layout and no
+   * posts at all — the drop asked for a loader nobody had written.
+   */
+  articlesOfBlog(blogId: string): readonly ArticleRow[];
+  articleCountOfBlog(blogId: string): number;
+
+  /**
+   * The blog a post belongs to.
+   *
+   * An article's URL is built from its blog's handle, so without this every
+   * link to a post fell back to `/articles/<handle>` — a route that does not
+   * exist. Search results and blog listings pointed at a 404.
+   */
+  blogOfArticle(blogId: string): BlogRow | null;
+
+  /** Every tag used by a blog's posts, for its tag filter. */
+  tagsOfBlog(blogId: string): readonly string[];
   imagesOfProduct(productId: string): readonly ImageRow[];
   productsOfCollection(collectionId: string): readonly ProductRow[];
   productCountOfCollection(collectionId: string): number;

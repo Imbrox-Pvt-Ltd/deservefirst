@@ -1550,3 +1550,39 @@ Full **workflow engine** (BPM-style compensation/human-approval), **upgrade engi
 
 ### 36.4 Honest note
 Captured because a few of these are cheap and genuinely good — the Reflection API especially. But the document does **not** need more capability chapters to be buildable: most of the rest are declarations the manifest already accommodates, to be added when a real module needs them. Beyond this point, **a running system teaches more than another section** — enforcement and validation-by-building outrank further specification.
+
+---
+
+## 37. Flexible URL structure & hierarchical taxonomy (differentiator)
+
+### 37.1 The gap (verified, 2026)
+SC forces the `/products/`, `/collections/`, `/pages/`, `/blogs/` prefixes — not removable or customizable — and has **no nested URL structure** (`/mens/shoes/running`). Its July-2026 native sub-collections keep **flat** `/collections/{handle}` URLs (nesting lives in the admin model, not the path). This is a documented **SEO + migration blocker**.
+
+### 37.2 Our differentiator
+- **Custom base/prefix per entity** — remove or rename `/products/`, `/collections/`, etc.; e.g. products at `/{handle}`.
+- **Custom base handles** for Products, Collections, Metaobjects, Blogs.
+- **True nested / hierarchical URLs** for collections/taxonomy (`/mens/shoes/running`) — the part SC still can't do (its nesting is admin-only, URLs stay flat).
+- Positioning: **"Migrate without losing your URLs or your rankings."** Targets SEO-invested merchants on other platforms who won't move because migration forces a URL change and risks rankings.
+
+### 37.3 Why we can (architecture fit)
+Storefront routes already resolve at runtime via a **per-tenant catch-all handle resolver** (§13.5), and SEO is first-class (§34) — flexible URLs are natural here, unlike a rigid prefix-routing model.
+
+### 37.4 Guardrails — the real engineering (do it right)
+- **Routing determinism:** arbitrary URLs create ambiguity (is `/shoes` a product, collection, or page?). The resolver needs **reserved paths** (`/cart`, `/checkout`, `/account`, `/admin`, API), **collision detection** across entity types, and **deterministic precedence**. (This is *why* rigid prefixes exist; we take on the complexity deliberately.)
+- **Canonical for nested products (the SEO trap):** a product reachable under multiple category paths must have one **canonical URL** (merchant-chosen) + auto-redirects — otherwise nested URLs create duplicate content, the exact problem they're infamous for. Nested *collection* URLs: yes. Nested *product* URLs: allowed, always canonicalized to one path.
+- **Automatic 301 management** on any handle/structure change (§34.3) — merchants never break their own SEO.
+- **Migration tooling:** bulk import of the merchant's existing URL map + auto-301 the rest — the *value* is "move without SEO loss," and redirects + handle preservation are the mechanism.
+- **Performance:** the handle→entity resolver is cached/indexed per tenant (§8).
+
+### 37.5 Verdict
+A genuine, current, well-targeted differentiator that reinforces the SEO-first positioning (§34) and removes a real reason SEO-invested merchants avoid the incumbent. Build it — with the §37.4 guardrails, which are where the value actually lives.
+
+### 37.6 Nested product URLs — policy: allow, warn, auto-canonicalize
+Confirmed approach — **maximize migration feasibility, protect SEO automatically:**
+- **Allow it.** Merchants may nest products (`/mens/shoes/nike-x`) if they want — never blocked (migration comes first).
+- **Warn, don't stop.** A non-blocking note: *"A single clean product URL is best practice; we'll auto-canonicalize so you don't lose SEO."*
+- **One canonical, always.** Every path to a product emits `<link rel="canonical">` to the **single main product URL**; ranking signals consolidate there.
+- **Make the canonical actually *stick* (the part hand-rolled setups get wrong):** a canonical tag is a *hint*, not a command — search engines honor it only when every other signal agrees. Because the platform owns URL generation, it enforces that automatically — **only the canonical URL goes in `sitemap.xml`** (§34.1), internal links / nav / breadcrumbs render the canonical, and OG + `hreflang` match. Doing this correctly *for* the merchant is itself a selling point (it's what they get wrong by hand).
+- **Two modes, merchant's choice:** *live-with-canonical* (the nested URL renders `200`, canonical → main — for browsing) or *301-redirect → main* (for pure migration of legacy URLs). The same rule covers facet/param URLs (canonical to base, `noindex` facets).
+
+Net: the merchant gets the flexibility, you deliver the SEO safety **automatically** — turning the "SEO trap" into a feature.

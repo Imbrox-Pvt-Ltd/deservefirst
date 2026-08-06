@@ -217,19 +217,7 @@ export class SqlStorefrontData implements StorefrontData {
       [this.storeId(), blogHandle, handle],
     );
     const row = rows[0];
-    return row
-      ? {
-          id: String(row.id),
-          blogId: String(row.blog_id),
-          handle: String(row.handle),
-          title: String(row.title),
-          body: row.body as string | null,
-          excerpt: row.excerpt as string | null,
-          author: row.author as string | null,
-          publishedAt: row.published_at as string | null,
-          updatedAt: row.updated_at as string | null,
-        }
-      : null;
+    return row ? toArticle(row) : null;
   }
 
   /**
@@ -263,6 +251,92 @@ export class SqlStorefrontData implements StorefrontData {
    * the failure would then only appear once somebody uploaded one. A product
    * image entity on the catalogue manifest is the fix.
    */
+  /**
+   * The posts of one blog, newest first.
+   *
+   * Published-only and store-scoped in the SQL, for the same reason every other
+   * storefront query is: this renders for an anonymous visitor and there is no
+   * caller left to apply the filter.
+   *
+   * `published_at DESC` with the id as a tiebreak, so two posts published in
+   * the same moment do not swap places between one request and the next — a
+   * paginated list that reorders itself shows some posts twice and others never.
+   */
+  articlesOfBlog(blogId: string): readonly ArticleRow[] {
+    return this.executor.query<Row>(
+      `SELECT * FROM ${this.q('blog_posts')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('blog_id')} = ${this.p(2)}
+          AND ${this.q('status')} = 'published'
+          AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('published_at')} DESC, ${this.q('id')} DESC
+        LIMIT 250`,
+      [this.storeId(), blogId],
+    ).then((rows) => rows.map(toArticle)) as unknown as readonly ArticleRow[];
+  }
+
+  articleCountOfBlog(blogId: string): number {
+    return this.executor.query<Row>(
+      `SELECT COUNT(*) AS n FROM ${this.q('blog_posts')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('blog_id')} = ${this.p(2)}
+          AND ${this.q('status')} = 'published'
+          AND ${this.q('deleted_at')} IS NULL`,
+      [this.storeId(), blogId],
+    ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
+  }
+
+  /**
+   * The blog a post belongs to, which is where its URL comes from.
+   *
+   * Named for the caller rather than for the argument — the drop holds an
+   * article and asks about its blog; that the article already carries the blog
+   * id is an implementation detail of the row.
+   */
+  blogOfArticle(blogId: string): BlogRow | null {
+    return this.executor.query<Row>(
+      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('title')},
+              ${this.q('comment_policy')}
+         FROM ${this.q('blogs')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('id')} = ${this.p(2)}
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [this.storeId(), blogId],
+    ).then((rows) => {
+      const row = rows[0];
+      return row
+        ? {
+            id: String(row.id),
+            handle: String(row.handle),
+            title: String(row.title),
+            commentPolicy: row.comment_policy as string | null,
+          }
+        : null;
+    }) as unknown as BlogRow | null;
+  }
+
+  /**
+   * Every tag used by a blog's published posts.
+   *
+   * Joined through the posts rather than read from a blog-level column,
+   * because a tag exists only by being applied — a list kept separately drifts
+   * the moment a post is deleted, and offers a filter that matches nothing.
+   */
+  tagsOfBlog(blogId: string): readonly string[] {
+    return this.executor.query<Row>(
+      `SELECT DISTINCT t.${this.q('tag')} AS tag
+         FROM ${this.q('blog_posts_tags')} t
+         JOIN ${this.q('blog_posts')} a ON a.${this.q('id')} = t.${this.q('owner_id')}
+        WHERE a.${this.q('store_id')} = ${this.p(1)}
+          AND a.${this.q('blog_id')} = ${this.p(2)}
+          AND a.${this.q('status')} = 'published'
+          AND a.${this.q('deleted_at')} IS NULL
+        ORDER BY t.${this.q('tag')} ASC`,
+      [this.storeId(), blogId],
+    ).then((rows) => rows.map((row) => String(row.tag))) as unknown as readonly string[];
+  }
+
   imagesOfProduct(productId: string): readonly ImageRow[] {
     return this.executor.query<Row>(
       `SELECT * FROM ${this.q('product_images')}
@@ -454,17 +528,7 @@ export class SqlStorefrontData implements StorefrontData {
       body: (row.body as string | null) ?? null,
     }));
 
-    const articles = find('blog_posts', ['title', 'handle'], `AND ${this.q('status')} = 'published'`, (row) => ({
-      id: String(row.id),
-      handle: String(row.handle),
-      title: String(row.title),
-      body: (row.body as string | null) ?? null,
-      excerpt: (row.excerpt as string | null) ?? null,
-      author: (row.author as string | null) ?? null,
-      publishedAt: (row.published_at as string | null) ?? null,
-      // The blog it belongs to, which the article's URL is built from.
-      blogId: String(row.blog_id ?? ''),
-    }));
+    const articles = find('blog_posts', ['title', 'handle'], `AND ${this.q('status')} = 'published'`, toArticle);
 
     const [foundProducts, foundCollections, foundPages, foundArticles] = await Promise.all([
       products, collections, pages, articles,
@@ -783,6 +847,27 @@ function toProduct(row: Row): ProductRow {
     createdAt: row.created_at as string | null,
     updatedAt: row.updated_at as string | null,
     publishedAt: row.published_at as string | null,
+  };
+}
+
+/**
+ * One blog post row, as the drops read it.
+ *
+ * Shared by the by-handle lookup, a blog's index and search, which mapped this
+ * three separate ways — and search's copy omitted `blogId`, so the articles it
+ * found could not build their own URLs.
+ */
+function toArticle(row: Row): ArticleRow {
+  return {
+    id: String(row.id),
+    blogId: String(row.blog_id ?? ''),
+    handle: String(row.handle),
+    title: String(row.title),
+    body: row.body as string | null,
+    excerpt: row.excerpt as string | null,
+    author: row.author as string | null,
+    publishedAt: row.published_at as string | null,
+    updatedAt: row.updated_at as string | null,
   };
 }
 
