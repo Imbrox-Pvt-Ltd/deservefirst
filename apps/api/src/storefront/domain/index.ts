@@ -30,4 +30,5 @@ export * from './assets';
 export * from './translations';
 export * from './theme-settings';
 export * from './internal-links';
+export * from './all-products';
 export * from './font-handle';

@@ -22,6 +22,7 @@
 import type { QueryExecutor } from '../../core/list-engine';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
+import { allProductsCollection, isAllProducts } from '../domain';
 import type { StorefrontData } from '../api/storefront-ports';
 import type {
   ArticleRow,
@@ -125,6 +126,19 @@ export class SqlStorefrontData implements StorefrontData {
       [this.storeId(), handle],
     );
     const row = rows[0];
+
+    /**
+     * The automatic collection, when no real one claims the handle.
+     *
+     * AFTER the lookup, not before: a merchant who genuinely created a
+     * collection called `all` keeps it. Shadowing a real one would hide
+     * products they deliberately grouped, with nothing to explain why.
+     */
+    if (!row && isAllProducts(handle)) {
+      const shop = await this.shop();
+      return allProductsCollection(shop.name);
+    }
+
     return row
       ? {
           id: String(row.id),
@@ -256,6 +270,24 @@ export class SqlStorefrontData implements StorefrontData {
   }
 
   productsOfCollection(collectionId: string): readonly ProductRow[] {
+    /**
+     * The automatic collection is the whole catalogue, so there is no join.
+     *
+     * Its id is the handle rather than a row's, because there is no row — see
+     * `domain/all-products.ts`.
+     */
+    if (isAllProducts(collectionId)) {
+      return this.executor.query<Row>(
+        `SELECT * FROM ${this.q('products')}
+          WHERE ${this.q('store_id')} = ${this.p(1)}
+            AND ${this.q('status')} = 'active'
+            AND ${this.q('deleted_at')} IS NULL
+          ORDER BY ${this.q('created_at')} DESC
+          LIMIT 250`,
+        [this.storeId()],
+      ).then((rows) => rows.map(toProduct)) as unknown as readonly ProductRow[];
+    }
+
     return this.executor.query<Row>(
       `SELECT p.* FROM ${this.q('products')} p
          JOIN ${this.q('collection_products')} cp ON cp.${this.q('product_id')} = p.${this.q('id')}
@@ -270,6 +302,16 @@ export class SqlStorefrontData implements StorefrontData {
   }
 
   productCountOfCollection(collectionId: string): number {
+    if (isAllProducts(collectionId)) {
+      return this.executor.query<Row>(
+        `SELECT COUNT(*) AS n FROM ${this.q('products')}
+          WHERE ${this.q('store_id')} = ${this.p(1)}
+            AND ${this.q('status')} = 'active'
+            AND ${this.q('deleted_at')} IS NULL`,
+        [this.storeId()],
+      ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
+    }
+
     return this.executor.query<Row>(
       `SELECT COUNT(*) AS n FROM ${this.q('collection_products')} cp
          JOIN ${this.q('products')} p ON p.${this.q('id')} = cp.${this.q('product_id')}
