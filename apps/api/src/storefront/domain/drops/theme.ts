@@ -140,6 +140,14 @@ export const formDrop = defineDrop<FormState>('form', {
           translated_fields: form.errors.translatedFields ?? {},
         }
       : null,
+  /**
+   * Which form this is — `contact`, `new_comment`, and so on.
+   *
+   * Present so a theme can render a different confirmation for an enquiry than
+   * for a comment. The tag writes the same value into a hidden field, but a
+   * template that wants to branch on it needs to be able to read it.
+   */
+  type: (form) => form.type ?? '',
   posted_successfully: (form) => form.postedSuccessfully ?? false,
   /**
    * Values the customer already typed, so a failed submit does not clear the

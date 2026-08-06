@@ -190,16 +190,41 @@ export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFa
     const resolved = new Map<string, unknown>();
 
     for (const property of properties) {
+      const read = (): unknown => {
+        if (resolved.has(property)) return resolved.get(property);
+        const value = (spec[property] as DropProperty<Source>)(source, context);
+        resolved.set(property, value);
+        return value;
+      };
+
       Object.defineProperty(drop, property, {
         // Enumerable so `{% for %}` and the engine's own property access see it.
         enumerable: true,
         configurable: false,
-        get() {
-          if (resolved.has(property)) return resolved.get(property);
-          const value = (spec[property] as DropProperty<Source>)(source, context);
-          resolved.set(property, value);
-          return value;
-        },
+        get: read,
+      });
+
+      /**
+       * The same property answered under a trailing `?`.
+       *
+       * Themes write `{% if form.posted_successfully? %}` and
+       * `{% if product.available? %}` — the question mark is part of the name a
+       * theme uses, not an operator. Without this the lookup misses and the
+       * branch is silently false: the reference theme's contact form, its
+       * comment form and its password page all tested
+       * `form.posted_successfully?`, so no storefront form has ever shown its
+       * success message.
+       *
+       * Defined at build time rather than trapped in a Proxy, so it costs one
+       * getter per property once instead of intercepting every read. NOT added
+       * to `properties`, which stays the canonical list the audit and the
+       * generated reference work from — `x` and `x?` are one property with two
+       * spellings, not two.
+       */
+      Object.defineProperty(drop, `${property}?`, {
+        enumerable: false,
+        configurable: false,
+        get: read,
       });
     }
 

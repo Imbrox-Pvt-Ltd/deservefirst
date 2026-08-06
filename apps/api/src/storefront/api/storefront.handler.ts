@@ -319,6 +319,24 @@ async function policyAsPage(data: StorefrontData, handle: string) {
   };
 }
 
+/**
+ * Which form a `?posted=` outcome belongs to.
+ *
+ * The parameter says what HAPPENED; a theme's `{% form %}` block asks what it
+ * IS. Unrecognised outcomes keep the raw value rather than being dropped: a
+ * theme testing `form.posted_successfully?` still sees a successful post, which
+ * is the part that matters, and a wrong type is better than no confirmation.
+ */
+function outcomeToFormType(outcome: string): string {
+  switch (outcome) {
+    case 'sent': return 'contact';
+    case 'requested': return 'product';
+    case 'subscribed': return 'customer';
+    case 'commented': return 'new_comment';
+    default: return outcome;
+  }
+}
+
 /** The path without its query, for matching an endpoint. */
 function canonicalPathOf(path: string): string {
   const index = path.indexOf('?');
@@ -888,9 +906,30 @@ export class StorefrontHandler {
       store, match, drops, budget, shop, input, access, view, personal,
     );
 
-    // A failed submission puts the theme's own error rendering back in front of
-    // the customer, through the SAME drop a theme reads on any other page.
-    if (formState) scope.form = formDrop(formState as never, drops);
+    /**
+     * The form object, for both halves of a submission.
+     *
+     * A FAILED one arrives here with `formState` already built, and the theme's
+     * own error rendering goes back in front of the customer.
+     *
+     * A SUCCESSFUL one arrives as a plain GET after a redirect, carrying
+     * `?posted=`. Nothing put a form in scope for it, so every theme's
+     * `{% if form.posted_successfully? %}` was false and no storefront form has
+     * ever confirmed itself — a customer sent an enquiry and was shown the
+     * blank form again, with nothing to say it had gone.
+     *
+     * Redirect-then-render rather than rendering the result of the POST
+     * directly, so a refresh does not resend it.
+     */
+    const posted = new URLSearchParams(input.query).get('posted');
+    if (formState) {
+      scope.form = formDrop(formState as never, drops);
+    } else if (posted !== null && posted !== '') {
+      scope.form = formDrop(
+        formStateFor(outcomeToFormType(posted), {}, []) as never,
+        drops,
+      );
+    }
 
     /**
      * The nonce, so a theme can mark its own inline script as its own.
@@ -1892,7 +1931,7 @@ export class StorefrontHandler {
       status: 303,
       headers: {
         ...SECURITY_HEADERS,
-        location: `/cart?request=${encodeURIComponent(reference)}`,
+        location: `/cart?posted=requested&ref=${encodeURIComponent(reference)}`,
         'cache-control': 'no-store',
         'set-cookie': requestCookieHeader('', input.secure ?? false).replace(
           /Max-Age=\d+/,

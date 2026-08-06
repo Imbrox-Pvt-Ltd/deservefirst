@@ -110,9 +110,9 @@ Also answers to, for themes written elsewhere:
 
 ## `form`
 
-16 implemented, 0 pending.
+17 implemented, 0 pending.
 
-`id`, `errors`, `posted_successfully`, `email`, `first_name`, `last_name`, `body`, `author`, `company`, `address1`, `address2`, `city`, `province`, `zip`, `country`, `phone`
+`id`, `errors`, `type`, `posted_successfully`, `email`, `first_name`, `last_name`, `body`, `author`, `company`, `address1`, `address2`, `city`, `province`, `zip`, `country`, `phone`
 
 ## `image`
 

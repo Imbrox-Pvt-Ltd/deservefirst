@@ -116,7 +116,11 @@ test('a good submission carries the contact details and the version it read', as
   });
 
   assert.equal(response.status, 303);
-  assert.equal(response.headers.location, '/cart?request=R-ABC123');
+  /**
+   * The platform's own convention — `?posted=<outcome>&ref=<reference>` — which
+   * is what puts the form object back in scope so a theme confirms the send.
+   */
+  assert.equal(response.headers.location, '/cart?posted=requested&ref=R-ABC123');
   assert.deepEqual(sent, [
     {
       requestId: 'req_1',
