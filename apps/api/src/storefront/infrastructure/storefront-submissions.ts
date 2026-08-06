@@ -57,9 +57,25 @@ export interface QuoteRequests {
   /** Attaches who is asking, before the request leaves the shopper's hands. */
   setContact(
     id: string,
-    input: { contactEmail: string; contactName: string | null; note: string | null },
+    input: {
+      contactEmail: string;
+      contactName: string | null;
+      note: string | null;
+      customerId?: string | null;
+    },
     expectedVersion: number,
   ): Promise<{ id: string; version: number }>;
+}
+
+/**
+ * The contact list, as this needs it.
+ *
+ * `identify` rather than `create`: a shopper enquiring for the second time is
+ * not a duplicate to be refused, they are somebody the merchant has heard from
+ * before — which is the whole value of keeping the list.
+ */
+export interface EnquiringCustomers {
+  identify(input: { email: string; name?: string | null }): Promise<{ id: string }>;
 }
 
 /** Looking up the product a quote is about. */
@@ -71,6 +87,7 @@ export class SqlStorefrontSubmissions implements StorefrontSubmissions {
   constructor(
     private readonly requests: QuoteRequests,
     private readonly products: ProductLookup,
+    private readonly customers: EnquiringCustomers,
     private readonly executor: QueryExecutor,
     private readonly newId: () => string,
     private readonly currency: string,
@@ -106,6 +123,19 @@ export class SqlStorefrontSubmissions implements StorefrontSubmissions {
     readonly contactName: string | null;
     readonly message: string | null;
   }): Promise<{ readonly reference: string }> {
+    /**
+     * The person is recorded before the request is, and a failure here does not
+     * stop the enquiry.
+     *
+     * A merchant losing a contact-list entry is a smaller harm than a shopper
+     * losing the request they just spent time assembling — so this is allowed
+     * to fail quietly and leave `customerId` null, which is exactly what the
+     * column already meant.
+     */
+    const customer = await this.customers
+      .identify({ email: input.contactEmail, name: input.contactName })
+      .catch(() => null);
+
     const withContact = await this.requests.setContact(
       input.requestId,
       {
@@ -113,6 +143,7 @@ export class SqlStorefrontSubmissions implements StorefrontSubmissions {
         contactName: input.contactName,
         // The customer's own message — the public note, never the internal one.
         note: input.message,
+        customerId: customer?.id ?? null,
       },
       input.version,
     );

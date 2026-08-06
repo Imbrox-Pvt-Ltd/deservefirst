@@ -38,6 +38,14 @@ const base = {
   tokenValid: false,
 };
 
+/**
+ * The contact list, for tests that are not about it.
+ *
+ * `identify` is called on every submission now, so a fake that omits it makes
+ * every one of these fail for a reason none of them are testing.
+ */
+const contacts = { identify: async () => ({ id: 'cus_1' }) };
+
 test('an ordinary submission is admitted', () => {
   const result = admitSubmission(base);
   assert.equal(result.ok, true);
@@ -401,7 +409,7 @@ test('the price comes from the catalogue, never from the form', async () => {
   };
 
   const submissions = new SqlStorefrontSubmissions(
-    quotes, catalogue, { query: async () => [] }, () => 'id1', 'USD',
+    quotes, catalogue, contacts, { query: async () => [] }, () => 'id1', 'USD',
   );
 
   await submissions.requestQuote({
@@ -435,6 +443,7 @@ test('a quote is SUBMITTED, not left as a draft', async () => {
       submit: async () => { calls.push('submit'); return { reference: 'RFQ-9' }; },
     },
     { byId: async () => ({ id: 'p', title: 'T', priceAmountMinor: '100' }) },
+    contacts,
     { query: async () => [] }, () => 'id', 'USD',
   );
 
@@ -464,6 +473,7 @@ test('a product that no longer exists does not lose the enquiry', async () => {
       submit: async () => { calls.push('submit'); return { reference: 'RFQ-7' }; },
     },
     { byId: async () => null },
+    contacts,
     { query: async () => [] }, () => 'id', 'USD',
   );
 
@@ -492,6 +502,7 @@ test('the contact insert has one placeholder per value', async () => {
   let captured = null;
   const submissions = new SqlStorefrontSubmissions(
     {}, {},
+    contacts,
     { query: async (sql, params) => { captured = { sql, params }; return []; } },
     () => 'msg_1', 'USD',
   );

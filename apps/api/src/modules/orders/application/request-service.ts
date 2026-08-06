@@ -220,7 +220,13 @@ export class RequestService {
    */
   async setContact(
     id: string,
-    input: { contactEmail: string; contactName: string | null; note: string | null },
+    input: {
+      contactEmail: string;
+      contactName: string | null;
+      note: string | null;
+      /** The contact list entry this enquiry belongs to, if one was made. */
+      customerId?: string | null;
+    },
     expectedVersion: number,
   ): Promise<Request> {
     const request = await this.get(id);
@@ -231,6 +237,14 @@ export class RequestService {
       contactEmail: input.contactEmail,
       contactName: input.contactName,
       note: input.note,
+      /**
+       * Only ever set, never cleared.
+       *
+       * A request already linked to a customer must not become anonymous
+       * because a later call omitted the id — the link is how a merchant sees
+       * that the same person has asked before.
+       */
+      customerId: input.customerId ?? request.customerId,
       version: request.version + 1,
     };
 

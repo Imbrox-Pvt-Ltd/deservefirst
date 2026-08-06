@@ -708,6 +708,14 @@ export async function bootstrap(): Promise<Platform> {
             : null;
         },
       },
+      /**
+       * The contact list an enquiry is recorded against.
+       *
+       * Built per store like everything else here — a customer belongs to one
+       * store, and a service constructed outside that scope would look one up
+       * in whichever store happened to build it.
+       */
+      new CustomerService(customerRecords, customerToolkit, storeId as never),
       executor,
       () => randomUUID(),
       currency,

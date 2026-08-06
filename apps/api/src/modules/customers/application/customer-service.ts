@@ -117,6 +117,45 @@ export class CustomerService {
   }
 
   /**
+   * The person behind an enquiry, created if this is the first time.
+   *
+   * Phase 1 is request-only (§25): a shopper leaves an email with a request and
+   * never signs in. Without this a merchant receiving three enquiries from the
+   * same address sees three unrelated rows and no customer at all — which is
+   * the difference between a contact list and a pile of forms.
+   *
+   * Deliberately NOT `create`. That refuses a duplicate, correctly, because
+   * staff adding a customer who already exists have made a mistake. A shopper
+   * enquiring twice has not.
+   *
+   * Consent is never touched, on either path. Leaving an email to ask a
+   * question is not subscribing to anything, and a new record here is created
+   * `unknown` while an existing one keeps whatever it already had — an enquiry
+   * must not be able to resubscribe somebody who opted out.
+   */
+  async identify(input: { email: string; name?: string | null }): Promise<Customer> {
+    const email = normalizeCustomerEmail(input.email);
+
+    const existing = await this.repository.findByEmail(email);
+    if (existing) return existing;
+
+    const name = (input.name ?? '').trim();
+
+    return this.create({
+      email,
+      /**
+       * The whole name as given, never split.
+       *
+       * We were handed one field and have no way to know which part of it is a
+       * family name — plenty of names do not divide into two at a space, and
+       * guessing renders somebody's name back to them wrong. The request itself
+       * carries the name they typed; this is a copy for the contact list.
+       */
+      firstName: name === '' ? null : name,
+    });
+  }
+
+  /**
    * Consent changes are their own operation. Folding them into a generic update
    * would lose the before/after pair that a compliance question needs answering
    * with, and would let a bulk edit change consent by accident.
