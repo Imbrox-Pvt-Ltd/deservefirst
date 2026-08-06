@@ -23,12 +23,20 @@ import type { QueryExecutor } from '../../core/list-engine';
 import { Binder } from '../../core/database/bind';
 import { postgresDialect, type SqlDialect } from '../../core/list-engine/dialect';
 import { requireStoreContext } from '../../core/tenant-context';
-import { allProductsCollection, isAllProducts } from '../domain';
+import {
+  allProductsCollection,
+  isAllProducts,
+  DEFAULT_SORT,
+  FILTER_PARAMS,
+  NO_FILTERS,
+} from '../domain';
 import type { StorefrontData } from '../api/storefront-ports';
 import type {
   ArticleRow,
   BlogRow,
   CollectionRow,
+  FilterCriteria,
+  FilterRow,
   ImageRow,
   PageRow,
   ProductRow,
@@ -545,42 +553,27 @@ export class SqlStorefrontData implements StorefrontData {
     };
   }
 
-  productsOfCollection(collectionId: string): readonly ProductRow[] {
+  productsOfCollection(
+    collectionId: string,
+    criteria: FilterCriteria = NO_FILTERS,
+    sort: string = DEFAULT_SORT,
+  ): readonly ProductRow[] {
     /**
      * The automatic collection is the whole catalogue, so there is no join.
      *
      * Its id is the handle rather than a row's, because there is no row — see
      * `domain/all-products.ts`.
      */
-    if (isAllProducts(collectionId)) {
-      return this.executor.query<Row>(
-        `SELECT * FROM ${this.q('products')}
-          WHERE ${this.q('store_id')} = ${this.p(1)}
-            AND ${this.q('status')} = 'active'
-            AND ${this.q('deleted_at')} IS NULL
-          ORDER BY ${this.q('created_at')} DESC
-          LIMIT 250`,
-        [this.storeId()],
-      ).then((rows) => rows.map(toProduct)) as unknown as readonly ProductRow[];
-    }
-
-    return this.membersOf(collectionId, false).then((rows) =>
+    return this.membersOf(collectionId, false, criteria, sort).then((rows) =>
       rows.map(toProduct),
     ) as unknown as readonly ProductRow[];
   }
 
-  productCountOfCollection(collectionId: string): number {
-    if (isAllProducts(collectionId)) {
-      return this.executor.query<Row>(
-        `SELECT COUNT(*) AS n FROM ${this.q('products')}
-          WHERE ${this.q('store_id')} = ${this.p(1)}
-            AND ${this.q('status')} = 'active'
-            AND ${this.q('deleted_at')} IS NULL`,
-        [this.storeId()],
-      ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
-    }
-
-    return this.membersOf(collectionId, true).then(
+  productCountOfCollection(
+    collectionId: string,
+    criteria: FilterCriteria = NO_FILTERS,
+  ): number {
+    return this.membersOf(collectionId, true, criteria).then(
       (rows) => rows.length,
     ) as unknown as number;
   }
@@ -605,34 +598,16 @@ export class SqlStorefrontData implements StorefrontData {
    * `countOnly` skips the row bodies; the caller needs a number, and a
    * collection of 250 products should not serialise 250 rows to produce it.
    */
-  private async membersOf(collectionId: string, countOnly: boolean): Promise<Row[]> {
-    const bind = new Binder(this.dialect);
-    const collections = await this.executor.query<Row>(
-      `SELECT ${this.q('type')}, ${this.q('match')}, ${this.q('conditions')},
-              ${this.q('exclusions')}, ${this.q('product_ids')}
-         FROM ${this.q('collections')}
-        WHERE ${this.q('store_id')} = ${this.p(1)}
-          AND ${this.q('id')} = ${this.p(2)}
-          AND ${this.q('deleted_at')} IS NULL
-        LIMIT 1`,
-      [this.storeId(), collectionId],
-    );
-
-    const collection = collections[0];
+  private async membersOf(
+    collectionId: string,
+    countOnly: boolean,
+    criteria: FilterCriteria = NO_FILTERS,
+    sort: string = DEFAULT_SORT,
+  ): Promise<Row[]> {
+    const collection = await this.collectionRule(collectionId);
     if (!collection) return [];
 
-    const isManual = String(collection.type ?? 'manual') !== 'automated';
-    const productIds = parseIdList(collection.product_ids);
-
-    /**
-     * An empty manual collection is empty, not unfiltered.
-     *
-     * `IN ()` is a syntax error in MySQL and matches nothing in Postgres, so
-     * neither is safe to build — and a predicate omitted entirely would return
-     * the whole catalogue, which is the worst possible answer.
-     */
-    if (isManual && productIds.length === 0) return [];
-
+    const bind = new Binder(this.dialect);
     const selected = countOnly ? `p.${this.q('id')}` : 'p.*';
 
     /**
@@ -645,34 +620,18 @@ export class SqlStorefrontData implements StorefrontData {
      * which is precisely what happened here before this line moved up.
      */
     const store = bind.add(this.storeId());
-    const where: string[] = [];
 
-    if (isManual) {
-      const placeholders = productIds.map((id) => bind.add(id)).join(', ');
-      where.push(`p.${this.q('id')} IN (${placeholders})`);
-    } else {
-      const conditions = parseConditions(collection.conditions);
-      // An automated collection with no conditions selects nothing. The domain
-      // forbids saving one, so this is a row that predates the rule or was
-      // written around it — and the whole catalogue is not a safe reading.
-      if (conditions.length === 0) return [];
+    const membership = this.membershipWhere(collection, bind);
+    if (!membership) return [];
 
-      const joiner = String(collection.match ?? 'all') === 'any' ? ' OR ' : ' AND ';
-      where.push(`(${conditions.map((c) => this.predicateFor(c, bind)).join(joiner)})`);
-
-      // Exclusions always win, and each acts alone regardless of the match
-      // mode — "any" applies to inclusion, not to whether an exclusion counts.
-      for (const exclusion of parseConditions(collection.exclusions)) {
-        where.push(`NOT (${this.predicateFor(exclusion, bind)})`);
-      }
-    }
+    const where = [...membership, ...this.criteriaWhere(criteria, bind)];
 
     const sql = `SELECT ${selected} FROM ${this.q('products')} p
         WHERE p.${this.q('store_id')} = ${store}
           AND p.${this.q('status')} = 'active'
           AND p.${this.q('deleted_at')} IS NULL
-          AND ${where.join('\n          AND ')}
-        ORDER BY p.${this.q('created_at')} DESC
+          ${where.map((clause) => `AND ${clause}`).join('\n          ')}
+        ORDER BY ${this.orderBy(sort)}
         LIMIT 250`;
 
     const statement = bind.finish(sql);
@@ -683,13 +642,341 @@ export class SqlStorefrontData implements StorefrontData {
      * the id array rather than in any column — so it cannot be an ORDER BY
      * without `FIELD()`/`array_position`, which differ by dialect. Sorting the
      * page of rows we already hold costs nothing and works on both.
+     *
+     * Only when the shopper has not chosen an order of their own: "price, low
+     * to high" must mean that, not the merchant's order re-applied on top.
      */
-    if (isManual && !countOnly) {
-      const position = new Map(productIds.map((id, index) => [id, index]));
+    if (collection.isManual && !countOnly && sort === DEFAULT_SORT) {
+      const position = new Map(collection.productIds.map((id, index) => [id, index]));
       rows.sort((a, b) => (position.get(String(a.id)) ?? 0) - (position.get(String(b.id)) ?? 0));
     }
 
     return rows;
+  }
+
+  /**
+   * The filters a shopper can apply to this collection, with live counts.
+   *
+   * One query per facet, each counting the collection's products with every
+   * OTHER active filter applied but not its own — see `criteriaWhere`. Four
+   * queries rather than one grouped monster because the dimensions have
+   * different shapes (a tag lives in another table, a price is a range), and a
+   * single query that produced all of them would be unreadable and no faster.
+   *
+   * A facet with one value is dropped. "Vendor: Acme (12)" beside a collection
+   * where every product is by Acme is a control that cannot change anything.
+   */
+  async facetsOfCollection(
+    collectionId: string,
+    criteria: FilterCriteria,
+  ): Promise<readonly FilterRow[]> {
+    const collection = await this.collectionRule(collectionId);
+    if (!collection) return [];
+
+    const [types, vendors, tags, price] = await Promise.all([
+      this.facetCounts(collection, criteria, 'productType', `COALESCE(p.${this.q('product_type')}, '')`),
+      this.facetCounts(collection, criteria, 'vendor', `COALESCE(p.${this.q('vendor')}, '')`),
+      this.tagCounts(collection, criteria),
+      this.priceRange(collection, criteria),
+    ]);
+
+    const filters: FilterRow[] = [];
+
+    const listFacet = (
+      label: string,
+      param: string,
+      counted: readonly { value: string; count: number }[],
+      active: readonly string[],
+    ): void => {
+      if (counted.length < 2) return;
+      const chosen = new Set(active.map((value) => value.toLowerCase()));
+      filters.push({
+        label,
+        param,
+        filterType: 'list',
+        values: counted.map((entry) => ({
+          value: entry.value,
+          label: entry.value,
+          count: entry.count,
+          active: chosen.has(entry.value.toLowerCase()),
+          param,
+        })),
+      });
+    };
+
+    listFacet('Type', FILTER_PARAMS.productType, types, criteria.productTypes);
+    listFacet('Vendor', FILTER_PARAMS.vendor, vendors, criteria.vendors);
+    listFacet('Tag', FILTER_PARAMS.tag, tags, criteria.tags);
+
+    /**
+     * The price range spans the collection, not the current selection.
+     *
+     * A slider whose ends move as you drag it cannot be dragged back — the
+     * bounds have to be the range that exists, with the shopper's own choice
+     * shown as the handles inside it.
+     */
+    if (price && price.max > price.min) {
+      filters.push({
+        label: 'Price',
+        param: FILTER_PARAMS.priceMin,
+        filterType: 'price_range',
+        values: [],
+        // The shopper's own handles, which are absent until they move one —
+        // distinct from the bounds below, which always exist.
+        minValue: criteria.priceMin,
+        maxValue: criteria.priceMax,
+        rangeMin: price.min,
+        rangeMax: price.max,
+      });
+    }
+
+    return filters;
+  }
+
+  /** One column's distinct values and how many products each would leave. */
+  private async facetCounts(
+    collection: CollectionRule,
+    criteria: FilterCriteria,
+    skip: FacetKind,
+    expression: string,
+  ): Promise<{ value: string; count: number }[]> {
+    const bind = new Binder(this.dialect);
+    const store = bind.add(this.storeId());
+    const membership = this.membershipWhere(collection, bind);
+    if (!membership) return [];
+
+    const where = [...membership, ...this.criteriaWhere(criteria, bind, skip)];
+
+    const sql = `SELECT ${expression} AS value, COUNT(*) AS n
+         FROM ${this.q('products')} p
+        WHERE p.${this.q('store_id')} = ${store}
+          AND p.${this.q('status')} = 'active'
+          AND p.${this.q('deleted_at')} IS NULL
+          ${where.map((clause) => `AND ${clause}`).join('\n          ')}
+        GROUP BY ${expression}
+        ORDER BY value ASC`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    // A product with no vendor is not a vendor called "".
+    return rows
+      .map((row) => ({ value: String(row.value ?? ''), count: Number(row.n ?? 0) }))
+      .filter((entry) => entry.value !== '');
+  }
+
+  /** The same, for tags, which live one join away. */
+  private async tagCounts(
+    collection: CollectionRule,
+    criteria: FilterCriteria,
+  ): Promise<{ value: string; count: number }[]> {
+    const bind = new Binder(this.dialect);
+    const store = bind.add(this.storeId());
+    const membership = this.membershipWhere(collection, bind);
+    if (!membership) return [];
+
+    const where = [...membership, ...this.criteriaWhere(criteria, bind, 'tag')];
+    const tagStore = bind.add(this.storeId());
+
+    const sql = `SELECT t.${this.q('tag')} AS value, COUNT(DISTINCT p.${this.q('id')}) AS n
+         FROM ${this.q('products')} p
+         JOIN ${this.q('products_tags')} t ON t.${this.q('owner_id')} = p.${this.q('id')}
+        WHERE p.${this.q('store_id')} = ${store}
+          AND p.${this.q('status')} = 'active'
+          AND p.${this.q('deleted_at')} IS NULL
+          ${where.map((clause) => `AND ${clause}`).join('\n          ')}
+          AND t.${this.q('store_id')} = ${tagStore}
+        GROUP BY t.${this.q('tag')}
+        ORDER BY t.${this.q('tag')} ASC`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    return rows.map((row) => ({ value: String(row.value ?? ''), count: Number(row.n ?? 0) }));
+  }
+
+  /** The cheapest and dearest product the other filters leave. */
+  private async priceRange(
+    collection: CollectionRule,
+    criteria: FilterCriteria,
+  ): Promise<{ min: number; max: number } | null> {
+    const bind = new Binder(this.dialect);
+    const store = bind.add(this.storeId());
+    const membership = this.membershipWhere(collection, bind);
+    if (!membership) return null;
+
+    const where = [...membership, ...this.criteriaWhere(criteria, bind, 'price')];
+    const column = `COALESCE(p.${this.q('price_amount_minor')}, 0)`;
+
+    const sql = `SELECT MIN(${column}) AS low, MAX(${column}) AS high
+         FROM ${this.q('products')} p
+        WHERE p.${this.q('store_id')} = ${store}
+          AND p.${this.q('status')} = 'active'
+          AND p.${this.q('deleted_at')} IS NULL
+          ${where.map((clause) => `AND ${clause}`).join('\n          ')}`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+    const row = rows[0];
+    if (!row || row.low === null || row.low === undefined) return null;
+    return { min: Number(row.low), max: Number(row.high ?? row.low) };
+  }
+
+  /** The membership rule of one collection, read once and reused per request. */
+  private async collectionRule(collectionId: string): Promise<CollectionRule | null> {
+    /**
+     * The automatic collection is every product, so it has no row to read and
+     * no membership to apply — but it is still filtered and sorted like any
+     * other. Handled here rather than short-circuited by its callers, which is
+     * how it came to ignore filters entirely: `/collections/all?…tag=Sale`
+     * returned the whole catalogue.
+     */
+    if (isAllProducts(collectionId)) {
+      return {
+        isAll: true, isManual: false, matchAny: false,
+        productIds: [], conditions: [], exclusions: [],
+      };
+    }
+
+    const rows = await this.executor.query<Row>(
+      `SELECT ${this.q('type')}, ${this.q('match')}, ${this.q('conditions')},
+              ${this.q('exclusions')}, ${this.q('product_ids')}
+         FROM ${this.q('collections')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('id')} = ${this.p(2)}
+          AND ${this.q('deleted_at')} IS NULL
+        LIMIT 1`,
+      [this.storeId(), collectionId],
+    );
+
+    const row = rows[0];
+    if (!row) return null;
+
+    return {
+      isAll: false,
+      isManual: String(row.type ?? 'manual') !== 'automated',
+      matchAny: String(row.match ?? 'all') === 'any',
+      productIds: parseIdList(row.product_ids),
+      conditions: parseConditions(row.conditions),
+      exclusions: parseConditions(row.exclusions),
+    };
+  }
+
+  /**
+   * The membership half of the WHERE, or null when the answer is "no products".
+   *
+   * Null rather than an empty array, because an empty array means "no
+   * restriction" — and a membership predicate that is simply omitted returns
+   * the entire catalogue under that collection's name, which is the worst
+   * possible failure here.
+   */
+  private membershipWhere(collection: CollectionRule, bind: Binder): string[] | null {
+    // No restriction at all, which is what "every product" means — and is
+    // distinct from the null below, which means "no products".
+    if (collection.isAll) return [];
+
+    if (collection.isManual) {
+      if (collection.productIds.length === 0) return null;
+      const placeholders = collection.productIds.map((id) => bind.add(id)).join(', ');
+      return [`p.${this.q('id')} IN (${placeholders})`];
+    }
+
+    // An automated collection with no conditions selects nothing. The domain
+    // forbids saving one, so this is a row that predates the rule or was
+    // written around it — and the whole catalogue is not a safe reading.
+    if (collection.conditions.length === 0) return null;
+
+    const joiner = collection.matchAny ? ' OR ' : ' AND ';
+    const where = [
+      `(${collection.conditions.map((c) => this.predicateFor(c, bind)).join(joiner)})`,
+    ];
+
+    // Exclusions always win, and each acts alone regardless of the match mode —
+    // "any" applies to inclusion, not to whether an exclusion counts.
+    for (const exclusion of collection.exclusions) {
+      where.push(`NOT (${this.predicateFor(exclusion, bind)})`);
+    }
+
+    return where;
+  }
+
+  /**
+   * The shopper's own narrowing, on top of whatever the collection holds.
+   *
+   * `skip` leaves one facet out, which is what makes the counts beside each
+   * checkbox mean anything: "Blue (12)" has to be the number of products you
+   * would see having ticked Blue, counted with every OTHER filter applied but
+   * not with Blue itself — otherwise ticking one colour shows zero for all the
+   * others and the filter looks broken.
+   */
+  private criteriaWhere(criteria: FilterCriteria, bind: Binder, skip?: FacetKind): string[] {
+    const where: string[] = [];
+
+    if (skip !== 'productType' && criteria.productTypes.length > 0) {
+      const values = criteria.productTypes.map((value) => `LOWER(${bind.add(value)})`).join(', ');
+      where.push(`LOWER(COALESCE(p.${this.q('product_type')}, '')) IN (${values})`);
+    }
+
+    if (skip !== 'vendor' && criteria.vendors.length > 0) {
+      const values = criteria.vendors.map((value) => `LOWER(${bind.add(value)})`).join(', ');
+      where.push(`LOWER(COALESCE(p.${this.q('vendor')}, '')) IN (${values})`);
+    }
+
+    if (skip !== 'tag' && criteria.tags.length > 0) {
+      /**
+       * Every tag, not any tag.
+       *
+       * Ticking two tags narrows; a shopper who wants both "waterproof" and
+       * "lightweight" is not asking for everything that is either. One EXISTS
+       * per tag is what expresses that.
+       */
+      for (const tag of criteria.tags) {
+        where.push(`EXISTS (SELECT 1 FROM ${this.q('products_tags')} t
+             WHERE t.${this.q('owner_id')} = p.${this.q('id')}
+               AND t.${this.q('store_id')} = ${bind.add(this.storeId())}
+               AND LOWER(t.${this.q('tag')}) = LOWER(${bind.add(tag)}))`);
+      }
+    }
+
+    if (skip !== 'price') {
+      // Inclusive, because a slider labelled "up to 50" that excludes 50 is a
+      // slider a shopper will report as broken.
+      if (criteria.priceMin !== null) {
+        where.push(`COALESCE(p.${this.q('price_amount_minor')}, 0) >= ${bind.add(criteria.priceMin)}`);
+      }
+      if (criteria.priceMax !== null) {
+        where.push(`COALESCE(p.${this.q('price_amount_minor')}, 0) <= ${bind.add(criteria.priceMax)}`);
+      }
+    }
+
+    return where;
+  }
+
+  /**
+   * A validated sort key as an ORDER BY.
+   *
+   * The key is already narrowed to a known value by `parseSort` in the domain,
+   * so nothing from the query string reaches this string — but the mapping is
+   * a lookup rather than interpolation anyway, so that stays true if the
+   * caller ever changes.
+   *
+   * The id is always the last term. Two products with the same title or the
+   * same price otherwise swap places between one page and the next, which
+   * shows a shopper the same product twice and hides another entirely.
+   */
+  private orderBy(sort: string): string {
+    const id = `p.${this.q('id')} DESC`;
+    switch (sort) {
+      case 'title-ascending': return `p.${this.q('title')} ASC, ${id}`;
+      case 'title-descending': return `p.${this.q('title')} DESC, ${id}`;
+      case 'price-ascending': return `COALESCE(p.${this.q('price_amount_minor')}, 0) ASC, ${id}`;
+      case 'price-descending': return `COALESCE(p.${this.q('price_amount_minor')}, 0) DESC, ${id}`;
+      case 'created-ascending': return `p.${this.q('created_at')} ASC, ${id}`;
+      // Nothing records units sold yet, so "best selling" would be a made-up
+      // order presented as a real one. Newest first until orders can answer it.
+      case 'best-selling':
+      case 'created-descending':
+      default: return `p.${this.q('created_at')} DESC, ${id}`;
+    }
   }
 
   /**
@@ -913,6 +1200,20 @@ interface Condition {
   readonly operator: string;
   readonly value: string;
 }
+
+/** A collection's membership rule, parsed once from its row. */
+interface CollectionRule {
+  /** The automatic "all products" collection, which has no row and no rule. */
+  readonly isAll: boolean;
+  readonly isManual: boolean;
+  readonly matchAny: boolean;
+  readonly productIds: readonly string[];
+  readonly conditions: readonly Condition[];
+  readonly exclusions: readonly Condition[];
+}
+
+/** Which facet a query is counting, so it can leave that one out. */
+type FacetKind = 'productType' | 'vendor' | 'tag' | 'price';
 
 /** A predicate that is never true, for a condition the field cannot answer. */
 const NEVER = '1 = 0';

@@ -202,8 +202,19 @@ export function cacheKeyFor(path: string, query: string, readKeys: readonly stri
   const search = new URLSearchParams(query);
   const relevant = new URLSearchParams();
   for (const key of [...readKeys].sort()) {
-    const value = search.get(key);
-    if (value !== null) relevant.set(key, value);
+    /**
+     * Every value, not the first.
+     *
+     * A repeated parameter is how a shopper ticks two filters at once, so
+     * `?filter.p.tag=a&filter.p.tag=b` and `?filter.p.tag=a` are different
+     * pages. Keeping only the first value gave them the same key, and the
+     * second tick was answered with the cached result of the first.
+     *
+     * Sorted within the key, because ticking a then b and ticking b then a
+     * produce the same page and should not fill two cache entries with it.
+     */
+    const values = search.getAll(key).sort();
+    for (const value of values) relevant.append(key, value);
   }
 
   const rendered = relevant.toString();

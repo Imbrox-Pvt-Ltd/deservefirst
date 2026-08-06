@@ -18,6 +18,8 @@ import type {
   ArticleRow,
   BlogRow,
   CollectionRow,
+  FilterCriteria,
+  FilterRow,
   ImageRow,
   PageRow,
   ProductRow,
@@ -72,8 +74,25 @@ export interface StorefrontData {
   /** Every tag used by a blog's posts, for its tag filter. */
   tagsOfBlog(blogId: string): readonly string[];
   imagesOfProduct(productId: string): readonly ImageRow[];
-  productsOfCollection(collectionId: string): readonly ProductRow[];
-  productCountOfCollection(collectionId: string): number;
+  /**
+   * A collection's products, narrowed and ordered by the shopper.
+   *
+   * The criteria and the sort are optional so every other caller — a section
+   * rendering a featured collection, a sitemap — keeps the merchant's own view
+   * of the collection rather than one visitor's filtered slice of it.
+   */
+  productsOfCollection(
+    collectionId: string,
+    criteria?: FilterCriteria,
+    sort?: string,
+  ): readonly ProductRow[];
+
+  /** The filters this collection offers, with counts for the current selection. */
+  facetsOfCollection(
+    collectionId: string,
+    criteria: FilterCriteria,
+  ): Promise<readonly FilterRow[]>;
+  productCountOfCollection(collectionId: string, criteria?: FilterCriteria): number;
   image(imageId: string): ImageRow | null;
 
   /**

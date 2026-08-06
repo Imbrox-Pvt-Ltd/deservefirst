@@ -16,6 +16,8 @@
  */
 
 import { defineDrop, dropList, type DropContext } from './define';
+import { filterDrop, sortOptionDrop, type FilterRow } from './faceting';
+import { DEFAULT_SORT, sortOptionsFor } from '../facets';
 import { storeAvailabilityDrop, type StoreAvailabilityRow } from './availability';
 import { mediaDrop, type MediaRow } from './media';
 
@@ -303,6 +305,36 @@ export const collectionDrop = defineDrop<CollectionRow>('collection', {
     (context.load.productVendorsOfCollection as ((id: string) => readonly string[]) | undefined)?.(
       collection.id,
     ) ?? [],
+
+  /**
+   * The filters this collection offers.
+   *
+   * Every value carries the URL that applies it and the URL that removes it,
+   * built from the request already in hand — a theme never assembles one. That
+   * is what keeps the second tick from losing the first, and the sort order
+   * from vanishing when a filter changes.
+   */
+  filters: async (collection, context) => {
+    const load = context.load.facetsOfCollection as
+      | ((id: string) => readonly FilterRow[] | Promise<readonly FilterRow[]>)
+      | undefined;
+    const rows = (await load?.(collection.id)) ?? [];
+    const currentUrl = (context.load.currentUrl as (() => string) | undefined)?.() ?? '/';
+    return dropList(
+      filterDrop,
+      rows.map((row) => ({ ...row, currentUrl })),
+      context,
+    );
+  },
+
+  /** What the list is ordered by now, and what it would be with no choice made. */
+  sort_by: (_collection, context) =>
+    (context.load.currentSort as (() => string) | undefined)?.() ?? '',
+  default_sort_by: () => DEFAULT_SORT,
+  sort_options: (_collection, context) => {
+    const current = (context.load.currentSort as (() => string) | undefined)?.() ?? DEFAULT_SORT;
+    return dropList(sortOptionDrop, sortOptionsFor(current), context);
+  },
 });
 
 async function variantPrices(product: ProductRow, context: DropContext): Promise<number[]> {

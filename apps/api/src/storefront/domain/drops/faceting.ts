@@ -31,8 +31,18 @@ export interface FilterRow {
   /** `list`, `price_range` or `boolean`. */
   readonly filterType: string;
   readonly values: readonly FilterValueRow[];
+  /** Where the shopper has set the handles of a range. */
   readonly minValue?: number | null;
   readonly maxValue?: number | null;
+  /**
+   * The bounds the range can span, which are NOT the handles.
+   *
+   * A slider whose ends move as you drag it cannot be dragged back out again,
+   * so the extremes belong to the collection and only the handles belong to
+   * the shopper.
+   */
+  readonly rangeMin?: number | null;
+  readonly rangeMax?: number | null;
 }
 
 export interface SortOptionRow {
@@ -123,8 +133,35 @@ export const filterDrop = defineDrop<FilterRow & { currentUrl: string }>('filter
         add: false,
       })),
     ),
-  min_value: (row) => row.minValue ?? null,
-  max_value: (row) => row.maxValue ?? null,
+  /**
+   * The handles of a range, as OBJECTS carrying `.value`.
+   *
+   * Not numbers. Themes read `filter.min_value.value`, and a number answers
+   * `.value` with nil — so the price filter silently never appeared to have
+   * been set, and its "clear" control never showed. This is the same trap that
+   * has already been hit with fonts and colours: a theme addresses a setting as
+   * a record, and handing it a scalar fails quietly rather than loudly.
+   *
+   * Null when the shopper has set no bound, which is how a theme tells "no
+   * price filter" from "a price filter at the bottom of the range".
+   */
+  min_value: (row) => (row.minValue === null || row.minValue === undefined
+    ? null
+    : { value: row.minValue }),
+  max_value: (row) => (row.maxValue === null || row.maxValue === undefined
+    ? null
+    : { value: row.maxValue }),
+  /** The extremes the range spans — plain numbers, as themes read them. */
+  range_min: (row) => row.rangeMin ?? null,
+  range_max: (row) => row.rangeMax ?? null,
+  /**
+   * How a theme should draw this filter's values.
+   *
+   * Always plain text for now. Themes check it before rendering swatches or
+   * images, and claiming a presentation whose data we do not have would give
+   * them a colour swatch with no colour in it.
+   */
+  presentation: () => null,
 });
 
 export const sortOptionDrop = defineDrop<SortOptionRow>('sort_option', {

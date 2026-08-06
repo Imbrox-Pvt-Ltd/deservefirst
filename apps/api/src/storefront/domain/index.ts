@@ -33,3 +33,4 @@ export * from './internal-links';
 export * from './all-products';
 export * from './font-handle';
 export * from './theme-coverage';
+export * from './facets';

@@ -58,6 +58,13 @@ import {
   variantDrop,
   recommendationsDrop,
   routesDrop,
+  facetsAreActive,
+  parseFilterCriteria,
+  parseSort,
+  DEFAULT_SORT,
+  FACET_PARAM_KEYS,
+  NO_FILTERS,
+  type FilterCriteria,
   predictiveSearchDrop,
   normaliseSearchTerms,
   NO_SEARCH,
@@ -715,15 +722,36 @@ export class StorefrontHandler {
       nonce,
     });
 
+    /**
+     * How this visitor has narrowed and ordered the list.
+     *
+     * Parsed once and handed to the loaders, so a theme reading
+     * `collection.products` gets the filtered list without knowing filters
+     * exist — which is what lets a theme written elsewhere work unchanged.
+     */
+    const view: CollectionView = {
+      criteria: parseFilterCriteria(input.query),
+      sort: parseSort(input.query),
+      currentUrl: input.query === '' ? input.path : `${input.path}?${input.query}`,
+      /**
+       * Filled in by `scopeFor` once the page's own collection is known.
+       *
+       * Without it, a "featured collection" section on a filtered page would be
+       * filtered too — a shopper ticking "Blue" would empty a carousel that has
+       * nothing to do with what they ticked.
+       */
+      collectionId: null,
+    };
+
     const drops = createDropContext({
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
-      load: loadersFor(store.data),
+      load: loadersFor(store.data, view),
     });
 
     // Built before the engine, because the drops become its globals.
-    const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access);
+    const { scope, found } = await this.scopeFor(store, match, drops, budget, shop, input, access, view);
 
     // A failed submission puts the theme's own error rendering back in front of
     // the customer, through the SAME drop a theme reads on any other page.
@@ -798,6 +826,21 @@ export class StorefrontHandler {
 
     const status = found ? 200 : 404;
     const canonical = canonicalUrl;
+    /**
+     * The theme's own reads, plus the parameters the platform read for it.
+     *
+     * Filters and sort are consumed before a theme sees them, so nothing
+     * records them as a dependency — and without them here a filtered page is
+     * stored under the unfiltered key and served to everyone.
+     *
+     * Only on a collection, which is the only page they change. Adding them
+     * everywhere would put six names in every product page's vary list to
+     * describe a dependency that page does not have.
+     */
+    const varyKeys =
+      match.pageType === 'collection'
+        ? [...new Set([...access.readKeys(), ...FACET_PARAM_KEYS])]
+        : access.readKeys();
 
     return {
       status,
@@ -805,6 +848,22 @@ export class StorefrontHandler {
         ...SECURITY_HEADERS,
         'content-type': 'text/html; charset=utf-8',
         link: `<${canonical}>; rel="canonical"`,
+        /**
+         * A filtered view is not a page of its own (§37.6).
+         *
+         * The canonical already names the unfiltered collection, but a
+         * canonical is a hint rather than an instruction — search engines
+         * honour it only while every other signal agrees. A catalogue of 200
+         * products has tens of thousands of filter combinations, and each one
+         * indexed separately is thin duplicate content competing with the page
+         * the merchant actually wants ranked.
+         *
+         * `follow`, not `nofollow`: the products linked from a filtered view
+         * are real pages that should still be discovered and still pass their
+         * signals on. It is the combination page that must not be indexed, not
+         * the catalogue behind it.
+         */
+        ...(facetsAreActive(view.criteria) ? { 'x-robots-tag': 'noindex, follow' } : {}),
         'cache-control': status === 200 ? 'public, max-age=0, s-maxage=60' : 'no-store',
         ...(nonce
           ? {
@@ -838,8 +897,15 @@ export class StorefrontHandler {
        * fresh one substituted on the way out, so a cached body carries no
        * nonce at all and no two visitors share one.
        */
-      cacheKey: status === 200 ? cacheKeyFor(path, input.query, access.readKeys()) : null,
-      cacheVary: access.readKeys(),
+      /**
+       * The theme's own reads, plus the parameters the platform read for it.
+       *
+       * Filters and sort are consumed before a theme sees them, so nothing
+       * records them as a dependency — and without them here a filtered page
+       * is stored under the unfiltered key and served to everyone.
+       */
+      cacheKey: status === 200 ? cacheKeyFor(path, input.query, varyKeys) : null,
+      cacheVary: varyKeys,
       nonce,
     };
   }
@@ -918,6 +984,7 @@ export class StorefrontHandler {
     shop: Awaited<ReturnType<StorefrontData['shop']>>,
     input: StorefrontRequestInput,
     access: ReturnType<typeof readableParams>,
+    view?: CollectionView,
   ): Promise<{ scope: Record<string, unknown>; found: boolean }> {
     const data = store.data;
 
@@ -1049,6 +1116,11 @@ export class StorefrontHandler {
       case 'collection': {
         const row = await data.collectionByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
+        /**
+         * Named before anything reads a loader, so the filters apply to THIS
+         * collection and to no other one the page happens to render.
+         */
+        if (view) view.collectionId = row.id;
         const collection = collectionDrop(row, drops);
         /**
          * Awaited here rather than left for the drop to await.
@@ -1063,7 +1135,7 @@ export class StorefrontHandler {
          * A collection page counts its products to draw pagination, so nothing
          * is lost by asking now.
          */
-        const items = await data.productCountOfCollection(row.id);
+        const items = await data.productCountOfCollection(row.id, view?.criteria);
         return {
           scope: {
             ...base,
@@ -1497,12 +1569,43 @@ function syncOf<T>(value: Promise<T>): T {
 }
 
 /** The loaders the drop context needs, all already store-scoped. */
-function loadersFor(data: StorefrontData): Record<string, (...args: never[]) => unknown> {
+/**
+ * What one visitor has asked to see of a collection.
+ *
+ * `collectionId` is mutable on purpose: the filters belong to the page's own
+ * collection, and which collection that is only becomes known after the route
+ * has been resolved and the row loaded — by which time the loaders have already
+ * been handed to the drops.
+ */
+interface CollectionView {
+  readonly criteria: FilterCriteria;
+  readonly sort: string;
+  readonly currentUrl: string;
+  collectionId: string | null;
+}
+
+function loadersFor(
+  data: StorefrontData,
+  view?: CollectionView,
+): Record<string, (...args: never[]) => unknown> {
+  /** Only the page's own collection is filtered — see `CollectionView`. */
+  const filtered = (id: string): boolean => view !== undefined && view.collectionId === id;
+
   return {
     variantsOfProduct: ((id: string) => data.variantsOfProduct(id)) as never,
     imagesOfProduct: ((id: string) => data.imagesOfProduct(id)) as never,
-    productsOfCollection: ((id: string) => data.productsOfCollection(id)) as never,
-    productCountOfCollection: ((id: string) => data.productCountOfCollection(id)) as never,
+    productsOfCollection: ((id: string) =>
+      filtered(id)
+        ? data.productsOfCollection(id, view!.criteria, view!.sort)
+        : data.productsOfCollection(id)) as never,
+    productCountOfCollection: ((id: string) =>
+      filtered(id)
+        ? data.productCountOfCollection(id, view!.criteria)
+        : data.productCountOfCollection(id)) as never,
+    facetsOfCollection: ((id: string) =>
+      data.facetsOfCollection(id, filtered(id) ? view!.criteria : NO_FILTERS)) as never,
+    currentUrl: (() => view?.currentUrl ?? '/') as never,
+    currentSort: (() => view?.sort ?? DEFAULT_SORT) as never,
     image: ((id: string) => data.image(id)) as never,
     availabilitiesOfVariant: ((id: string) => data.availabilitiesOfVariant(id)) as never,
     articlesOfBlog: ((id: string) => data.articlesOfBlog(id)) as never,
