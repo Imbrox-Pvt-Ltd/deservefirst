@@ -80,6 +80,8 @@ test('an unreadable or empty map is an empty map, not a crash', () => {
     filters: {},
     objects: {},
     tags: {},
+    // Property aliases answer another platform's name for a field of ours.
+    properties: {},
     // Empty rather than absent: a caller iterating the schemes of a map it
     // could not read should find none, not crash on undefined.
     linkSchemes: [],

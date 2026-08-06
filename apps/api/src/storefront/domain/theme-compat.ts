@@ -19,6 +19,20 @@ export interface CompatMap {
   readonly objects: Readonly<Record<string, string>>;
   readonly tags: Readonly<Record<string, string>>;
   /**
+   * Properties another platform reads off an object we already provide.
+   *
+   * Keyed `object.property`, because a bare property name is ambiguous — two
+   * drops may both have something called `attributes` and mean different
+   * things. The value names the property of ours that answers it.
+   *
+   * Distinct from `objects`: there the whole object has another name, here the
+   * object is the same and only the field differs. A block's editor attributes
+   * are the case that forced this — the data already existed as
+   * `block.editor_attributes`, and 77 files of the reference theme could not
+   * reach it because they ask for it by another platform's name.
+   */
+  readonly properties: Readonly<Record<string, string>>;
+  /**
    * URL schemes other platforms use for internal links inside theme settings.
    *
    * A merchant picking "the about page" in an editor produces
@@ -35,10 +49,10 @@ export interface CompatFinding {
   readonly found: string;
   /** What it should say instead. */
   readonly replacement: string;
-  readonly kind: 'filter' | 'object' | 'tag';
+  readonly kind: 'filter' | 'object' | 'tag' | 'property';
 }
 
-const EMPTY: CompatMap = { filters: {}, objects: {}, tags: {}, linkSchemes: [] };
+const EMPTY: CompatMap = { filters: {}, objects: {}, tags: {}, properties: {}, linkSchemes: [] };
 
 /**
  * Substitutes `{slug}` in every replacement.
@@ -50,7 +64,7 @@ const EMPTY: CompatMap = { filters: {}, objects: {}, tags: {}, linkSchemes: [] }
 export function resolveCompatMap(raw: unknown, slug: string): CompatMap {
   if (!raw || typeof raw !== 'object') return EMPTY;
 
-  const section = (name: 'filters' | 'objects' | 'tags'): Record<string, string> => {
+  const section = (name: 'filters' | 'objects' | 'tags' | 'properties'): Record<string, string> => {
     const held = (raw as Record<string, unknown>)[name];
     if (!held || typeof held !== 'object') return {};
 
@@ -68,6 +82,7 @@ export function resolveCompatMap(raw: unknown, slug: string): CompatMap {
     filters: section('filters'),
     objects: section('objects'),
     tags: section('tags'),
+    properties: section('properties'),
     linkSchemes: Array.isArray(schemes)
       ? schemes.filter((scheme): scheme is string => typeof scheme === 'string' && scheme !== '')
       : [],

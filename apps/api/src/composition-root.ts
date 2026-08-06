@@ -996,6 +996,7 @@ export async function bootstrap(): Promise<Platform> {
        * resolve.
        */
       linkSchemes: compatMap.linkSchemes,
+      propertyAliases: compatMap.properties,
     },
   );
 

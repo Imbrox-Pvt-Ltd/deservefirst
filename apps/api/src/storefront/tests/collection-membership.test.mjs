@@ -208,3 +208,42 @@ test('the count runs the same membership rule as the listing', async () => {
   assert.match(count[1].sql, /SELECT p\.`id` FROM/);
   assert.match(listing[1].sql, /SELECT p\.\* FROM/);
 });
+
+// ------------------------------------------- the reverse question
+
+test('the collections holding a product bind their values in text order', async () => {
+  /**
+   * The fourth instance of this bug in one file. The UNION branch selects a
+   * literal collection id, then the store, then the product, and only then the
+   * condition's own values — so those three must be bound BEFORE the predicate
+   * is built, even though the predicate is written first in the code.
+   *
+   * Bound the other way round, every branch compares a product id to a
+   * collection id: it matches nothing, throws nothing, and a product silently
+   * belongs to no automated collection at all.
+   */
+  const { seen, executor } = recorder(
+    { type: 'automated', match: 'all', conditions: '[{"field":"vendor","operator":"equals","value":"Acme"}]', exclusions: '[]', product_ids: '[]' },
+  );
+  const data = new SqlStorefrontData(executor, 'stores.example', mysqlDialect);
+  await withRequestContext(storefrontContext(STORE), () => data.collectionsOfProduct('p1'));
+
+  const union = seen[1];
+  assert.ok(union, 'the automated collections are asked in one statement');
+  assert.deepEqual(pairs(union), [undefined, STORE, 'p1', 'Acme'].map((value, index) =>
+    index === 0 ? union.parameters[0] : value,
+  ), 'collection id, store, product, then the condition');
+});
+
+test('a product in no automated collection asks nothing further', async () => {
+  const { seen, executor } = recorder(
+    { type: 'manual', match: 'all', conditions: '[]', exclusions: '[]', product_ids: '["p1"]' },
+  );
+  const data = new SqlStorefrontData(executor, 'stores.example', mysqlDialect);
+  const held = await withRequestContext(storefrontContext(STORE), () =>
+    data.collectionsOfProduct('p1'),
+  );
+
+  assert.equal(seen.length, 1, 'manual membership is decided from the ids already loaded');
+  assert.equal(held.length, 1);
+});

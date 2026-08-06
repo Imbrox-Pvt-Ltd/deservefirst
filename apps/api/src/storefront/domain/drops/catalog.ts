@@ -114,6 +114,26 @@ function isoOrNull(value: unknown): string | null {
 }
 
 export const imageDrop = defineDrop<ImageRow>('image', {
+  /**
+   * An image's preview is itself.
+   *
+   * Themes read `media.preview_image` for a video or a 3-D model, where the
+   * preview really is a different file, and reuse the same snippet for a plain
+   * image. Answering keeps that one snippet working instead of making every
+   * caller branch on the kind of media it holds.
+   *
+   * A plain record rather than another `imageDrop`: a drop that builds itself
+   * is a type the compiler cannot name, and a preview of a preview is not a
+   * thing any theme asks for.
+   */
+  preview_image: (image) => ({
+    src: image.src ?? '',
+    width: image.width ?? null,
+    height: image.height ?? null,
+    alt: image.alt ?? '',
+    aspect_ratio:
+      image.width && image.height ? Number(image.width) / Number(image.height) : null,
+  }),
   id: (image) => image.id,
   src: (image) => image.src,
   width: (image) => image.width ?? null,
@@ -225,6 +245,24 @@ export const productDrop = defineDrop<ProductRow>('product', {
    * every result with the product template.
    */
   object_type: () => 'product',
+
+  /**
+   * The collections this product belongs to, for breadcrumbs and "more like
+   * this" links.
+   *
+   * Loaded rather than carried on the row: membership has no reverse index, so
+   * a product page that never renders a breadcrumb should not pay for it.
+   */
+  /**
+   * Annotated, because this closes a cycle the compiler cannot resolve on its
+   * own: a product lists its collections, and a collection lists its products.
+   */
+  collections: async (product, context): Promise<unknown> => {
+    const load = context.load.collectionsOfProduct as
+      | ((id: string) => readonly CollectionRow[] | Promise<readonly CollectionRow[]>)
+      | undefined;
+    return dropList(collectionDrop, (await load?.(product.id)) ?? [], context);
+  },
 
   compare_at_price_min: async (product, context) => {
     const prices = await comparePrices(product, context);

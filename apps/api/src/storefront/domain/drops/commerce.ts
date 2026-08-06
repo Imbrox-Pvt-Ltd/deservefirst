@@ -39,6 +39,13 @@ export interface LineItemRow {
   readonly imageSrc?: string | null;
   readonly url?: string | null;
   readonly properties?: Readonly<Record<string, unknown>> | null;
+  /** The product handle, so a line can name the page it came from. */
+  readonly productHandle?: string | null;
+  /** The variant's options, as stored on the variant row. */
+  readonly optionValues?: readonly string[] | null;
+  /** What the product's own options are called, in order. */
+  readonly optionNames?: readonly string[] | null;
+  readonly compareAtPriceMinor?: string | number | null;
 }
 
 export interface CartRow {
@@ -147,6 +154,77 @@ export const lineItemDrop = defineDrop<LineItemRow>('line_item', {
     Object.fromEntries(
       Object.entries(line.properties ?? {}).filter(([key]) => !key.startsWith('_')),
     ),
+
+  /**
+   * Enough of the product for a cart row to render itself.
+   *
+   * Not the full product drop. A cart of twenty lines would otherwise load
+   * twenty products, each loading its own variants and images, to print a
+   * title and a link — and the cart page is the one page where a shopper is
+   * waiting on a decision they have already made.
+   */
+  product: (line) => ({
+    id: line.productId,
+    title: line.title,
+    handle: line.productHandle ?? '',
+    url: line.url ?? '',
+    // The picker below is hidden on this, so it has to be true when there is
+    // nothing to show — otherwise every simple product grows an empty option
+    // list in the cart.
+    has_only_default_variant: (line.optionValues ?? []).length === 0,
+  }),
+
+  /**
+   * The variant, for the "was" price a theme strikes through.
+   *
+   * Same reasoning as `product`: the fields a cart row reads, not a variant
+   * drop that would load a product to build itself.
+   */
+  variant: (line) => ({
+    id: line.variantId,
+    title: (line.optionValues ?? []).join(' / '),
+    sku: line.sku ?? '',
+    price: minorUnits(line.unitPriceMinor),
+    compare_at_price:
+      line.compareAtPriceMinor === null || line.compareAtPriceMinor === undefined
+        ? null
+        : minorUnits(line.compareAtPriceMinor),
+  }),
+
+  /**
+   * The options this line was chosen with, named.
+   *
+   * Paired by position, because that is how a variant stores them. A value
+   * with no matching name is dropped rather than labelled "Option 3" — an
+   * invented label is worse than a missing row.
+   */
+  options_with_values: (line) => {
+    const names = line.optionNames ?? [];
+    return (line.optionValues ?? []).flatMap((value, index) =>
+      names[index] ? [{ name: names[index], value }] : [],
+    );
+  },
+
+  /**
+   * The price before any discount. Identical to the price today, honestly so:
+   * Phase 1 has no discounts, and reporting a different "original" would strike
+   * through a number that was never charged.
+   */
+  original_price: (line) => minorUnits(line.unitPriceMinor),
+  original_line_price: (line) => minorUnits(line.unitPriceMinor) * line.quantity,
+
+  /**
+   * Price per unit of measure — for goods sold by weight or volume.
+   *
+   * Null until products carry a unit, and null is the answer a theme tests
+   * for. Reporting the item price here would print "£4.50 per" with no unit.
+   */
+  unit_price: () => null,
+  unit_price_measurement: () => null,
+
+  /** No discounts and no subscriptions in Phase 1 (§25). */
+  line_level_discount_allocations: () => [],
+  selling_plan_allocation: () => null,
 });
 
 export const cartDrop = defineDrop<CartRow>('cart', {

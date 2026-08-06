@@ -361,6 +361,43 @@ export class SqlStorefrontData implements StorefrontData {
     ).then((rows) => rows.map((row) => String(row.tag))) as unknown as readonly string[];
   }
 
+  /**
+   * The posts either side of this one.
+   *
+   * Read from the blog's ordered list rather than with two comparison queries.
+   * `published_at > x` needs a tiebreak when two posts share a timestamp, and
+   * getting that subtly wrong shows a "next" link that goes backwards — using
+   * the same ordering the index uses means the arrows agree with the list.
+   *
+   * "Next" is the newer post, matching the order a blog index is read in.
+   */
+  async adjacentArticles(
+    blogId: string,
+    articleId: string,
+  ): Promise<{ previous: ArticleRow | null; next: ArticleRow | null }> {
+    const rows = await this.executor.query<Row>(
+      `SELECT * FROM ${this.q('blog_posts')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('blog_id')} = ${this.p(2)}
+          AND ${this.q('status')} = 'published'
+          AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('published_at')} DESC, ${this.q('id')} DESC
+        LIMIT 250`,
+      [this.storeId(), blogId],
+    );
+
+    const at = rows.findIndex((row) => String(row.id) === articleId);
+    if (at === -1) return { previous: null, next: null };
+
+    // The list is newest first, so the NEWER neighbour is the earlier index.
+    const next = at > 0 ? rows[at - 1] : undefined;
+    const previous = at + 1 < rows.length ? rows[at + 1] : undefined;
+    return {
+      previous: previous ? toArticle(previous) : null,
+      next: next ? toArticle(next) : null,
+    };
+  }
+
   imagesOfProduct(productId: string): readonly ImageRow[] {
     return this.executor.query<Row>(
       `SELECT * FROM ${this.q('product_images')}
@@ -840,6 +877,121 @@ export class SqlStorefrontData implements StorefrontData {
   }
 
   /**
+   * Which collections hold this product.
+   *
+   * The reverse of the membership question, and it has no reverse index:
+   * membership is a JSON array on manual collections and a set of conditions on
+   * automated ones, so neither can be looked up from the product side.
+   *
+   * Both kinds are answered, which is the point — checking only the manual ones
+   * would be quietly wrong on exactly the stores that use automation most, and
+   * a breadcrumb that omits half a catalogue's collections is worse than none.
+   * Manual membership is decided in memory from the ids already loaded;
+   * automated membership becomes one query that asks all of them at once, so
+   * the cost is two round trips rather than one per collection.
+   */
+  collectionsOfProduct(productId: string): readonly CollectionRow[] {
+    return this.collectionsHolding(productId) as unknown as readonly CollectionRow[];
+  }
+
+  private async collectionsHolding(productId: string): Promise<CollectionRow[]> {
+    const rows = await this.executor.query<Row>(
+      `SELECT ${this.q('id')}, ${this.q('handle')}, ${this.q('title')},
+              ${this.q('description')}, ${this.q('updated_at')}, ${this.q('type')},
+              ${this.q('match')}, ${this.q('conditions')}, ${this.q('exclusions')},
+              ${this.q('product_ids')}
+         FROM ${this.q('collections')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('deleted_at')} IS NULL
+        ORDER BY ${this.q('title')} ASC
+        LIMIT 250`,
+      [this.storeId()],
+    );
+
+    const toRow = (row: Row): CollectionRow => ({
+      id: String(row.id),
+      handle: String(row.handle),
+      title: String(row.title),
+      description: (row.description as string | null) ?? null,
+      updatedAt: (row.updated_at as string | null) ?? null,
+    });
+
+    const held: CollectionRow[] = [];
+    const automated: Row[] = [];
+
+    for (const row of rows) {
+      if (String(row.type ?? 'manual') !== 'automated') {
+        if (parseIdList(row.product_ids).includes(productId)) held.push(toRow(row));
+        continue;
+      }
+      automated.push(row);
+    }
+
+    if (automated.length === 0) return held;
+
+    /**
+     * Every automated collection asked in one statement.
+     *
+     * Each branch selects a literal collection id when this one product
+     * satisfies that collection's rule, so the answer is the set of branches
+     * that matched. One query per collection would be one round trip per
+     * collection on a page a shopper is waiting for.
+     */
+    const bind = new Binder(this.dialect);
+    const branches: string[] = [];
+
+    for (const row of automated) {
+      const conditions = parseConditions(row.conditions);
+      // No conditions selects nothing, exactly as membership does.
+      if (conditions.length === 0) continue;
+
+      /**
+       * Bound in the order the placeholders appear BELOW, before the
+       * predicates that follow them in the text.
+       *
+       * Building the predicates first would add their values ahead of these
+       * three, and a binder consumes values in the order they are added — so
+       * every branch would compare a product id to a collection id, match
+       * nothing, and throw nothing. That has now happened four times in this
+       * file; it is why each of these is a named const rather than an
+       * expression inlined into the template.
+       */
+      const collectionId = bind.add(String(row.id));
+      const store = bind.add(this.storeId());
+      const product = bind.add(productId);
+
+      const joiner = String(row.match ?? 'all') === 'any' ? ' OR ' : ' AND ';
+      const where = [`(${conditions.map((c) => this.predicateFor(c, bind)).join(joiner)})`];
+      for (const exclusion of parseConditions(row.exclusions)) {
+        where.push(`NOT (${this.predicateFor(exclusion, bind)})`);
+      }
+
+      branches.push(
+        `SELECT ${collectionId} AS collection_id
+           FROM ${this.q('products')} p
+          WHERE p.${this.q('store_id')} = ${store}
+            AND p.${this.q('id')} = ${product}
+            AND p.${this.q('status')} = 'active'
+            AND p.${this.q('deleted_at')} IS NULL
+            AND ${where.join(' AND ')}`,
+      );
+    }
+
+    if (branches.length === 0) return held;
+
+    const statement = bind.finish(branches.join('\n         UNION ALL\n'));
+    const matched = await this.executor.query<Row>(statement.sql, statement.parameters);
+    const ids = new Set(matched.map((row) => String(row.collection_id)));
+
+    for (const row of automated) {
+      if (ids.has(String(row.id))) held.push(toRow(row));
+    }
+
+    // Re-sorted because the automated ones were appended after the manual ones.
+    return held.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /**
    * The draft request behind a visitor's token — what a theme calls the cart.
    *
    * An empty cart for an unknown or absent token, never null and never an
@@ -857,10 +1009,21 @@ export class SqlStorefrontData implements StorefrontData {
     if (!request) return empty;
 
     const bind = new Binder(this.dialect);
+    /**
+     * The product and variant come back with the line.
+     *
+     * A cart row prints the product's title and link and the variant's
+     * options, and loading each product separately would be one query per line
+     * on the one page where a shopper is waiting on a decision already made.
+     */
     const sql = `SELECT l.*, p.${this.q('handle')} AS product_handle,
-                        p.${this.q('vendor')} AS vendor
+                        p.${this.q('vendor')} AS vendor,
+                        p.${this.q('option_names')} AS option_names,
+                        v.${this.q('option_values')} AS option_values,
+                        v.${this.q('compare_at_price_amount_minor')} AS compare_at_price
            FROM ${this.q('request_lines')} l
            LEFT JOIN ${this.q('products')} p ON p.${this.q('id')} = l.${this.q('product_id')}
+           LEFT JOIN ${this.q('product_variants')} v ON v.${this.q('id')} = l.${this.q('variant_id')}
           WHERE l.${this.q('store_id')} = ${bind.add(this.storeId())}
             AND l.${this.q('request_id')} = ${bind.add(String(request.id))}
             AND l.${this.q('deleted_at')} IS NULL
@@ -882,6 +1045,10 @@ export class SqlStorefrontData implements StorefrontData {
         sku: (row.sku as string | null) ?? null,
         vendor: (row.vendor as string | null) ?? null,
         url: row.product_handle ? `/products/${String(row.product_handle)}` : null,
+        productHandle: (row.product_handle as string | null) ?? null,
+        optionValues: parseStringList(row.option_values),
+        optionNames: parseStringList(row.option_names),
+        compareAtPriceMinor: (row.compare_at_price as string | number | null) ?? null,
       })),
       currency: String(request.currency ?? shop.currency),
       customerMessage: (request.note as string | null) ?? null,
@@ -1614,6 +1781,13 @@ const NUMERIC_COLUMNS: Record<string, string | undefined> = {
  */
 function escapeLike(value: string): string {
   return value.replace(/[%_\\]/g, (character) => `\\${character}`);
+}
+
+/** A JSON array column as strings, ignoring anything that is not one. */
+function parseStringList(value: unknown): string[] {
+  const parsed = parseJson<unknown[]>(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((entry) => String(entry ?? '').trim()).filter(Boolean);
 }
 
 /** The ids of a manual collection, ignoring anything that is not one. */

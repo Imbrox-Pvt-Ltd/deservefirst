@@ -72,6 +72,17 @@ export interface StorefrontData {
    */
   blogOfArticle(blogId: string): BlogRow | null;
 
+  /**
+   * The posts either side of this one, for an article's prev/next links.
+   *
+   * One call rather than two, because they come from the same ordered list and
+   * two queries could disagree if a post were published between them.
+   */
+  adjacentArticles(
+    blogId: string,
+    articleId: string,
+  ): Promise<{ previous: ArticleRow | null; next: ArticleRow | null }>;
+
   /** Every tag used by a blog's posts, for its tag filter. */
   tagsOfBlog(blogId: string): readonly string[];
   imagesOfProduct(productId: string): readonly ImageRow[];
@@ -105,6 +116,9 @@ export interface StorefrontData {
    */
   productTypes(): readonly string[];
   productVendors(): readonly string[];
+
+  /** Which collections hold this product, for a theme's breadcrumbs. */
+  collectionsOfProduct(productId: string): readonly CollectionRow[];
 
   /** The same, narrowed to one collection. */
   productTypesOfCollection(collectionId: string): readonly string[];

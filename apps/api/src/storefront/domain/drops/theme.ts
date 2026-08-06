@@ -18,6 +18,8 @@
 
 import { defaultValueFor, type SettingDefinition } from '../settings-schema';
 import { defineDrop, dropList } from './define';
+import { sortOptionDrop } from './faceting';
+import { DEFAULT_SORT, sortOptionsFor } from '../facets';
 
 export interface BlockState {
   readonly id: string;
@@ -52,6 +54,8 @@ export interface FormState {
 
 export interface SearchState {
   readonly terms: string;
+  /** How the shopper asked for the results to be ordered. */
+  readonly currentSort?: string | null;
   readonly performed: boolean;
   readonly resultsCount: number;
   readonly types?: readonly string[];
@@ -147,6 +151,20 @@ export const formDrop = defineDrop<FormState>('form', {
   last_name: (form) => (form.fields?.last_name as string | undefined) ?? '',
   body: (form) => (form.fields?.body as string | undefined) ?? '',
   author: (form) => (form.fields?.author as string | undefined) ?? '',
+
+  /**
+   * Address fields, kept for the same reason as the ones above: a failed
+   * submit that clears them turns correcting one field into retyping an
+   * address.
+   */
+  company: (form) => (form.fields?.company as string | undefined) ?? '',
+  address1: (form) => (form.fields?.address1 as string | undefined) ?? '',
+  address2: (form) => (form.fields?.address2 as string | undefined) ?? '',
+  city: (form) => (form.fields?.city as string | undefined) ?? '',
+  province: (form) => (form.fields?.province as string | undefined) ?? '',
+  zip: (form) => (form.fields?.zip as string | undefined) ?? '',
+  country: (form) => (form.fields?.country as string | undefined) ?? '',
+  phone: (form) => (form.fields?.phone as string | undefined) ?? '',
 });
 
 export const searchDrop = defineDrop<SearchState>('search', {
@@ -156,4 +174,26 @@ export const searchDrop = defineDrop<SearchState>('search', {
   results_count: (search) => search.resultsCount,
   results: (search) => search.results ?? [],
   types: (search) => search.types ?? ['product', 'page', 'article'],
+
+  /**
+   * The same ordering controls a collection has.
+   *
+   * A shopper who has just searched wants "cheapest first" as much as one
+   * browsing a collection, and the theme renders the same snippet for both —
+   * so the object has to answer the same names.
+   */
+  sort_by: (search) => search.currentSort ?? '',
+  default_sort_by: () => DEFAULT_SORT,
+  sort_options: (search, context) =>
+    dropList(sortOptionDrop, sortOptionsFor(search.currentSort ?? DEFAULT_SORT), context),
+
+  /**
+   * Faceted search is not built, and this says so rather than pretending.
+   *
+   * An empty list is what the theme tests before drawing a filter sidebar, so
+   * it draws none — which is correct. Filters over a search result need the
+   * facet counts computed across three kinds of record at once, which the
+   * collection facets do not do.
+   */
+  filters: () => [],
 });

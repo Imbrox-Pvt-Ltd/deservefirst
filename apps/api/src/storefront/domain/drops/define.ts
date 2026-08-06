@@ -59,6 +59,22 @@ export interface DropContext {
    * only looks at which OBJECTS a theme names.
    */
   readonly onMissingProperty?: (dropName: string, property: string) => void;
+  /**
+   * Property names from other platforms that this one answers to, keyed
+   * `object.property` and naming one of ours.
+   *
+   * Data from `config/theme-compat.json`, never a name in our own vocabulary —
+   * the same rule the filter and object tables follow. It exists because a
+   * theme written elsewhere cannot always be ported before it has to render:
+   * the reference theme reads another platform's name for a block's editor
+   * attributes in 77 files, and the value it wants has always existed here as
+   * `block.editor_attributes`.
+   *
+   * An alias never shadows a real property. If a drop declares the name
+   * itself, that wins — a compatibility table must not be able to change what
+   * our own vocabulary means.
+   */
+  readonly propertyAliases?: Readonly<Record<string, string>>;
 }
 
 export type DropProperty<Source> = (source: Source, context: DropContext) => unknown;
@@ -93,6 +109,28 @@ const PROBED: ReadonlySet<string> = new Set([
   // Iteration and comparison, asked of every value the engine handles.
   'next', 'equals', 'indexOf', 'Symbol(Symbol.iterator)', 'toPrimitive',
 ]);
+
+/**
+ * The foreign property names that apply to one drop.
+ *
+ * The table is keyed `object.property` because a bare property name is
+ * ambiguous — two drops may both answer something called `attributes` and mean
+ * different things by it.
+ */
+function aliasesFor(
+  dropName: string,
+  table: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | null {
+  if (!table) return null;
+  const prefix = `${dropName}.`;
+  let found: Record<string, string> | null = null;
+  for (const [foreign, ours] of Object.entries(table)) {
+    if (!foreign.startsWith(prefix)) continue;
+    const target = ours.startsWith(prefix) ? ours.slice(prefix.length) : ours;
+    (found ??= {})[foreign.slice(prefix.length)] = target;
+  }
+  return found;
+}
 
 export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFactory<Source> {
   const properties = Object.keys(spec);
@@ -130,12 +168,20 @@ export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFa
      * this costs nothing and closes the question.
      */
     const frozen = Object.freeze(drop);
-    if (!context.onMissingProperty) return frozen;
+
+    /** Foreign names for THIS drop, resolved once rather than per read. */
+    const aliases = aliasesFor(name, context.propertyAliases);
+    if (!context.onMissingProperty && !aliases) return frozen;
 
     return new Proxy(frozen, {
       get(target, key, receiver) {
-        if (typeof key === 'string' && !properties.includes(key) && !PROBED.has(key)) {
-          context.onMissingProperty!(name, key);
+        if (typeof key === 'string' && !properties.includes(key)) {
+          // Ours first: a declared property always wins over an alias.
+          const ours = aliases?.[key];
+          if (ours !== undefined && properties.includes(ours)) {
+            return Reflect.get(target, ours, receiver);
+          }
+          if (!PROBED.has(key)) context.onMissingProperty?.(name, key);
         }
         return Reflect.get(target, key, receiver);
       },

@@ -25,6 +25,10 @@
     "shopify_asset_url": "{slug}_asset_url"
   },
   "objects": {},
+  "properties": {
+    "block.shopify_attributes": "block.editor_attributes",
+    "section.shopify_attributes": "section.editor_attributes"
+  },
   "tags": {},
   "linkSchemes": [
     "shopify"

@@ -278,8 +278,19 @@ export async function auditThemeProperties(root, themeDir, colours) {
   const { green, red, dim, yellow } = colours;
   const themeRoot = resolve(root, themeDir);
 
-  const { declaredDrops } = await domain(root);
+  const { declaredDrops, resolveCompatMap } = await domain(root);
   const declared = declaredDrops();
+
+  /**
+   * Foreign names we already answer to are not gaps.
+   *
+   * `block.shopify_attributes` reaches `block.editor_attributes` through the
+   * compatibility table, so reporting it would send somebody to add a property
+   * that exists — while still leaving the real gaps buried under it.
+   */
+  const { branding } = await import(`file://${join(root, 'packages/config/dist/index.js')}`);
+  const { raw } = compatMapFrom(root, branding.slug);
+  const answered = new Set(Object.keys(resolveCompatMap(raw, branding.slug).properties));
 
   /** Extensions that make `x.y` a filename rather than a property read. */
   const FILE_EXTENSIONS = new Set([
@@ -308,13 +319,27 @@ export async function auditThemeProperties(root, themeDir, colours) {
         .replace(/'[^']*'/g, "''")
         .replace(/"[^"]*"/g, '""');
 
-      for (const match of code.matchAll(/\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)/gi)) {
-        const [, identifier, property] = match;
+      /**
+       * The identifier must START a path, and the property must not be a
+       * Liquid method call.
+       *
+       * Without the first rule, `block.settings.product.image_alignment` reads
+       * as our product drop missing `image_alignment` — it is a merchant's
+       * setting that happens to be called `product`. Without the second,
+       * `product.empty?` reads as a missing property when `empty?` is a Liquid
+       * built-in every object answers.
+       */
+      for (const match of code.matchAll(
+        /(^|[^.\w])([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)(\??)/gi,
+      )) {
+        const [, , identifier, property, question] = match;
+        if (question === '?') continue;
         if (!declared.has(identifier)) continue;
         if (FILE_EXTENSIONS.has(property)) continue;
         if (declared.get(identifier).properties.includes(property)) continue;
 
         const key = `${identifier}.${property}`;
+        if (answered.has(key)) continue;
         if (!gaps.has(key)) gaps.set(key, new Set());
         gaps.get(key).add(relative(themeRoot, file));
       }

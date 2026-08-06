@@ -215,6 +215,14 @@ export interface StorefrontOptions {
    * browser as an unknown scheme and do nothing when clicked.
    */
   readonly linkSchemes?: readonly string[];
+  /**
+   * Property names other platforms read, mapped to ours.
+   *
+   * From `config/theme-compat.json`. Without them a theme written elsewhere
+   * reads a name we do not answer to and renders nothing where the value it
+   * wanted already exists under our own name.
+   */
+  readonly propertyAliases?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -848,6 +856,7 @@ export class StorefrontHandler {
 
     const drops = createDropContext({
       onMissingProperty: DROP_AUDIT,
+      propertyAliases: this.options.propertyAliases,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1301,6 +1310,9 @@ export class StorefrontHandler {
                 performed: terms !== '',
                 resultsCount: found.length,
                 results: found,
+                // The same ordering controls a collection has; the theme
+                // renders one snippet for both.
+                currentSort: parseSort(input.query),
               },
               drops,
             ),
@@ -1362,8 +1374,24 @@ export class StorefrontHandler {
       case 'article': {
         const row = await data.articleByHandle(match.parentHandle ?? '', match.handle ?? '');
         if (!row) return { scope: base, found: false };
+
+        /**
+         * The blog is in scope beside the article, carrying which post is
+         * being read.
+         *
+         * Themes render "previous / next post" from `blog.next_article`, which
+         * is asked OF the blog — so the blog has to be told which post the page
+         * is about; it has no other way to know.
+         */
+        const blog = await data.blogByHandle(match.parentHandle ?? '');
+
         return {
-          scope: { ...base, article: articleDrop(row, drops), page_title: row.title },
+          scope: {
+            ...base,
+            article: articleDrop(row, drops),
+            ...(blog ? { blog: blogDrop({ ...blog, currentArticleId: row.id }, drops) } : {}),
+            page_title: row.title,
+          },
           found: true,
         };
       }
@@ -1453,6 +1481,7 @@ export class StorefrontHandler {
 
     const drops = createDropContext({
       onMissingProperty: DROP_AUDIT,
+      propertyAliases: this.options.propertyAliases,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1524,6 +1553,7 @@ export class StorefrontHandler {
     const shop = await store.data.shop();
     const drops = createDropContext({
       onMissingProperty: DROP_AUDIT,
+      propertyAliases: this.options.propertyAliases,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1607,6 +1637,7 @@ export class StorefrontHandler {
 
     const drops = createDropContext({
       onMissingProperty: DROP_AUDIT,
+      propertyAliases: this.options.propertyAliases,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1906,6 +1937,7 @@ function loadersFor(
     collectionCount: (() => data.collectionCount()) as never,
     productTypes: (() => data.productTypes()) as never,
     productVendors: (() => data.productVendors()) as never,
+    collectionsOfProduct: ((id: string) => data.collectionsOfProduct(id)) as never,
     productTypesOfCollection: ((id: string) => data.productTypesOfCollection(id)) as never,
     productVendorsOfCollection: ((id: string) => data.productVendorsOfCollection(id)) as never,
     currentUrl: (() => view?.currentUrl ?? '/') as never,
@@ -1916,6 +1948,8 @@ function loadersFor(
     articleCountOfBlog: ((id: string) => data.articleCountOfBlog(id)) as never,
     blogOfArticle: ((id: string) => data.blogOfArticle(id)) as never,
     tagsOfBlog: ((id: string) => data.tagsOfBlog(id)) as never,
+    adjacentArticles: ((blogId: string, articleId: string) =>
+      data.adjacentArticles(blogId, articleId)) as never,
   };
 }
 

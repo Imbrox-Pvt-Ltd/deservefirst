@@ -14,7 +14,7 @@
  * Layer: domain (pure).
  */
 
-import { defineDrop, dropList } from './define';
+import { defineDrop, dropList , type DropContext } from './define';
 import { imageDrop, type ImageRow } from './catalog';
 
 export interface PageRow {
@@ -34,6 +34,14 @@ export interface BlogRow {
   readonly handle: string;
   readonly title: string;
   readonly commentPolicy?: string | null;
+  /**
+   * The post currently being read, when this blog is in scope beside one.
+   *
+   * Carried on the blog rather than looked up from the article, because
+   * `blog.next_article` is asked OF the blog — the drop has no other way to
+   * know which post the page is about.
+   */
+  readonly currentArticleId?: string | null;
 }
 
 export interface ArticleRow {
@@ -202,6 +210,21 @@ export const articleDrop = defineDrop<ArticleRow>('article', {
   summary: (article) => plainText(article.excerpt ?? article.body ?? '').slice(0, 320),
 });
 
+/** The neighbours of the article being read, or none if there is not one. */
+async function adjacentOf(
+  blog: BlogRow,
+  context: DropContext,
+): Promise<{ previous: ArticleRow | null; next: ArticleRow | null }> {
+  if (!blog.currentArticleId) return { previous: null, next: null };
+  const load = context.load.adjacentArticles as
+    | ((blogId: string, articleId: string) => Promise<{
+        previous: ArticleRow | null;
+        next: ArticleRow | null;
+      }>)
+    | undefined;
+  return (await load?.(blog.id, blog.currentArticleId)) ?? { previous: null, next: null };
+}
+
 export const blogDrop = defineDrop<BlogRow>('blog', {
   id: (blog) => blog.id,
   handle: (blog) => blog.handle,
@@ -227,6 +250,22 @@ export const blogDrop = defineDrop<BlogRow>('blog', {
       | undefined;
     return (await load?.(blog.id)) ?? 0;
   },
+  /**
+   * The posts either side of the one being read.
+   *
+   * Only meaningful on an article page — a blog index has no "current" post —
+   * so the article's id travels on the blog row the article page puts in
+   * scope. Null everywhere else, which is what the theme's guard expects.
+   */
+  previous_article: async (blog, context) => {
+    const neighbours = await adjacentOf(blog, context);
+    return neighbours.previous ? articleDrop(neighbours.previous, context) : null;
+  },
+  next_article: async (blog, context) => {
+    const neighbours = await adjacentOf(blog, context);
+    return neighbours.next ? articleDrop(neighbours.next, context) : null;
+  },
+
   all_tags: async (blog, context) => {
     const load = context.load.tagsOfBlog as
       | ((id: string) => readonly string[] | Promise<readonly string[]>)
