@@ -241,13 +241,23 @@ export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFa
 
     return new Proxy(frozen, {
       get(target, key, receiver) {
-        if (typeof key === 'string' && !properties.includes(key)) {
+        /**
+         * `x?` is the same property as `x`, not a missing one.
+         *
+         * The question-mark spelling is answered but deliberately kept out of
+         * `properties`, so without this the audit reports every
+         * `form.posted_successfully?` as a gap and buries the real ones.
+         */
+        const asked =
+          typeof key === 'string' && key.endsWith('?') ? key.slice(0, -1) : key;
+
+        if (typeof asked === 'string' && !properties.includes(asked)) {
           // Ours first: a declared property always wins over an alias.
-          const ours = aliases?.[key];
+          const ours = aliases?.[asked];
           if (ours !== undefined && properties.includes(ours)) {
             return Reflect.get(target, ours, receiver);
           }
-          if (!PROBED.has(key)) context.onMissingProperty?.(name, key);
+          if (!PROBED.has(asked)) context.onMissingProperty?.(name, asked);
         }
         return Reflect.get(target, key, receiver);
       },
