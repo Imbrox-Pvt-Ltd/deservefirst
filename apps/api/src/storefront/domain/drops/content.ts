@@ -15,6 +15,7 @@
  */
 
 import { defineDrop, dropList } from './define';
+import { imageDrop, type ImageRow } from './catalog';
 
 export interface PageRow {
   readonly id: string;
@@ -119,13 +120,26 @@ export const articleDrop = defineDrop<ArticleRow>('article', {
   author: (article) => article.author ?? '',
   tags: (article) => article.tags ?? [],
 
-  image: (article, context) => {
+  /**
+   * The post's own image.
+   *
+   * Built with `imageDrop` directly rather than through an injected builder.
+   * The builder was never wired, so this returned the loader's raw promise and
+   * a theme reading `article.image.src` got a database row rather than an
+   * image — and because the loader is a promise, the `if (!image)` guard above
+   * it could never be false either.
+   *
+   * Always null in practice today: `blog_posts` has no image column, so
+   * nothing sets `imageId`. Correct rather than dormant, so that whichever
+   * change adds the column does not also have to find this.
+   */
+  image: async (article, context) => {
     if (!article.imageId) return null;
-    const load = context.load.image as ((id: string) => unknown) | undefined;
-    const image = load?.(article.imageId);
-    if (!image) return null;
-    const build = context.load.buildImageDrop as ((row: unknown) => unknown) | undefined;
-    return build ? build(image) : image;
+    const load = context.load.image as
+      | ((id: string) => ImageRow | null | Promise<ImageRow | null>)
+      | undefined;
+    const image = await load?.(article.imageId);
+    return image ? imageDrop(image, context) : null;
   },
 
   comments: async (article, context) => {
