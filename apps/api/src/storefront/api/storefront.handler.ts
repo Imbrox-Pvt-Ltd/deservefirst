@@ -58,6 +58,9 @@ import {
   variantDrop,
   recommendationsDrop,
   routesDrop,
+  predictiveSearchDrop,
+  normaliseSearchTerms,
+  NO_SEARCH,
   normaliseIntent,
   normaliseLimit,
   NOT_PERFORMED,
@@ -447,6 +450,16 @@ export class StorefrontHandler {
      */
     if (path === '/recommendations/products') {
       return this.recommendations(store, input);
+    }
+
+    /**
+     * What a shopper is probably looking for, while they are still typing.
+     *
+     * Same shape as the recommendations endpoint and for the same reason: the
+     * theme names one of its OWN sections and gets that section's markup back.
+     */
+    if (path === '/search/suggest') {
+      return this.suggest(store, input);
     }
 
     /**
@@ -987,6 +1000,13 @@ export class StorefrontHandler {
        */
       recommendations: recommendationsDrop(NOT_PERFORMED, drops),
       /**
+       * Typed: nothing yet.
+       *
+       * The header renders the search dropdown's shell on every page, and the
+       * section counts `resources.products.size` before anyone has typed.
+       */
+      predictive_search: predictiveSearchDrop(NO_SEARCH, drops),
+      /**
        * The page number, as a GLOBAL and not only inside `request`.
        *
        * Themes compare it directly — the reference theme's `<title>` is guarded
@@ -1277,6 +1297,84 @@ export class StorefrontHandler {
         'cache-control': 'no-store',
       },
       body: html,
+      cacheKey: null,
+    };
+  }
+
+  /**
+   * Search results while the shopper is still typing, as rendered markup.
+   *
+   * An empty `q` is answered with an unperformed search rather than a 422: the
+   * theme clears the field and re-fetches, and an error there would put a
+   * failure in the dropdown for the ordinary act of deleting what you typed.
+   *
+   * Not cached. A search term is close to a fingerprint of the person typing
+   * it, and holding thousands of one-hit entries would push the pages that are
+   * actually read back out of the cache.
+   */
+  private async suggest(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+  ): Promise<StorefrontResponse> {
+    const query = new URLSearchParams(input.query);
+    const sectionId = (query.get('section_id') ?? '').trim();
+    if (sectionId === '') return text(422, 'A section_id is required.');
+
+    const terms = normaliseSearchTerms(query.get('q'));
+    const shop = await store.data.shop();
+
+    const drops = createDropContext({
+      currency: shop.currency,
+      locale: 'en',
+      baseUrl: `https://${shop.domain}`,
+      load: loadersFor(store.data),
+    });
+
+    const engineContext: RenderContext = defaultContext({
+      currency: shop.currency as never,
+      assetBaseUrl: `https://${shop.domain}/assets`,
+      cdnBaseUrl: `https://${shop.domain}/files`,
+      platformAssetBaseUrl: `https://${shop.domain}/platform`,
+      assetVersion: store.themeVersion ?? undefined,
+      translations: await this.translationsFor(store),
+    });
+
+    /**
+     * Nothing typed is not the same as nothing found.
+     *
+     * `performed: false` makes the theme render its empty state — the recent
+     * searches and default panel — instead of "no results for ''".
+     */
+    const found =
+      terms === ''
+        ? NO_SEARCH
+        : { performed: true, terms, results: await store.data.search(terms, 10) };
+
+    const scope: Record<string, unknown> = {
+      shop: shopDrop(shop, drops),
+      settings: await this.settingsFor(store),
+      routes: routesDrop({}, drops),
+      predictive_search: predictiveSearchDrop(found, drops),
+    };
+
+    const engine = createThemeEngine(engineContext, { source: store.theme, globals: scope });
+    const renderer = new PageRenderer(engine, store.theme, {
+      explainFailures: this.options.explainFailures ?? false,
+      linkSchemes: this.options.linkSchemes ?? [],
+    });
+
+    const rendered = await renderer.renderSectionAlone(sectionId, scope);
+    if (!rendered.found) return text(404, 'No such section.');
+
+    return {
+      status: 200,
+      headers: {
+        ...SECURITY_HEADERS,
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+      body: rendered.html,
+      // Never cached — see the note above the method.
       cacheKey: null,
     };
   }

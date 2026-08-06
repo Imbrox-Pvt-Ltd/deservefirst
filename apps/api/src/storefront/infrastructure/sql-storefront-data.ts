@@ -33,6 +33,7 @@ import type {
   PageRow,
   ProductRow,
   RedirectRule,
+  SearchResults,
   ShopRow,
   SitemapEntry,
   StoreAvailabilityRow,
@@ -383,6 +384,101 @@ export class SqlStorefrontData implements StorefrontData {
         },
       })),
     ) as unknown as readonly StoreAvailabilityRow[];
+  }
+
+  /**
+   * What a shopper typing this is probably looking for.
+   *
+   * Four queries in parallel rather than four in sequence: this runs on every
+   * keystroke, so the wait is the SLOWEST of them rather than their sum.
+   *
+   * Matched with `LIKE '%term%'`, which is honest to name as the limitation it
+   * is — a leading wildcard cannot use an index, so this reads the table. It is
+   * right for a store with hundreds of products and wrong for one with
+   * hundreds of thousands, where the answer is a real index rather than a
+   * cleverer query. Every result is published-only, because a search box is a
+   * handle oracle otherwise: a shopper could discover a draft product by
+   * guessing at its name.
+   */
+  async search(terms: string, limit: number): Promise<SearchResults> {
+    const like = `%${terms}%`;
+    const cap = Math.max(1, Math.min(Math.floor(limit), 20));
+
+    /**
+     * One helper, because the four searches differ only in table and columns.
+     *
+     * The binder is built INSIDE it and finished against the SQL it produced,
+     * so the values can never drift from the placeholders — the mistake that
+     * cost two debugging rounds on recommendations.
+     */
+    const find = <T>(
+      table: string,
+      columns: readonly string[],
+      published: string,
+      map: (row: Row) => T,
+    ): Promise<T[]> => {
+      const bind = new Binder(this.dialect);
+      const store = bind.add(this.storeId());
+      const matches = columns
+        .map((column) => `${this.q(column)} LIKE ${bind.add(like)}`)
+        .join(' OR ');
+
+      const sql = `SELECT * FROM ${this.q(table)}
+        WHERE ${this.q('store_id')} = ${store}
+          AND ${this.q('deleted_at')} IS NULL
+          ${published}
+          AND (${matches})
+        ORDER BY ${this.q('title')} ASC
+        LIMIT ${cap}`;
+
+      const statement = bind.finish(sql);
+      return this.executor.query<Row>(statement.sql, statement.parameters).then((rows) =>
+        rows.map(map),
+      );
+    };
+
+    const products = find('products', ['title', 'handle', 'vendor'], `AND ${this.q('status')} = 'active'`, toProduct);
+
+    const collections = find('collections', ['title', 'handle'], '', (row) => ({
+      id: String(row.id),
+      handle: String(row.handle),
+      title: String(row.title),
+      description: (row.description as string | null) ?? null,
+      imageId: null,
+    }));
+
+    const pages = find('pages', ['title', 'handle'], `AND ${this.q('status')} = 'published'`, (row) => ({
+      id: String(row.id),
+      handle: String(row.handle),
+      title: String(row.title),
+      body: (row.body as string | null) ?? null,
+    }));
+
+    const articles = find('blog_posts', ['title', 'handle'], `AND ${this.q('status')} = 'published'`, (row) => ({
+      id: String(row.id),
+      handle: String(row.handle),
+      title: String(row.title),
+      body: (row.body as string | null) ?? null,
+      excerpt: (row.excerpt as string | null) ?? null,
+      author: (row.author as string | null) ?? null,
+      publishedAt: (row.published_at as string | null) ?? null,
+      // The blog it belongs to, which the article's URL is built from.
+      blogId: String(row.blog_id ?? ''),
+    }));
+
+    const [foundProducts, foundCollections, foundPages, foundArticles] = await Promise.all([
+      products, collections, pages, articles,
+    ]);
+
+    return {
+      products: foundProducts,
+      collections: foundCollections,
+      pages: foundPages,
+      articles: foundArticles,
+      // Nothing records what people search for yet, so there is nothing to
+      // suggest. Present because the theme counts it.
+      queries: [],
+    };
   }
 
   productsOfCollection(collectionId: string): readonly ProductRow[] {

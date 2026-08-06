@@ -22,6 +22,7 @@ import type {
   PageRow,
   ProductRow,
   RedirectRule,
+  SearchResults,
   ShopRow,
   SitemapEntry,
   StoreAvailabilityRow,
@@ -72,6 +73,14 @@ export interface StorefrontData {
    * reads it during a render — see `syncOf` in the handler.
    */
   availabilitiesOfVariant(variantId: string): readonly StoreAvailabilityRow[];
+
+  /**
+   * What a shopper typing this is probably looking for.
+   *
+   * One call for every kind of result, because a search box fetches once per
+   * keystroke and five round trips per letter is not a search box.
+   */
+  search(terms: string, limit: number): Promise<SearchResults>;
 
   redirects(): Promise<readonly RedirectRule[]>;
   /** URLs for the sitemap, by kind. */
