@@ -1784,6 +1784,8 @@ export class StorefrontHandler {
       if (token && lineId !== '') {
         await store.data.setRequestLine(token, lineId, normaliseQuantity(fields.quantity));
       }
+    } else if (path === '/cart/submit') {
+      return this.submitRequest(store, input, token);
     } else if (path === '/cart/clear') {
       if (token) await store.data.clearRequest(token);
     } else {
@@ -1814,6 +1816,92 @@ export class StorefrontHandler {
     }
 
     return { status: 303, headers, body: '', cacheKey: null };
+  }
+
+  /**
+   * Sends the list a shopper has been building.
+   *
+   * The end of the Phase 1 flow (§25): no checkout and no payment, a merchant
+   * receives the request and answers it. Until this existed a shopper could
+   * assemble a list and then do nothing with it, which is a shop that cannot be
+   * asked for anything.
+   *
+   * Rate limited with the same budget as every other submission, because this
+   * is the one place an anonymous stranger causes a merchant to be notified —
+   * and an unlimited one is a way to fill somebody's inbox.
+   */
+  private async submitRequest(
+    store: ResolvedStore,
+    input: StorefrontRequestInput,
+    token: string | null,
+  ): Promise<StorefrontResponse> {
+    const submissions = store.submissions;
+    if (!submissions) return text(503, 'This store cannot take requests yet.');
+
+    const fields = input.form ?? {};
+    const email = String(fields.email ?? '').trim();
+    const name = String(fields.name ?? '').trim();
+    const message = String(fields.body ?? fields.message ?? '').trim();
+
+    /**
+     * An address is the whole point.
+     *
+     * A request nobody can reply to is not a request; it is a row that will sit
+     * in a queue until somebody deletes it. Checked before the rate limit is
+     * spent, so a shopper who mistypes their address does not also lose their
+     * budget for the retry.
+     */
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return text(422, 'A valid email address is required to send this request.');
+    }
+
+    const draft = token ? await store.data.draftRequestRef(token) : null;
+    // An empty list is not something to send a merchant.
+    if (!draft || draft.lineCount === 0) {
+      return text(422, 'There is nothing in this request to send.');
+    }
+
+    if (this.options.submissionLimit) {
+      const decision = await this.options.submissionLimit(
+        `request:${normaliseHost(input.host)}:${input.clientIp ?? 'unknown'}`,
+      );
+      if (!decision.allowed) {
+        return text(429, 'Too many requests. Please wait a moment and try again.', {
+          'retry-after': String(Math.max(1, decision.retryAfterSeconds)),
+        });
+      }
+    }
+
+    const { reference } = await submissions.submitRequest({
+      requestId: draft.id,
+      version: draft.version,
+      contactEmail: email,
+      contactName: name === '' ? null : name,
+      message: message === '' ? null : message,
+    });
+
+    /**
+     * The cookie is cleared, so the next thing added starts a new draft.
+     *
+     * The row is no longer a draft, so `draftRequest` would return an empty
+     * cart for this token anyway — but leaving a token that names a submitted
+     * request pointing at nothing is a confusing thing to carry around, and
+     * clearing it is one header.
+     */
+    return {
+      status: 303,
+      headers: {
+        ...SECURITY_HEADERS,
+        location: `/cart?request=${encodeURIComponent(reference)}`,
+        'cache-control': 'no-store',
+        'set-cookie': requestCookieHeader('', input.secure ?? false).replace(
+          /Max-Age=\d+/,
+          'Max-Age=0',
+        ),
+      },
+      body: '',
+      cacheKey: null,
+    };
   }
 
   private async robots(store: ResolvedStore, host: string): Promise<StorefrontResponse> {

@@ -172,6 +172,16 @@ export interface StorefrontData {
   /** Sets one line's quantity; zero removes it. */
   setRequestLine(token: string, lineId: string, quantity: number): Promise<void>;
 
+  /**
+   * The identity of the draft behind a token, for submitting it.
+   *
+   * Kept off `CartRow` on purpose: that is what a theme renders, and a row id
+   * and a version number are not things a template has any business seeing.
+   */
+  draftRequestRef(
+    token: string,
+  ): Promise<{ id: string; version: number; lineCount: number } | null>;
+
   /** Empties the draft without deleting it, so the token stays valid. */
   clearRequest(token: string): Promise<void>;
 
@@ -279,6 +289,26 @@ export interface StorefrontSubmissions {
     readonly message: string | null;
     readonly productId: string | null;
     readonly quantity: number;
+  }): Promise<{ readonly reference: string }>;
+
+  /**
+   * Sends the list a shopper has been building.
+   *
+   * The draft already exists — the cart IS the draft — so this attaches their
+   * contact details and moves it to submitted. Separate from `requestQuote`,
+   * which creates a whole request for a single product enquiry.
+   *
+   * Goes through the orders module's own service, because submitting is what
+   * records the timeline entry and emits `orders.request.submitted`. Writing
+   * the status column directly would leave a request in the merchant's queue
+   * that no notification ever mentioned — which is the same as not sending it.
+   */
+  submitRequest(input: {
+    readonly requestId: string;
+    readonly version: number;
+    readonly contactEmail: string;
+    readonly contactName: string | null;
+    readonly message: string | null;
   }): Promise<{ readonly reference: string }>;
 
   /** Records a contact-form message. */

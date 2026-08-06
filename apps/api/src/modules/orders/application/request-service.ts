@@ -207,6 +207,50 @@ export class RequestService {
     return this.saveLines(request, lines, expectedVersion, 'priced a line');
   }
 
+  /**
+   * Records who is asking, before the request leaves their hands.
+   *
+   * Only while it is still mutable. Contact details on a submitted request are
+   * a different act — a merchant correcting an address — and would need to be
+   * audited as one rather than accepted from whoever holds the draft's token.
+   *
+   * Kept apart from `submit` on purpose: the details have to be on the row
+   * BEFORE the event fires, because a merchant notified about a request with no
+   * way to reply to it is worse off than one not notified at all.
+   */
+  async setContact(
+    id: string,
+    input: { contactEmail: string; contactName: string | null; note: string | null },
+    expectedVersion: number,
+  ): Promise<Request> {
+    const request = await this.get(id);
+    this.assertMutable(request);
+
+    const next: Request = {
+      ...request,
+      contactEmail: input.contactEmail,
+      contactName: input.contactName,
+      note: input.note,
+      version: request.version + 1,
+    };
+
+    assertRequestValid(next);
+    const saved = await this.repository.update(next, expectedVersion);
+    /**
+     * The email is deliberately not in the timeline message.
+     *
+     * A timeline is read by staff and exported; repeating a customer's address
+     * into it puts personal data somewhere nobody thought to look for it when
+     * a deletion request arrives.
+     */
+    await this.ports.recordTimeline({
+      ownerId: saved.id,
+      message: 'added contact details',
+      changes: [],
+    });
+    return saved;
+  }
+
   async submit(id: string, expectedVersion: number): Promise<Request> {
     const request = await this.get(id);
     assertTransitionAllowed(request.status, 'submitted');

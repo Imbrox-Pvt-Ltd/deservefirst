@@ -1263,6 +1263,18 @@ export class SqlStorefrontData implements StorefrontData {
     await this.recountRequest(String(request.id));
   }
 
+  async draftRequestRef(
+    token: string,
+  ): Promise<{ id: string; version: number; lineCount: number } | null> {
+    const request = isRequestToken(token) ? await this.draftRow(token) : null;
+    if (!request) return null;
+    return {
+      id: String(request.id),
+      version: Number(request.version ?? 1),
+      lineCount: Number(request.line_count ?? 0),
+    };
+  }
+
   async clearRequest(token: string): Promise<void> {
     const request = isRequestToken(token) ? await this.draftRow(token) : null;
     if (!request) return;

@@ -53,6 +53,13 @@ export interface QuoteRequests {
   ): Promise<{ id: string; version: number }>;
 
   submit(id: string, expectedVersion: number): Promise<{ reference: string }>;
+
+  /** Attaches who is asking, before the request leaves the shopper's hands. */
+  setContact(
+    id: string,
+    input: { contactEmail: string; contactName: string | null; note: string | null },
+    expectedVersion: number,
+  ): Promise<{ id: string; version: number }>;
 }
 
 /** Looking up the product a quote is about. */
@@ -76,6 +83,41 @@ export class SqlStorefrontSubmissions implements StorefrontSubmissions {
 
   private p(index: number): string {
     return this.dialect.placeholder(index);
+  }
+
+  /**
+   * Sends a draft the shopper assembled themselves.
+   *
+   * Two steps and they cannot be merged: the contact details have to be on the
+   * row BEFORE it is submitted, because submitting is what notifies the
+   * merchant and a notification about a request with no way to reply is worse
+   * than none.
+   *
+   * The version comes from the caller, which read it with the draft. If
+   * somebody added a line between that read and this write, the update is
+   * refused rather than silently overwriting — a request submitted without the
+   * last thing a shopper added is exactly the kind of error nobody discovers
+   * until the goods arrive.
+   */
+  async submitRequest(input: {
+    readonly requestId: string;
+    readonly version: number;
+    readonly contactEmail: string;
+    readonly contactName: string | null;
+    readonly message: string | null;
+  }): Promise<{ readonly reference: string }> {
+    const withContact = await this.requests.setContact(
+      input.requestId,
+      {
+        contactEmail: input.contactEmail,
+        contactName: input.contactName,
+        // The customer's own message — the public note, never the internal one.
+        note: input.message,
+      },
+      input.version,
+    );
+
+    return this.requests.submit(withContact.id, withContact.version);
   }
 
   async requestQuote(input: {
