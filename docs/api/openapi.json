@@ -278,6 +278,48 @@
           }
         }
       },
+      "ProductImage": {
+        "type": "object",
+        "description": "ProductImages — declared by the ProductImage entity.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Send this back on update; a mismatch is a 409 rather than a lost write."
+          },
+          "productId": {
+            "type": "string",
+            "description": "Id of a Product.",
+            "nullable": true
+          },
+          "src": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "nullable": true
+          },
+          "height": {
+            "type": "integer",
+            "nullable": true
+          },
+          "alt": {
+            "type": "string",
+            "nullable": true
+          },
+          "position": {
+            "type": "integer",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
       "Collection": {
         "type": "object",
         "description": "Collections — declared by the Collection entity.",
@@ -1600,6 +1642,161 @@
                       "properties": {
                         "data": {
                           "$ref": "#/components/schemas/ProductVariant"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this store."
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/images": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List productimages",
+        "description": "Generated from the resource declaration — the same source that builds the list screen.",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter tokens plus free text, e.g. `status:active vendor:\"Acme\"`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "e.g. `created_at desc`."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyset cursor. There is no offset paging: it skips and repeats rows under writes."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "maximum": 250
+            }
+          },
+          {
+            "name": "savedViewId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of productimages.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/ProductImage"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/2026-01/catalog/images/{id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get one productimage",
+        "parameters": [
+          {
+            "name": "X-Store-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Every store-scoped call names its store. There is no implicit \"current store\"."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "permission": [
+              "catalog.read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ResponseEnvelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ProductImage"
                         }
                       }
                     }

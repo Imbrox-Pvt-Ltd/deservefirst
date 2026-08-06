@@ -16,6 +16,7 @@
  */
 
 import { defineDrop, dropList, type DropContext } from './define';
+import { mediaDrop, type MediaRow } from './media';
 
 /**
  * The rows these drops read from.
@@ -210,13 +211,34 @@ export const productDrop = defineDrop<ProductRow>('product', {
   },
 
   images: async (product, context) => {
-    const load = context.load.imagesOfProduct as ((id: string) => readonly ImageRow[]) | undefined;
-    return dropList(imageDrop, await resolved(load?.(product.id)), context);
+    return dropList(imageDrop, await imagesOf(product, context), context);
   },
   featured_image: async (product, context) => {
-    const load = context.load.imagesOfProduct as ((id: string) => readonly ImageRow[]) | undefined;
-    const first = (await resolved(load?.(product.id)))[0];
+    const first = (await imagesOf(product, context))[0];
     return first ? imageDrop(first, context) : null;
+  },
+
+  /**
+   * `media` is what themes actually read; `images` is the older name.
+   *
+   * The reference theme's product snippet reads `product.media` seven times and
+   * `product.images` never. Only `images` existed, so a product with
+   * photographs rendered the theme's placeholder graphic — the same shape of
+   * gap as the missing variant: the data was there and the accessor the theme
+   * asks for was not.
+   *
+   * Every entry is an image today. `media_type` is what a theme branches on to
+   * decide between an `<img>` and a video player, so it is stated rather than
+   * left for the theme to infer — a missing one reads as falsy and sends every
+   * photograph down the video path.
+   */
+  media: async (product, context) => {
+    const images = await imagesOf(product, context);
+    return dropList(mediaDrop, images.map(imageAsMedia), context);
+  },
+  featured_media: async (product, context) => {
+    const first = (await imagesOf(product, context))[0];
+    return first ? mediaDrop(imageAsMedia(first), context) : null;
   },
 
   url: (product) => `/products/${product.handle}`,
@@ -339,4 +361,47 @@ async function variantsOf(
       imageId: null,
     },
   ];
+}
+
+/**
+ * A product's images, loaded once per accessor.
+ *
+ * Extracted because four accessors need the same list and each was loading it
+ * separately — `media`, `featured_media`, `images` and `featured_image` on one
+ * page meant four round trips for one answer.
+ */
+async function imagesOf(
+  product: ProductRow,
+  context: DropContext,
+): Promise<readonly ImageRow[]> {
+  const load = context.load.imagesOfProduct as ((id: string) => readonly ImageRow[]) | undefined;
+  return resolved(load?.(product.id));
+}
+
+/**
+ * A product image as a media row.
+ *
+ * `mediaDrop` already exists in `drops/media.ts` with its own shape, covering
+ * video and 3D models as well as images — so this converts rather than defining
+ * a second `media` drop, which the drop registry refused outright and was right
+ * to: two drops of one name is two answers to the same question.
+ *
+ * `mediaType` is stated rather than inferred. A theme branches on it to choose
+ * between an `<img>` and a video player, and an absent value reads as falsy —
+ * sending every photograph down the video path.
+ */
+function imageAsMedia(image: ImageRow): MediaRow {
+  return {
+    id: image.id,
+    mediaType: 'image',
+    alt: image.alt ?? null,
+    position: image.position ?? null,
+    src: image.src,
+    width: image.width ?? null,
+    height: image.height ?? null,
+    // The still a gallery shows is the image itself.
+    previewImageSrc: image.src,
+    previewWidth: image.width ?? null,
+    previewHeight: image.height ?? null,
+  };
 }

@@ -262,3 +262,44 @@ test('a snippet a section delegates to still sees `section`', async () => {
   // merge, so passing only `section` would take every drop away at once.
   assert.match(html, /shop=\[Acme\]/, 'without losing the engine globals');
 });
+
+// ------------------------------------------------------ a product's media
+
+const withImages = () =>
+  createDropContext({
+    currency: 'USD', locale: 'en', baseUrl: 'https://x.test',
+    load: {
+      ...noRelations,
+      imagesOfProduct: () => [
+        { id: 'i1', src: 'https://x.test/front.png', width: 1200, height: 1500, alt: 'Front', position: 1 },
+        { id: 'i2', src: 'https://x.test/back.png', width: 1200, height: 1500, alt: 'Back', position: 2 },
+      ],
+    },
+  });
+
+test('a product exposes `media`, which is what themes read', async () => {
+  /**
+   * The reference theme's product snippet reads `product.media` seven times and
+   * `product.images` never. Only `images` existed, so a product with
+   * photographs rendered the theme's placeholder graphic.
+   */
+  const product = productDrop(shirt, withImages());
+  const media = await product.media;
+
+  assert.equal(media.length, 2);
+  assert.equal(await media[0].media_type, 'image', 'a theme branches on this to pick a renderer');
+  assert.equal(await media[0].alt, 'Front');
+  assert.equal(await (await media[0].preview_image).src, 'https://x.test/front.png');
+});
+
+test('featured_media is the first image', async () => {
+  const product = productDrop(shirt, withImages());
+  const featured = await product.featured_media;
+  assert.equal(await (await featured.preview_image).src, 'https://x.test/front.png');
+});
+
+test('a product with no images has empty media, not a broken one', async () => {
+  const product = productDrop(shirt, drops());
+  assert.equal((await product.media).length, 0);
+  assert.equal(await product.featured_media, null);
+});

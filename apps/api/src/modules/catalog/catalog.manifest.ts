@@ -9,7 +9,12 @@
 
 import type { ModuleManifest } from '@deservefirst/contracts';
 
-import { collectionResource, productResource, productVariantResource } from './contracts';
+import {
+  collectionResource,
+  productImageResource,
+  productResource,
+  productVariantResource,
+} from './contracts';
 
 export const catalogManifest: ModuleManifest = {
   id: 'catalog',
@@ -59,9 +64,34 @@ export const catalogManifest: ModuleManifest = {
       toolkit: { metaobjects: false, savedViews: false, seo: false, importExport: false },
       moneyFields: ['price', 'compareAtPrice'],
     },
+    {
+      /**
+       * A product's photographs.
+       *
+       * The storefront has read `product_images` since the drops were written
+       * and nothing declared it, so `db:sync` never created the table. Pages
+       * rendered because the reference theme falls back to a placeholder
+       * without awaiting the promise — the query was built and never run.
+       *
+       * Almost no toolkit: an image has no tags, no saved views and no SEO of
+       * its own. It has a timeline, because "who replaced the photograph" is a
+       * question merchants ask.
+       */
+      name: 'ProductImage',
+      tableName: 'product_images',
+      toolkit: {
+        metafields: false,
+        metaobjects: false,
+        tags: false,
+        savedViews: false,
+        seo: false,
+        importExport: false,
+        timeline: true,
+      },
+    },
   ],
 
-  resources: [productResource, productVariantResource, collectionResource],
+  resources: [productResource, productVariantResource, productImageResource, collectionResource],
 
   routes: [
     { path: '/store/:handle/products', screen: 'ListScreen', entity: 'Product', permission: 'catalog.read' },

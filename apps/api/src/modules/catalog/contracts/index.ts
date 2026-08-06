@@ -131,6 +131,62 @@ export const productVariantResource: ResourceDefinition = {
 };
 
 /**
+ * A product's photographs.
+ *
+ * Its own entity rather than a JSON column on the product, because an image is
+ * ordered, captioned and referenced by variants — `product_variants.image_id`
+ * already points at one. A JSON array would make "which variant uses this
+ * image" a scan of every product.
+ *
+ * The storefront has been reading `product_images` since the drops were
+ * written; nothing declared it, so the table never existed and the query threw
+ * the moment anything awaited it. Themes fell back to a placeholder graphic and
+ * hid that for months.
+ */
+export const productImageResource: ResourceDefinition = {
+  name: 'ProductImage',
+  entity: 'ProductImage',
+  pluralName: 'ProductImages',
+  urlSegment: 'images',
+  aggregateRoot: 'Product',
+  fields: [
+    { name: 'id', type: 'id' },
+    { name: 'productId', type: 'reference', references: 'Product', indexed: true, filterable: true },
+    /**
+     * The URL, not the bytes.
+     *
+     * Images live in object storage and this records where. Storing the file
+     * itself in a row would put megabytes behind every product query, including
+     * the ones that only wanted a title.
+     */
+    { name: 'src', type: 'string', required: true },
+    /**
+     * Dimensions, so a theme can reserve the space before the image arrives.
+     *
+     * `{{ image.width }}` and `.height` are how a theme sets an aspect ratio and
+     * stops the page jumping as photographs load. Absent, every product page
+     * reflows while a customer is reading it.
+     */
+    { name: 'width', type: 'integer' },
+    { name: 'height', type: 'integer' },
+    /**
+     * The alt text, which is content rather than metadata.
+     *
+     * Searchable because a merchant looking for "the one with the blue
+     * background" is searching what they wrote here, and it is the only
+     * description most images have.
+     */
+    { name: 'alt', type: 'string', searchable: true },
+    { name: 'position', type: 'integer', sortable: true },
+    { name: 'createdAt', type: 'datetime', sortable: true },
+  ],
+  api: { graphql: true, rest: true, visibility: 'public' },
+  // Reached through its product, like a variant.
+  screens: ['detail'],
+  permissions: { read: 'catalog.read', write: 'catalog.write' },
+};
+
+/**
  * Collections. Note how little is here: fields, visibility and permissions.
  * Everything a merchant sees on the screen — filters, saved views, bulk actions,
  * metafields, timeline, SEO — comes from declaring the entity, not from this file.
