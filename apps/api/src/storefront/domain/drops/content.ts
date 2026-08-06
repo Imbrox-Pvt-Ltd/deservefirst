@@ -24,8 +24,8 @@ export interface PageRow {
   readonly body?: string | null;
   readonly templateSuffix?: string | null;
   readonly author?: string | null;
-  readonly publishedAt?: string | Date | null;
   readonly createdAt?: string | Date | null;
+  readonly publishedAt?: string | Date | null;
   readonly updatedAt?: string | Date | null;
 }
 
@@ -46,6 +46,7 @@ export interface ArticleRow {
   readonly author?: string | null;
   readonly imageId?: string | null;
   readonly tags?: readonly string[] | null;
+  readonly createdAt?: string | Date | null;
   readonly publishedAt?: string | Date | null;
   readonly updatedAt?: string | Date | null;
   readonly commentCount?: number | null;
@@ -76,6 +77,7 @@ function plainText(html: string): string {
 }
 
 export const pageDrop = defineDrop<PageRow>('page', {
+  object_type: () => 'page',
   id: (page) => page.id,
   handle: (page) => page.handle,
   title: (page) => page.title,
@@ -104,6 +106,20 @@ export const commentDrop = defineDrop<CommentRow>('comment', {
 });
 
 export const articleDrop = defineDrop<ArticleRow>('article', {
+  object_type: () => 'article',
+
+  /**
+   * The person who wrote it, as a record rather than a string.
+   *
+   * Themes read `article.user.name`, so a bare string answers `.name` with
+   * nothing and the byline disappears. `author` stays a string beside it,
+   * because themes read that too.
+   */
+  user: (article) => ({
+    name: article.author ?? '',
+    first_name: (article.author ?? '').split(' ')[0] ?? '',
+    last_name: (article.author ?? '').split(' ').slice(1).join(' '),
+  }),
   id: (article) => article.id,
   handle: (article) => article.handle,
   title: (article) => article.title,
@@ -172,6 +188,13 @@ export const articleDrop = defineDrop<ArticleRow>('article', {
     const handle = (await load?.(article.blogId))?.handle;
     return handle ? `/blogs/${handle}/${article.handle}` : `/articles/${article.handle}`;
   },
+  /**
+   * When the post was written, as distinct from when it went live.
+   *
+   * Themes date a post with whichever they can get; falling back to the
+   * publish date is better than a blank byline on every article.
+   */
+  created_at: (article) => isoOrNull(article.createdAt ?? article.publishedAt),
   published_at: (article) => isoOrNull(article.publishedAt),
   updated_at: (article) => isoOrNull(article.updatedAt),
 

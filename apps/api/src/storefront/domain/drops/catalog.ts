@@ -208,6 +208,71 @@ export const productDrop = defineDrop<ProductRow>('product', {
     return prices.length > 1 && Math.min(...prices) !== Math.max(...prices);
   },
 
+  /**
+   * The product's own code, which is the default variant's in practice.
+   *
+   * Themes print it beside the title and in structured data. It was the one
+   * gap a running store found that reading the templates did not: the theme
+   * reads it through a loop variable, which static analysis cannot type.
+   */
+  sku: (product) => product.sku ?? '',
+
+  /**
+   * What kind of thing this is, for a list that mixes kinds.
+   *
+   * A search page renders products, pages and articles in one loop and asks
+   * each what it is. Without it the loop cannot tell them apart and renders
+   * every result with the product template.
+   */
+  object_type: () => 'product',
+
+  compare_at_price_min: async (product, context) => {
+    const prices = await comparePrices(product, context);
+    return prices.length ? Math.min(...prices) : minorUnits(product.compareAtPriceAmountMinor);
+  },
+  compare_at_price_max: async (product, context) => {
+    const prices = await comparePrices(product, context);
+    return prices.length ? Math.max(...prices) : minorUnits(product.compareAtPriceAmountMinor);
+  },
+  compare_at_price_varies: async (product, context) => {
+    const prices = await comparePrices(product, context);
+    return prices.length > 1 && Math.min(...prices) !== Math.max(...prices);
+  },
+
+  /**
+   * Whether this product has real options or only the implicit single variant.
+   *
+   * Themes hide the whole variant picker on this, so getting it wrong shows a
+   * dropdown with one meaningless entry on every simple product.
+   */
+  has_only_default_variant: async (product, context) => {
+    const variants = await variantsOf(product, context);
+    return variants.length <= 1 && (product.optionNames ?? []).length === 0;
+  },
+
+  /**
+   * Options addressed by name rather than by position.
+   *
+   * A theme asks for `product.options_by_name['Colour']` because option one on
+   * one product is option two on another, and reading by index shows the wrong
+   * picker.
+   */
+  options_by_name: async (product, context) => {
+    const options = await optionsWithValues(product, context);
+    const byName: Record<string, unknown> = {};
+    for (const option of options) byName[String((option as { name?: string }).name ?? '')] = option;
+    return byName;
+  },
+
+  /**
+   * Never a gift card, until gift cards exist.
+   *
+   * Present because themes branch on it before rendering an add-to-cart form,
+   * and an absent value reads as neither true nor false in a way that has
+   * already bitten elsewhere. False is the honest answer, not a placeholder.
+   */
+  gift_card: () => false,
+
   available: (product) => (product.inventoryQuantity ?? 0) > 0,
   options: (product) => product.optionNames ?? [],
   options_with_values: async (product, context) => optionsWithValues(product, context),
@@ -265,6 +330,7 @@ export const productDrop = defineDrop<ProductRow>('product', {
 });
 
 export const collectionDrop = defineDrop<CollectionRow>('collection', {
+  object_type: () => 'collection',
   id: (collection) => collection.id,
   handle: (collection) => collection.handle,
   title: (collection) => collection.title,
@@ -336,6 +402,16 @@ export const collectionDrop = defineDrop<CollectionRow>('collection', {
     return dropList(sortOptionDrop, sortOptionsFor(current), context);
   },
 });
+
+/** Compare-at prices across the variants, for the "was" figure themes show. */
+async function comparePrices(product: ProductRow, context: DropContext): Promise<number[]> {
+  const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;
+  return (await resolved(load?.(product.id)))
+    .map((variant) => minorUnits(variant.compareAtPriceAmountMinor))
+    // A variant with no compare-at price is not one that was free, so it is
+    // left out of the range rather than counted as zero.
+    .filter((price): price is number => price !== null && price > 0);
+}
 
 async function variantPrices(product: ProductRow, context: DropContext): Promise<number[]> {
   const load = context.load.variantsOfProduct as ((id: string) => readonly VariantRow[]) | undefined;

@@ -18,7 +18,7 @@ import { dbSync } from '../src/db-sync.mjs';
 import { smoke } from '../src/smoke.mjs';
 import { listModuleStates, setModuleState } from '../src/module-state.mjs';
 import { writeApiDocument } from '../src/api-docs.mjs';
-import { checkTheme, portTheme } from '../src/theme.mjs';
+import { auditThemeProperties, checkTheme, portTheme } from '../src/theme.mjs';
 import { createMigration, generateMigration, markApplied, migrate, migrateStatus } from '../src/migrate.mjs';
 import { seed } from '../src/seed.mjs';
 import { formatTimestampReport, reportTimestamps } from '../src/timestamps.mjs';
@@ -86,6 +86,7 @@ ${cyan('platform')} — DeserveFirst module tooling
   ${cyan('module:disable')} <mod>   Take a module away             [--store=handle] --reason=".."
   ${cyan('module:states')}          Show what is enabled, and where the decision was made
   ${cyan('theme:check')} <dir>   What in this theme will not run here, and why
+  ${cyan('theme:properties')} <dir>  Which properties it reads that no drop declares
   ${cyan('theme:port')} <dir>    Rewrite another platform's names to ours [--dry-run]
   ${cyan('docs:api')}              Regenerate the API reference from the declarations
 
@@ -335,6 +336,23 @@ switch (command) {
       process.exit(result.errors > 0 ? 1 : 0);
     } catch (error) {
       console.error(red(`\ntheme:check failed: ${error.message}`));
+      process.exit(1);
+    }
+    break;
+  }
+  case 'theme:properties': {
+    const dir = args[0];
+    if (!dir) {
+      console.error(red('\ntheme:properties needs a theme directory.'));
+      process.exit(1);
+    }
+    try {
+      const result = await auditThemeProperties(ROOT, dir, { green, red, dim, yellow });
+      // Reporting, not gating: several of these are features that do not exist
+      // yet, and a red CI on a known backlog teaches people to ignore it.
+      process.exit(result.gaps >= 0 ? 0 : 1);
+    } catch (error) {
+      console.error(red(`\ntheme:properties failed: ${error.message}`));
       process.exit(1);
     }
     break;

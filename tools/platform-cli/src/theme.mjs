@@ -18,7 +18,7 @@
  */
 
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 /** Every `.liquid` file under a directory, depth first. */
 function templates(root) {
@@ -258,4 +258,91 @@ async function reportCoverage(root, reader, usage, bound, colours) {
     console.log(dim('  parameters, which a caller supplies — worth a glance, not a fix:'));
     console.log(dim(`    ${unsure.map((gap) => gap.name).join(', ')}`));
   }
+}
+
+/**
+ * Which properties a theme reads that no drop declares.
+ *
+ * The companion to `theme:check`, which answers "does this OBJECT exist". That
+ * question kept passing while whole features were missing, because a theme's
+ * real dependency is a path: `filter.min_value.value` needs `min_value` to be a
+ * record, and an object-level check sees `filter` and reports nothing wrong.
+ *
+ * Static, so it covers branches a render never reaches — a section behind a
+ * setting nobody enabled is exactly where a gap hides. Its blind spot is the
+ * mirror image: a loop variable named for something other than its type is
+ * invisible here. `DF_DROP_AUDIT=1` on a running store covers that case by
+ * recording real reads, and the two together are the whole picture.
+ */
+export async function auditThemeProperties(root, themeDir, colours) {
+  const { green, red, dim, yellow } = colours;
+  const themeRoot = resolve(root, themeDir);
+
+  const { declaredDrops } = await domain(root);
+  const declared = declaredDrops();
+
+  /** Extensions that make `x.y` a filename rather than a property read. */
+  const FILE_EXTENSIONS = new Set([
+    'css', 'js', 'liquid', 'json', 'svg', 'png', 'jpg', 'jpeg', 'webp',
+    'woff', 'woff2', 'map', 'scss', 'gif', 'ico', 'mp4',
+  ]);
+
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (full.endsWith('.liquid')) files.push(full);
+    }
+  };
+  walk(themeRoot);
+
+  const gaps = new Map();
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    // Only inside Liquid delimiters, and with string literals blanked —
+    // translation keys like 'cart.general.title' and filenames live in strings
+    // and are not property reads.
+    for (const segment of text.matchAll(/\{\{([\s\S]*?)\}\}|\{%([\s\S]*?)%\}/g)) {
+      const code = (segment[1] ?? segment[2] ?? '')
+        .replace(/'[^']*'/g, "''")
+        .replace(/"[^"]*"/g, '""');
+
+      for (const match of code.matchAll(/\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)/gi)) {
+        const [, identifier, property] = match;
+        if (!declared.has(identifier)) continue;
+        if (FILE_EXTENSIONS.has(property)) continue;
+        if (declared.get(identifier).properties.includes(property)) continue;
+
+        const key = `${identifier}.${property}`;
+        if (!gaps.has(key)) gaps.set(key, new Set());
+        gaps.get(key).add(relative(themeRoot, file));
+      }
+    }
+  }
+
+  const rows = [...gaps.entries()].sort((a, b) => b[1].size - a[1].size);
+
+  if (rows.length === 0) {
+    console.log(green('\nEvery property this theme reads is declared by a drop.'));
+    return { gaps: 0 };
+  }
+
+  console.log(
+    yellow(`\n  ${rows.length} propert${rows.length === 1 ? 'y' : 'ies'} read but not declared:\n`),
+  );
+  for (const [key, where] of rows) {
+    const files = where.size === 1 ? '1 file' : `${where.size} files`;
+    console.log(`    ${red(key)}  ${dim(`(${files}, first at ${[...where][0]})`)}`);
+  }
+  console.log(
+    dim('\n  A theme reads these and gets nothing. Some are features that do not'),
+  );
+  console.log(dim('  exist yet; the rest are drops missing a property.\n'));
+  console.log(
+    dim('  Blind spot: a loop variable named for something other than its type.'),
+  );
+  console.log(dim('  Run a store with DF_DROP_AUDIT=1 to catch those from real reads.\n'));
+
+  return { gaps: rows.length };
 }

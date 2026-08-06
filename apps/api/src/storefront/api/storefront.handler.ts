@@ -73,6 +73,7 @@ import {
   NOT_PERFORMED,
   articleDrop,
   blogDrop,
+  searchDrop,
   readableParams,
   redirectFor,
   renderRobots,
@@ -210,6 +211,31 @@ export interface StorefrontOptions {
  * nonces threaded through those tags. Shipping a policy that themes violate
  * would teach everyone to ignore the console.
  */
+/**
+ * Records properties a theme reads that no drop declares.
+ *
+ * Off unless `DF_DROP_AUDIT` is set, because it turns every drop into a Proxy.
+ * With it on, fetching a store's own pages prints the exact list of what its
+ * theme expects and we do not provide — the thing repeated static sweeps kept
+ * failing to find, because a nested read like `filter.min_value.value` is
+ * invisible to a check that only looks at which objects a theme names.
+ *
+ * Each miss is printed once. A property read inside a `{% for %}` over 200
+ * products is one gap, not two hundred lines of log.
+ */
+const DROP_AUDIT: ((dropName: string, property: string) => void) | undefined =
+  process.env.DF_DROP_AUDIT
+    ? (() => {
+        const seen = new Set<string>();
+        return (dropName: string, property: string): void => {
+          const entry = `${dropName}.${property}`;
+          if (seen.has(entry)) return;
+          seen.add(entry);
+          process.stderr.write(`DROP-MISS ${entry}\n`);
+        };
+      })()
+    : undefined;
+
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -744,6 +770,7 @@ export class StorefrontHandler {
     };
 
     const drops = createDropContext({
+      onMissingProperty: DROP_AUDIT,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -837,10 +864,18 @@ export class StorefrontHandler {
      * everywhere would put six names in every product page's vary list to
      * describe a dependency that page does not have.
      */
-    const varyKeys =
-      match.pageType === 'collection'
-        ? [...new Set([...access.readKeys(), ...FACET_PARAM_KEYS])]
-        : access.readKeys();
+    const varyKeys = [
+      ...new Set([
+        ...access.readKeys(),
+        // A collection varies on its filters and sort; a search page varies on
+        // the term. Both are read by the platform rather than by the theme, so
+        // neither is recorded by watching `request.params` — and a page whose
+        // key omits them is stored once and served to everyone. That is not
+        // hypothetical: `?q=cotton` returned the results for `?q=linen`.
+        ...(match.pageType === 'collection' ? FACET_PARAM_KEYS : []),
+        ...(match.pageType === 'search' ? ['q'] : []),
+      ]),
+    ];
 
     return {
       status,
@@ -1113,6 +1148,57 @@ export class StorefrontHandler {
           found: true,
         };
       }
+      /**
+       * The search results page.
+       *
+       * There was no branch here at all, so `/search?q=…` rendered its layout
+       * with no `search` object and showed nothing — a 200 that looked like a
+       * shop with an empty catalogue. The drop had existed the whole time.
+       */
+      case 'search': {
+        const terms = normaliseSearchTerms(new URLSearchParams(input.query).get('q'));
+        const results = terms === ''
+          ? { products: [], collections: [], pages: [], articles: [], queries: [] }
+          : await data.search(terms, 50);
+
+        /**
+         * One list, in the order a shopper expects to find things.
+         *
+         * Products first because that is what a shop is for; pages and
+         * articles after, where somebody searching "returns" will still find
+         * the policy.
+         */
+        const found = [
+          ...results.products.map((row) => productDrop(row, drops)),
+          ...results.pages.map((row) => pageDrop(row, drops)),
+          ...results.articles.map((row) => articleDrop(row, drops)),
+        ];
+
+        return {
+          scope: {
+            ...base,
+            page_title: terms === '' ? 'Search' : `Search: ${terms}`,
+            search: searchDrop(
+              {
+                terms,
+                // Asked, as distinct from asked and found nothing — the same
+                // distinction the recommendations and predictive search drops
+                // turn on.
+                performed: terms !== '',
+                resultsCount: found.length,
+                results: found,
+              },
+              drops,
+            ),
+            paginate: paginateDrop(
+              { currentPage: page, currentOffset: 0, items: found.length, pageSize: 24, basePath: input.path },
+              drops,
+            ),
+          },
+          found: true,
+        };
+      }
+
       case 'collection': {
         const row = await data.collectionByHandle(match.handle ?? '');
         if (!row) return { scope: base, found: false };
@@ -1252,6 +1338,7 @@ export class StorefrontHandler {
     const products = await store.data.recommendedProducts(productId, limit);
 
     const drops = createDropContext({
+      onMissingProperty: DROP_AUDIT,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1322,6 +1409,7 @@ export class StorefrontHandler {
 
     const shop = await store.data.shop();
     const drops = createDropContext({
+      onMissingProperty: DROP_AUDIT,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,
@@ -1404,6 +1492,7 @@ export class StorefrontHandler {
     const shop = await store.data.shop();
 
     const drops = createDropContext({
+      onMissingProperty: DROP_AUDIT,
       currency: shop.currency,
       locale: 'en',
       baseUrl: `https://${shop.domain}`,

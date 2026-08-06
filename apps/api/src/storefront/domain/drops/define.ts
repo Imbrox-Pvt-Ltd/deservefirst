@@ -46,6 +46,19 @@ export interface DropContext {
    * contracts (§14.1); the composition root supplies the real, typed thing.
    */
   readonly load: Readonly<Record<string, (...args: never[]) => unknown>>;
+  /**
+   * Told whenever a theme reads a property no drop of this type declares.
+   *
+   * Off unless something opts in, because it turns every drop into a Proxy.
+   * With it on, rendering a store's own pages produces the exact list of what
+   * its theme expects and we do not provide — including inside `{% for %}`,
+   * where the loop variable's type is not knowable by reading the template.
+   *
+   * This exists because auditing statically kept missing whole classes of gap:
+   * a nested read like `filter.min_value.value` is invisible to a check that
+   * only looks at which OBJECTS a theme names.
+   */
+  readonly onMissingProperty?: (dropName: string, property: string) => void;
 }
 
 export type DropProperty<Source> = (source: Source, context: DropContext) => unknown;
@@ -66,6 +79,20 @@ export interface DropFactory<Source> {
  * register itself is exactly the one nobody reviewed.
  */
 const REGISTRY = new Map<string, DropFactory<never>>();
+
+/**
+ * Names the engine and the runtime ask for on every object.
+ *
+ * Excluded from the audit because they are probes rather than reads — liquidjs
+ * checks for `then` to decide whether a value is a promise, and reporting those
+ * would bury the real misses under one entry per drop per render.
+ */
+const PROBED: ReadonlySet<string> = new Set([
+  'then', 'toLiquid', 'toJSON', 'toString', 'valueOf', 'constructor',
+  'inspect', 'nodeType', 'length', 'size', 'first', 'last',
+  // Iteration and comparison, asked of every value the engine handles.
+  'next', 'equals', 'indexOf', 'Symbol(Symbol.iterator)', 'toPrimitive',
+]);
 
 export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFactory<Source> {
   const properties = Object.keys(spec);
@@ -102,7 +129,17 @@ export function defineDrop<Source>(name: string, spec: DropSpec<Source>): DropFa
      * same render read it back. Liquid has no assignment into an object, but
      * this costs nothing and closes the question.
      */
-    return Object.freeze(drop);
+    const frozen = Object.freeze(drop);
+    if (!context.onMissingProperty) return frozen;
+
+    return new Proxy(frozen, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && !properties.includes(key) && !PROBED.has(key)) {
+          context.onMissingProperty!(name, key);
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
   }) as DropFactory<Source>;
 
   Object.defineProperty(factory, 'dropName', { value: name, enumerable: true });

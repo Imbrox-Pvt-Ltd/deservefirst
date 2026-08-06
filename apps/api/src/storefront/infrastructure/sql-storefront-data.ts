@@ -179,6 +179,7 @@ export class SqlStorefrontData implements StorefrontData {
           title: String(row.title),
           body: row.body as string | null,
           templateSuffix: row.template_suffix as string | null,
+          createdAt: row.created_at as string | null,
           publishedAt: row.published_at as string | null,
           updatedAt: row.updated_at as string | null,
         }
@@ -1243,6 +1244,7 @@ function toArticle(row: Row): ArticleRow {
     body: row.body as string | null,
     excerpt: row.excerpt as string | null,
     author: row.author as string | null,
+    createdAt: row.created_at as string | null,
     publishedAt: row.published_at as string | null,
     updatedAt: row.updated_at as string | null,
   };

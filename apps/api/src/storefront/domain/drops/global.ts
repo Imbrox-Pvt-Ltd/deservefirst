@@ -81,6 +81,22 @@ export interface PaginateState {
   readonly basePath: string;
 }
 
+/**
+ * The pattern a theme's script uses to render an amount.
+ *
+ * Only the symbol varies here; the placeholder is the convention every ported
+ * theme already understands. A wrong symbol is visible on every price, so the
+ * fallback is the ISO code rather than a guess at someone else's currency.
+ */
+function moneyFormatFor(currency: string): string {
+  const symbols: Record<string, string> = {
+    USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥',
+    AUD: '$', CAD: '$', NZD: '$', SGD: '$',
+  };
+  const symbol = symbols[currency.toUpperCase()];
+  return symbol ? `${symbol}{{amount}}` : `{{amount}} ${currency.toUpperCase()}`;
+}
+
 export const shopDrop = defineDrop<ShopRow>('shop', {
   id: (shop) => shop.id,
   name: (shop) => shop.name,
@@ -99,7 +115,6 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
   currency: (shop) => shop.currency,
   enabled_currencies: (shop) => shop.enabledCurrencies ?? [shop.currency],
   enabled_locales: (shop) => shop.enabledLocales ?? [],
-  money_format: (_shop, context) => context.currency,
 
   /**
    * Contact details a storefront prints in its own footer.
@@ -111,6 +126,33 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
   email: (shop) => shop.email ?? '',
   phone: (shop) => shop.phone ?? '',
   address: (shop) => shop.address ?? null,
+
+  /**
+   * Whether shoppers can have accounts here.
+   *
+   * False, and honestly so: there is no customer session on the storefront and
+   * no orders to show one. Themes render or hide the whole account menu on
+   * this, and claiming true would put a link to a page that does not exist in
+   * every header.
+   */
+  customer_accounts_enabled: () => false,
+
+  /**
+   * How money is written, for the theme's own JavaScript.
+   *
+   * The theme's cart script formats prices in the browser and reads these to
+   * know how. Without them it falls back to a hardcoded dollar format, so a
+   * store in rupees showed dollars the moment a line was added to the cart.
+   */
+  /**
+   * This used to return the bare currency code, and that was not merely
+   * unhelpful — it broke the cart. The theme's script does
+   * `format.match(/\{\{\s*(\w+)\s*\}\}/)[1]`, and a string with no
+   * placeholder makes `match` return null, so indexing it throws and every
+   * price the browser renders disappears with it.
+   */
+  money_format: (shop) => moneyFormatFor(shop.currency),
+  money_with_currency_format: (shop) => `${moneyFormatFor(shop.currency)} ${shop.currency}`,
 
   products_count: (_shop, context) =>
     (context.load.productCount as (() => number) | undefined)?.() ?? 0,
