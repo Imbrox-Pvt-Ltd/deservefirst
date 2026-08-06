@@ -138,6 +138,29 @@ export const shopDrop = defineDrop<ShopRow>('shop', {
   customer_accounts_enabled: () => false,
 
   /**
+   * The payment methods a shopper can use, as short codes a theme turns into
+   * icons — `['visa', 'master', 'paypal']` and so on.
+   *
+   * Empty, because Phase 1 takes no payments (§25). Declared rather than
+   * missing for one concrete reason: a theme that counts this before drawing a
+   * row of icons does arithmetic on it, and arithmetic on a missing value is
+   * how the product gallery disappeared once already.
+   */
+  enabled_payment_types: () => [],
+
+  /**
+   * The store's published policies — refund, privacy, terms, shipping.
+   *
+   * Null until policies exist as records. Not an empty object: a theme links
+   * to `shop.shipping_policy.url`, and inventing a URL to a page that does not
+   * exist puts a broken link in a footer on every page.
+   */
+  privacy_policy: () => null,
+  refund_policy: () => null,
+  shipping_policy: () => null,
+  terms_of_service: () => null,
+
+  /**
    * How money is written, for the theme's own JavaScript.
    *
    * The theme's cart script formats prices in the browser and reads these to

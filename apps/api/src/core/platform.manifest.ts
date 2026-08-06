@@ -63,6 +63,74 @@ export const platformManifest: ModuleManifest = {
       ],
     },
     {
+      /**
+       * What a metafield MEANS, as distinct from what one holds.
+       *
+       * Values were already stored — every entity has a `<table>_metafields`
+       * side table — but nothing recorded what they are, so nothing could say
+       * which of them a storefront may show. The consequence was concrete: a
+       * theme reading `product.metafields.…` could only be answered by handing
+       * over every metafield on the product, cost prices and supplier notes
+       * included.
+       *
+       * Store-scoped: two stores on the platform define their own custom data
+       * independently, and a definition leaking across them would let one
+       * merchant read another's field names.
+       */
+      name: 'MetafieldDefinition',
+      tableName: 'metafield_definitions',
+      toolkit: OPERATOR_TOOLKIT,
+      fields: [
+        // Which kind of record this attaches to — Product, Collection, Page…
+        { name: 'ownerEntity', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'namespace', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'metafieldKey', type: 'string', required: true, indexed: true, filterable: true },
+        { name: 'name', type: 'string', required: true, searchable: true },
+        { name: 'description', type: 'text' },
+        { name: 'valueType', type: 'string', required: true, filterable: true },
+        { name: 'validation', type: 'json' },
+
+        /**
+         * Whether a storefront may read this, and nothing more.
+         *
+         * `none` by default, and that default is the whole point. A merchant
+         * who adds "cost price" or "supplier" must not have it appear on a
+         * public page because nobody remembered to hide it — so visibility is
+         * something a definition OPTS IN to, never something it falls out of.
+         *
+         * Named for what it grants rather than for a boolean, because the next
+         * grant this needs is a written one and `storefrontVisible: true` has
+         * nowhere to put it.
+         */
+        {
+          name: 'storefrontAccess',
+          type: 'enum',
+          values: ['none', 'public_read'],
+          filterable: true,
+        },
+
+        /**
+         * Whether a merchant may edit it in the admin, or only read it.
+         *
+         * An app that owns a field usually wants merchants to see it and not
+         * change it underneath the app's own logic.
+         */
+        {
+          name: 'adminAccess',
+          type: 'enum',
+          values: ['merchant_read', 'merchant_read_write'],
+          filterable: true,
+        },
+
+        // Category definitions are attached by taxonomy rather than declared by
+        // the merchant, and an app's are owned by the app that installed it.
+        { name: 'source', type: 'enum', values: ['merchant', 'category', 'app'], filterable: true },
+        { name: 'categoryId', type: 'string', indexed: true, filterable: true },
+        { name: 'translatable', type: 'boolean', filterable: true },
+        { name: 'pinned', type: 'boolean', filterable: true },
+      ],
+    },
+    {
       name: 'StoreModuleState',
       tableName: 'store_module_states',
       toolkit: OPERATOR_TOOLKIT,

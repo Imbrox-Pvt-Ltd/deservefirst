@@ -21,6 +21,7 @@ import type {
   CollectionRow,
   FilterCriteria,
   FilterRow,
+  MetafieldTree,
   ImageRow,
   PageRow,
   ProductRow,
@@ -116,6 +117,16 @@ export interface StorefrontData {
    */
   productTypes(): readonly string[];
   productVendors(): readonly string[];
+
+  /**
+   * The metafields of one record that a storefront is allowed to show.
+   *
+   * Filtered by the DEFINITION's storefront grant, not by the value. A
+   * metafield with no definition, or one whose definition has not opted in, is
+   * not returned at all — a merchant's "cost price" must never reach a public
+   * page because nobody remembered to hide it.
+   */
+  metafieldsOf(ownerEntity: string, ownerId: string): Promise<MetafieldTree>;
 
   /** Which collections hold this product, for a theme's breadcrumbs. */
   collectionsOfProduct(productId: string): readonly CollectionRow[];

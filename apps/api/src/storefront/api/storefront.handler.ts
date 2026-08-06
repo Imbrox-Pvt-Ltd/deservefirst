@@ -1938,6 +1938,8 @@ function loadersFor(
     productTypes: (() => data.productTypes()) as never,
     productVendors: (() => data.productVendors()) as never,
     collectionsOfProduct: ((id: string) => data.collectionsOfProduct(id)) as never,
+    metafieldsOf: ((ownerEntity: string, ownerId: string) =>
+      data.metafieldsOf(ownerEntity, ownerId)) as never,
     productTypesOfCollection: ((id: string) => data.productTypesOfCollection(id)) as never,
     productVendorsOfCollection: ((id: string) => data.productVendorsOfCollection(id)) as never,
     currentUrl: (() => view?.currentUrl ?? '/') as never,

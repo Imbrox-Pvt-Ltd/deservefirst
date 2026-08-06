@@ -19,7 +19,7 @@ import { defineDrop, dropList, type DropContext } from './define';
 import { filterDrop, sortOptionDrop, type FilterRow } from './faceting';
 import { DEFAULT_SORT, sortOptionsFor } from '../facets';
 import { storeAvailabilityDrop, type StoreAvailabilityRow } from './availability';
-import { mediaDrop, type MediaRow } from './media';
+import { mediaDrop, metafieldDrop, type MediaRow, type MetafieldTree } from './media';
 
 /**
  * The rows these drops read from.
@@ -126,6 +126,14 @@ export const imageDrop = defineDrop<ImageRow>('image', {
    * is a type the compiler cannot name, and a preview of a preview is not a
    * thing any theme asks for.
    */
+  /**
+   * How a merchant chose to present this image — focal point, alt text policy.
+   *
+   * Null until presentation is modelled. Themes test it before reading a focal
+   * point and centre the image when it is absent, which is the right default.
+   */
+  presentation: () => null,
+
   preview_image: (image) => ({
     src: image.src ?? '',
     width: image.width ?? null,
@@ -245,6 +253,25 @@ export const productDrop = defineDrop<ProductRow>('product', {
    * every result with the product template.
    */
   object_type: () => 'product',
+
+  /**
+   * A merchant's own custom fields, as far as they have been published.
+   *
+   * Addressed `metafields.namespace.key.value`, which is why this is a nested
+   * record rather than a list. Only the fields whose DEFINITION grants
+   * storefront access are in it — the filtering happens in the query, not here,
+   * so a drop cannot be the thing that leaks a cost price.
+   *
+   * An empty record rather than nothing when a store has defined none: themes
+   * walk into it without checking, and a missing intermediate is the
+   * difference between a blank value and a section that stops rendering.
+   */
+  metafields: async (product, context) => {
+    const load = context.load.metafieldsOf as
+      | ((ownerEntity: string, ownerId: string) => Promise<MetafieldTree>)
+      | undefined;
+    return metafieldTree(await load?.('Product', product.id), context);
+  },
 
   /**
    * The collections this product belongs to, for breadcrumbs and "more like
@@ -449,6 +476,26 @@ async function comparePrices(product: ProductRow, context: DropContext): Promise
     // A variant with no compare-at price is not one that was free, so it is
     // left out of the range rather than counted as zero.
     .filter((price): price is number => price !== null && price > 0);
+}
+
+/**
+ * A metafield tree as drops, keeping the namespace/key shape a theme walks.
+ *
+ * Each leaf becomes a `metafield` drop so `.value`, `.type` and the blank test
+ * all behave — handing back the raw row would answer `.value` with nothing.
+ */
+function metafieldTree(
+  tree: MetafieldTree | undefined,
+  context: DropContext,
+): Record<string, Record<string, unknown>> {
+  const built: Record<string, Record<string, unknown>> = {};
+  for (const [namespace, fields] of Object.entries(tree ?? {})) {
+    built[namespace] = {};
+    for (const [key, field] of Object.entries(fields)) {
+      built[namespace][key] = metafieldDrop(field, context);
+    }
+  }
+  return built;
 }
 
 async function variantPrices(product: ProductRow, context: DropContext): Promise<number[]> {

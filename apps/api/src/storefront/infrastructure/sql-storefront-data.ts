@@ -41,6 +41,8 @@ import type {
   CollectionRow,
   FilterCriteria,
   FilterRow,
+  MetafieldRow,
+  MetafieldTree,
   ImageRow,
   PageRow,
   ProductRow,
@@ -890,6 +892,59 @@ export class SqlStorefrontData implements StorefrontData {
    * automated membership becomes one query that asks all of them at once, so
    * the cost is two round trips rather than one per collection.
    */
+  /**
+   * The metafields of one record that a storefront may show.
+   *
+   * An INNER JOIN onto the definitions, and that join is the security control:
+   * a value whose definition is missing, or whose definition has not granted
+   * `public_read`, cannot come back at all. Written this way round on purpose —
+   * a LEFT JOIN with a filter afterwards is one edit away from leaking
+   * everything, and the thing being leaked is a merchant's cost prices and
+   * supplier names.
+   *
+   * Grouped `namespace -> key -> { type, value }` because that is the path a
+   * theme reads: `product.metafields.information.directions.value`.
+   */
+  async metafieldsOf(ownerEntity: string, ownerId: string): Promise<MetafieldTree> {
+    const table = METAFIELD_TABLES[ownerEntity];
+    // An owner kind with no side table is not an error to report to a visitor;
+    // it is simply a record that cannot carry custom data.
+    if (!table) return {};
+
+    const bind = new Binder(this.dialect);
+    const sql = `SELECT m.${this.q('namespace')} AS namespace,
+                        m.${this.q('metafield_key')} AS metafield_key,
+                        m.${this.q('value')} AS value,
+                        d.${this.q('value_type')} AS value_type
+           FROM ${this.q(table)} m
+           JOIN ${this.q('metafield_definitions')} d
+             ON d.${this.q('store_id')} = m.${this.q('store_id')}
+            AND d.${this.q('owner_entity')} = ${bind.add(ownerEntity)}
+            AND d.${this.q('namespace')} = m.${this.q('namespace')}
+            AND d.${this.q('metafield_key')} = m.${this.q('metafield_key')}
+            AND d.${this.q('storefront_access')} = 'public_read'
+            AND d.${this.q('deleted_at')} IS NULL
+          WHERE m.${this.q('store_id')} = ${bind.add(this.storeId())}
+            AND m.${this.q('owner_id')} = ${bind.add(ownerId)}`;
+
+    const statement = bind.finish(sql);
+    const rows = await this.executor.query<Row>(statement.sql, statement.parameters);
+
+    const tree: Record<string, Record<string, MetafieldRow>> = {};
+    for (const row of rows) {
+      const namespace = String(row.namespace ?? '');
+      const key = String(row.metafield_key ?? '');
+      if (namespace === '' || key === '') continue;
+      (tree[namespace] ??= {})[key] = {
+        namespace,
+        key,
+        type: String(row.value_type ?? 'single_line_text_field'),
+        value: metafieldValue(row.value, String(row.value_type ?? '')),
+      };
+    }
+    return tree;
+  }
+
   collectionsOfProduct(productId: string): readonly CollectionRow[] {
     return this.collectionsHolding(productId) as unknown as readonly CollectionRow[];
   }
@@ -1781,6 +1836,37 @@ const NUMERIC_COLUMNS: Record<string, string | undefined> = {
  */
 function escapeLike(value: string): string {
   return value.replace(/[%_\\]/g, (character) => `\\${character}`);
+}
+
+/**
+ * Where each kind of record keeps its metafields.
+ *
+ * A closed table rather than `${ownerEntity}_metafields` built by hand: the
+ * owner kind reaches this from a drop, and interpolating it into a table name
+ * would make it a way to name any table in the database.
+ */
+const METAFIELD_TABLES: Record<string, string | undefined> = {
+  Product: 'products_metafields',
+  ProductVariant: 'product_variants_metafields',
+  Collection: 'collections_metafields',
+  Page: 'pages_metafields',
+  Blog: 'blogs_metafields',
+  Article: 'blog_posts_metafields',
+};
+
+/**
+ * A stored metafield value, typed as its definition says.
+ *
+ * JSON types are parsed so a theme can walk them — the reference behaviour is
+ * that `metafield.value` of a json type yields an object a template can index
+ * into. Everything else stays the string it was stored as; guessing a number
+ * out of a text field would change what a merchant typed.
+ */
+function metafieldValue(raw: unknown, valueType: string): unknown {
+  if (raw === null || raw === undefined) return null;
+  if (!valueType.startsWith('json') && !valueType.startsWith('list.')) return String(raw);
+  const parsed = parseJson<unknown>(raw);
+  return parsed ?? String(raw);
 }
 
 /** A JSON array column as strings, ignoring anything that is not one. */

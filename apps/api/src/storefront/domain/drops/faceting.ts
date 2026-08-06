@@ -105,6 +105,18 @@ export const filterValueDrop = defineDrop<FilterValueRow & { currentUrl: string 
   url_to_add: (row) => urlWith(row.currentUrl, [{ param: row.param, value: row.value, add: true }]),
   url_to_remove: (row) =>
     urlWith(row.currentUrl, [{ param: row.param, value: row.value, add: false }]),
+
+  /**
+   * The colour or image shown instead of the value's name.
+   *
+   * Null, which is the correct answer rather than a placeholder for one: a
+   * swatch exists only when a filter is presented as swatches AND the merchant
+   * has saved colour or image content for it. Neither is modelled here, so
+   * there is genuinely nothing to show, and a theme reading this falls back to
+   * the label — which is what it should do.
+   */
+  swatch: () => null,
+  image: () => null,
 });
 
 export const filterDrop = defineDrop<FilterRow & { currentUrl: string }>('filter', {

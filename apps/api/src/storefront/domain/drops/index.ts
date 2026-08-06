@@ -99,6 +99,7 @@ export {
   type MediaRow,
   type MediaSourceRow,
   type MetafieldRow,
+  type MetafieldTree,
 } from './media';
 
 export {

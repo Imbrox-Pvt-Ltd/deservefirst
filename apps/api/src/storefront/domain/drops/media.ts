@@ -50,6 +50,18 @@ export interface MetafieldRow {
   readonly value: unknown;
 }
 
+/**
+ * A record's metafields, grouped the way a theme addresses them.
+ *
+ * `namespace -> key -> field`, because the path a template writes is
+ * `product.metafields.information.directions.value`. A flat list would make
+ * every theme search it.
+ *
+ * Only fields whose definition grants storefront access are ever in here — the
+ * grouping is a convenience, not the control; see `metafieldsOf`.
+ */
+export type MetafieldTree = Readonly<Record<string, Readonly<Record<string, MetafieldRow>>>>;
+
 export const mediaSourceDrop = defineDrop<MediaSourceRow>('media_source', {
   url: (source) => source.url,
   mime_type: (source) => source.mimeType ?? '',

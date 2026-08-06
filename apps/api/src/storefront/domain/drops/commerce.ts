@@ -249,6 +249,20 @@ export const cartDrop = defineDrop<CartRow>('cart', {
    */
   requires_shipping: () => false,
   cart_level_discount_applications: () => [],
+
+  /**
+   * Whether the prices shown already contain tax or duty.
+   *
+   * False, and honestly so: Phase 1 has no tax engine (§25), so no price here
+   * has had tax applied to it. Themes print "tax included" from this, and
+   * claiming true would put a statement about tax on a storefront that has
+   * calculated none.
+   */
+  taxes_included: () => false,
+  duties_included: () => false,
+
+  /** No discounts in Phase 1, so nothing has been applied to this cart. */
+  discount_applications: () => [],
 });
 
 export const addressDrop = defineDrop<AddressRow>('address', {
