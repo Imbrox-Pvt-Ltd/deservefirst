@@ -87,6 +87,28 @@ export interface StorefrontData {
     sort?: string,
   ): readonly ProductRow[];
 
+  /**
+   * How much of a catalogue there is, for the shop object.
+   *
+   * Published only, because these are read by anonymous visitors — a count
+   * that includes drafts tells a shopper how many products they cannot see.
+   */
+  productCount(): number;
+  collectionCount(): number;
+
+  /**
+   * Every product type and vendor in the store, for a theme's own navigation.
+   *
+   * Distinct values rather than counts: themes render these as links to a
+   * filtered view, and the count belongs to the facet that view builds.
+   */
+  productTypes(): readonly string[];
+  productVendors(): readonly string[];
+
+  /** The same, narrowed to one collection. */
+  productTypesOfCollection(collectionId: string): readonly string[];
+  productVendorsOfCollection(collectionId: string): readonly string[];
+
   /** The filters this collection offers, with counts for the current selection. */
   facetsOfCollection(
     collectionId: string,

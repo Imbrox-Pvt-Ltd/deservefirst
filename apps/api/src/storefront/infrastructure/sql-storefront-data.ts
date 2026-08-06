@@ -733,6 +733,96 @@ export class SqlStorefrontData implements StorefrontData {
     return filters;
   }
 
+  /**
+   * How many products a visitor could reach.
+   *
+   * Active only. A count that included drafts would tell a shopper how many
+   * products they are not allowed to see, which is both wrong and a leak.
+   */
+  productCount(): number {
+    return this.executor.query<Row>(
+      `SELECT COUNT(*) AS n FROM ${this.q('products')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('status')} = 'active'
+          AND ${this.q('deleted_at')} IS NULL`,
+      [this.storeId()],
+    ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
+  }
+
+  /**
+   * How many collections there are.
+   *
+   * Collections carry no status column — a collection is visible when it
+   * exists — so this filters on deletion alone rather than inventing a
+   * publication rule the admin does not have.
+   */
+  collectionCount(): number {
+    return this.executor.query<Row>(
+      `SELECT COUNT(*) AS n FROM ${this.q('collections')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('deleted_at')} IS NULL`,
+      [this.storeId()],
+    ).then((rows) => Number(rows[0]?.n ?? 0)) as unknown as number;
+  }
+
+  productTypes(): readonly string[] {
+    return this.distinctColumn('product_type') as unknown as readonly string[];
+  }
+
+  productVendors(): readonly string[] {
+    return this.distinctColumn('vendor') as unknown as readonly string[];
+  }
+
+  /**
+   * One column's distinct values across the store's visible products.
+   *
+   * Blanks are dropped rather than returned as an empty entry: a product with
+   * no vendor is not a vendor whose name is "", and a theme rendering these as
+   * links would draw one pointing nowhere.
+   */
+  private distinctColumn(column: string): Promise<string[]> {
+    return this.executor.query<Row>(
+      `SELECT DISTINCT ${this.q(column)} AS value FROM ${this.q('products')}
+        WHERE ${this.q('store_id')} = ${this.p(1)}
+          AND ${this.q('status')} = 'active'
+          AND ${this.q('deleted_at')} IS NULL
+          AND ${this.q(column)} IS NOT NULL
+          AND ${this.q(column)} <> ''
+        ORDER BY value ASC`,
+      [this.storeId()],
+    ).then((rows) => rows.map((row) => String(row.value)));
+  }
+
+  productTypesOfCollection(collectionId: string): readonly string[] {
+    return this.distinctInCollection(collectionId, 'product_type') as unknown as readonly string[];
+  }
+
+  productVendorsOfCollection(collectionId: string): readonly string[] {
+    return this.distinctInCollection(collectionId, 'vendor') as unknown as readonly string[];
+  }
+
+  /**
+   * The same, through a collection's membership rule.
+   *
+   * Reuses the facet counter rather than repeating the membership SQL — these
+   * are the facet's own values with the counts thrown away, and a second
+   * implementation would be a second thing to get wrong when membership
+   * changes. Unfiltered on purpose: `collection.all_vendors` means every vendor
+   * in the collection, not the ones left after a shopper has ticked something.
+   */
+  private async distinctInCollection(collectionId: string, column: string): Promise<string[]> {
+    const collection = await this.collectionRule(collectionId);
+    if (!collection) return [];
+
+    const counted = await this.facetCounts(
+      collection,
+      NO_FILTERS,
+      column === 'vendor' ? 'vendor' : 'productType',
+      `COALESCE(p.${this.q(column)}, '')`,
+    );
+    return counted.map((entry) => entry.value);
+  }
+
   /** One column's distinct values and how many products each would leave. */
   private async facetCounts(
     collection: CollectionRule,

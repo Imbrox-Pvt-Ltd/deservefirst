@@ -1604,6 +1604,12 @@ function loadersFor(
         : data.productCountOfCollection(id)) as never,
     facetsOfCollection: ((id: string) =>
       data.facetsOfCollection(id, filtered(id) ? view!.criteria : NO_FILTERS)) as never,
+    productCount: (() => data.productCount()) as never,
+    collectionCount: (() => data.collectionCount()) as never,
+    productTypes: (() => data.productTypes()) as never,
+    productVendors: (() => data.productVendors()) as never,
+    productTypesOfCollection: ((id: string) => data.productTypesOfCollection(id)) as never,
+    productVendorsOfCollection: ((id: string) => data.productVendorsOfCollection(id)) as never,
     currentUrl: (() => view?.currentUrl ?? '/') as never,
     currentSort: (() => view?.sort ?? DEFAULT_SORT) as never,
     image: ((id: string) => data.image(id)) as never,
