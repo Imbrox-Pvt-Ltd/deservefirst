@@ -188,6 +188,28 @@ export function dropList<Source>(
     get(_target, key) {
       if (key === 'length') return sources.length;
 
+      /**
+       * `size` is Liquid's name for the length, and it must be answered HERE.
+       *
+       * The engine derives `first` and `last` from `length` and an index, which
+       * this proxy already serves — so those worked and hid the gap. It asks
+       * the object itself for `size`, and the trap below returned `undefined`
+       * for every key it did not recognise.
+       *
+       * The cost was not a blank number. Themes GATE on it:
+       * `{% if product.media.size > 0 %}` wraps the reference theme's entire
+       * product gallery, so images loaded correctly, reached the drop
+       * correctly, and were never rendered. `product.variants.size > 1` decides
+       * whether a variant picker appears at all. An empty value compares false
+       * against every number, so each of those guards silently took the wrong
+       * branch.
+       *
+       * `{{ list | size }}` worked throughout, because a filter receives the
+       * materialised array — which is exactly why this survived: the two forms
+       * are interchangeable to a theme author and only one of them worked.
+       */
+      if (key === 'size') return sources.length;
+
       if (typeof key === 'string' && /^\d+$/.test(key)) return at(Number(key));
 
       if (key === Symbol.iterator) {
@@ -209,7 +231,7 @@ export function dropList<Source>(
     },
 
     has(_target, key) {
-      if (key === 'length') return true;
+      if (key === 'length' || key === 'size') return true;
       return typeof key === 'string' && /^\d+$/.test(key) && Number(key) < sources.length;
     },
 

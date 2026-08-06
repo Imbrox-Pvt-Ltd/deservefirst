@@ -534,3 +534,73 @@ test('drops work when the loaders are ASYNCHRONOUS', async () => {
   assert.equal(await render(`{{ product.variants | size }}`, { product: drop }), '2');
   assert.equal(await render(`{{ product.featured_image.alt }}`, { product: drop }), 'A linen shirt');
 });
+
+// ------------------------------------------------------ `size` on a drop list
+
+test('a drop list answers `size`, which is what themes gate on', async () => {
+  /**
+   * The bug this pins, and it hid an entire product gallery.
+   *
+   * `dropList` is a Proxy over an empty array so elements build lazily. It
+   * served `length`, indices and the iterator, and returned `undefined` for
+   * everything else — including `size`, Liquid's own name for the length.
+   *
+   * `first` and `last` kept working because the engine derives those from
+   * `length` and an index, which the proxy already served. That is precisely
+   * why it survived: the list looked healthy from every angle except the one
+   * themes actually use.
+   */
+  const { dropList, imageDrop, createDropContext } =
+    await import('../../../dist/storefront/domain/index.js');
+  const { Liquid } = await import('liquidjs');
+
+  const context = createDropContext({
+    currency: 'USD', locale: 'en', baseUrl: 'https://x.test', load: {},
+  });
+  const list = dropList(
+    imageDrop,
+    [
+      { id: 'i1', src: 'a.png', alt: 'Front' },
+      { id: 'i2', src: 'b.png', alt: 'Back' },
+    ],
+    context,
+  );
+
+  const liquid = new Liquid();
+  const render = (template) => liquid.parseAndRender(template, { list });
+
+  assert.equal(await render('{{ list.size }}'), '2');
+  // The filter form always worked, which is what made the two look
+  // interchangeable to a theme author when only one of them was.
+  assert.equal(await render('{{ list | size }}'), '2');
+
+  // The shape a theme actually writes: a guard around a whole gallery.
+  assert.equal(await render('{% if list.size > 0 %}gallery{% else %}nothing{% endif %}'), 'gallery');
+  assert.equal(
+    await render('{% if list.size > 1 %}picker{% else %}single{% endif %}'),
+    'picker',
+    'and the one that decides whether a variant picker appears',
+  );
+
+  // The properties that were already fine, so a fix cannot quietly break them.
+  assert.equal(await render('{{ list.first.alt }}'), 'Front');
+  assert.equal(await render('{{ list.last.alt }}'), 'Back');
+  assert.equal(await render('{{ list[1].alt }}'), 'Back');
+  assert.equal(await render('{% for i in list %}{{ i.alt }};{% endfor %}'), 'Front;Back;');
+});
+
+test('an empty drop list reports a size of zero, not nothing', async () => {
+  // `{% if list.size > 0 %}` must take the OTHER branch, rather than comparing
+  // an empty value against a number and being false by accident.
+  const { dropList, imageDrop, createDropContext } =
+    await import('../../../dist/storefront/domain/index.js');
+  const { Liquid } = await import('liquidjs');
+
+  const list = dropList(
+    imageDrop,
+    [],
+    createDropContext({ currency: 'USD', locale: 'en', baseUrl: 'https://x.test', load: {} }),
+  );
+
+  assert.equal(await new Liquid().parseAndRender('{{ list.size }}', { list }), '0');
+});
