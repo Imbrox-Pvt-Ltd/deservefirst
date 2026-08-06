@@ -263,6 +263,22 @@
             ],
             "nullable": true
           },
+          "unitQuantityValue": {
+            "type": "number",
+            "nullable": true
+          },
+          "unitQuantityUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "unitReferenceValue": {
+            "type": "number",
+            "nullable": true
+          },
+          "unitReferenceUnit": {
+            "type": "string",
+            "nullable": true
+          },
           "inventoryQuantity": {
             "type": "integer",
             "nullable": true

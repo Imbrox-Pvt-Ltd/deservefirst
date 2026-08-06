@@ -24,6 +24,7 @@
  */
 
 import { defineDrop, dropList, pending } from './define';
+import { unitPriceOf, type UnitPricing } from '../unit-pricing';
 
 export interface LineItemRow {
   readonly id: string;
@@ -46,6 +47,10 @@ export interface LineItemRow {
   /** What the product's own options are called, in order. */
   readonly optionNames?: readonly string[] | null;
   readonly compareAtPriceMinor?: string | number | null;
+  readonly unitQuantityValue?: number | string | null;
+  readonly unitQuantityUnit?: string | null;
+  readonly unitReferenceValue?: number | string | null;
+  readonly unitReferenceUnit?: string | null;
 }
 
 export interface CartRow {
@@ -128,7 +133,15 @@ function isoOrNull(value: unknown): string | null {
  * Null is what a theme tests for. Reporting the item price here would print
  * "£4.50 per" with no unit after it.
  */
-const PER_UNIT = pending('Products carry no unit of measure yet.', null);
+/** The unit pricing of one cart line, from the variant it was added from. */
+function unitOf(line: LineItemRow): UnitPricing | null {
+  return unitPriceOf(line.unitPriceMinor, {
+    quantityValue: line.unitQuantityValue,
+    quantityUnit: line.unitQuantityUnit,
+    referenceValue: line.unitReferenceValue,
+    referenceUnit: line.unitReferenceUnit,
+  });
+}
 
 export const lineItemDrop = defineDrop<LineItemRow>('line_item', {
   id: (line) => line.id,
@@ -227,8 +240,26 @@ export const lineItemDrop = defineDrop<LineItemRow>('line_item', {
    * Null until products carry a unit, and null is the answer a theme tests
    * for. Reporting the item price here would print "£4.50 per" with no unit.
    */
-  unit_price: PER_UNIT,
-  unit_price_measurement: PER_UNIT,
+  /**
+   * The price per unit of measure for this line.
+   *
+   * From the variant's own measurement rather than recomputed from the line
+   * total: a line for three 500 g bags is still priced per kilo, not per three
+   * kilos, and dividing the line total would say otherwise.
+   */
+  unit_price: (line) => unitOf(line)?.unitPriceMinor ?? null,
+  unit_price_measurement: (line) => {
+    const pricing = unitOf(line);
+    return pricing
+      ? {
+          measured_type: pricing.measurement.measuredType,
+          quantity_value: pricing.measurement.quantityValue,
+          quantity_unit: pricing.measurement.quantityUnit,
+          reference_value: pricing.measurement.referenceValue,
+          reference_unit: pricing.measurement.referenceUnit,
+        }
+      : null;
+  },
 
   /** No discounts and no subscriptions in Phase 1 (§25). */
   line_level_discount_allocations: pending(

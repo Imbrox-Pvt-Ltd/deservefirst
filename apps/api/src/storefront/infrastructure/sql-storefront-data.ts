@@ -1116,7 +1116,11 @@ export class SqlStorefrontData implements StorefrontData {
                         p.${this.q('vendor')} AS vendor,
                         p.${this.q('option_names')} AS option_names,
                         v.${this.q('option_values')} AS option_values,
-                        v.${this.q('compare_at_price_amount_minor')} AS compare_at_price
+                        v.${this.q('compare_at_price_amount_minor')} AS compare_at_price,
+                        v.${this.q('unit_quantity_value')} AS unit_quantity_value,
+                        v.${this.q('unit_quantity_unit')} AS unit_quantity_unit,
+                        v.${this.q('unit_reference_value')} AS unit_reference_value,
+                        v.${this.q('unit_reference_unit')} AS unit_reference_unit
            FROM ${this.q('request_lines')} l
            LEFT JOIN ${this.q('products')} p ON p.${this.q('id')} = l.${this.q('product_id')}
            LEFT JOIN ${this.q('product_variants')} v ON v.${this.q('id')} = l.${this.q('variant_id')}
@@ -1145,6 +1149,10 @@ export class SqlStorefrontData implements StorefrontData {
         optionValues: parseStringList(row.option_values),
         optionNames: parseStringList(row.option_names),
         compareAtPriceMinor: (row.compare_at_price as string | number | null) ?? null,
+        unitQuantityValue: (row.unit_quantity_value as number | string | null) ?? null,
+        unitQuantityUnit: (row.unit_quantity_unit as string | null) ?? null,
+        unitReferenceValue: (row.unit_reference_value as number | string | null) ?? null,
+        unitReferenceUnit: (row.unit_reference_unit as string | null) ?? null,
       })),
       currency: String(request.currency ?? shop.currency),
       customerMessage: (request.note as string | null) ?? null,
@@ -1744,6 +1752,10 @@ export class SqlStorefrontData implements StorefrontData {
 
 function toProduct(row: Row): ProductRow {
   return {
+    unitQuantityValue: (row.unit_quantity_value as number | string | null) ?? null,
+    unitQuantityUnit: (row.unit_quantity_unit as string | null) ?? null,
+    unitReferenceValue: (row.unit_reference_value as number | string | null) ?? null,
+    unitReferenceUnit: (row.unit_reference_unit as string | null) ?? null,
     id: String(row.id),
     handle: String(row.handle),
     title: String(row.title),
@@ -1789,6 +1801,10 @@ function toArticle(row: Row): ArticleRow {
 
 function toVariant(row: Row): VariantRow {
   return {
+    unitQuantityValue: (row.unit_quantity_value as number | string | null) ?? null,
+    unitQuantityUnit: (row.unit_quantity_unit as string | null) ?? null,
+    unitReferenceValue: (row.unit_reference_value as number | string | null) ?? null,
+    unitReferenceUnit: (row.unit_reference_unit as string | null) ?? null,
     id: String(row.id),
     productId: String(row.product_id),
     title: row.title as string | null,

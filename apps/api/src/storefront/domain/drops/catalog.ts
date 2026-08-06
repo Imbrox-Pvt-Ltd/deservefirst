@@ -18,6 +18,7 @@
 import { defineDrop, dropList, type DropContext, pending } from './define';
 import { filterDrop, sortOptionDrop, type FilterRow } from './faceting';
 import { DEFAULT_SORT, sortOptionsFor } from '../facets';
+import { unitPriceOf, type UnitPricing } from '../unit-pricing';
 import { storeAvailabilityDrop, type StoreAvailabilityRow } from './availability';
 import { mediaDrop, metafieldDrop, type MediaRow, type MetafieldTree } from './media';
 
@@ -39,6 +40,10 @@ export interface ProductRow {
   readonly sku?: string | null;
   readonly priceAmountMinor?: string | number | null;
   readonly compareAtPriceAmountMinor?: string | number | null;
+  readonly unitQuantityValue?: number | string | null;
+  readonly unitQuantityUnit?: string | null;
+  readonly unitReferenceValue?: number | string | null;
+  readonly unitReferenceUnit?: string | null;
   readonly inventoryQuantity?: number | null;
   readonly optionNames?: readonly string[] | null;
   readonly tags?: readonly string[] | null;
@@ -56,6 +61,10 @@ export interface VariantRow {
   readonly compareAtPriceAmountMinor?: string | number | null;
   readonly optionValues?: readonly string[] | null;
   readonly inventoryQuantity?: number | null;
+  readonly unitQuantityValue?: number | string | null;
+  readonly unitQuantityUnit?: string | null;
+  readonly unitReferenceValue?: number | string | null;
+  readonly unitReferenceUnit?: string | null;
   readonly weightGrams?: number | null;
   readonly barcode?: string | null;
   readonly imageId?: string | null;
@@ -97,6 +106,38 @@ async function resolved<T>(
   value: readonly T[] | Promise<readonly T[]> | undefined,
 ): Promise<readonly T[]> {
   return (await value) ?? [];
+}
+
+/**
+ * The unit pricing of a product or a variant, computed from what it carries.
+ *
+ * One helper for both because the fields and the arithmetic are identical —
+ * a product sold by weight and a variant sold by weight are the same question.
+ */
+function unitPricingOf(row: {
+  priceAmountMinor?: string | number | null;
+  unitQuantityValue?: number | string | null;
+  unitQuantityUnit?: string | null;
+  unitReferenceValue?: number | string | null;
+  unitReferenceUnit?: string | null;
+}): UnitPricing | null {
+  return unitPriceOf(row.priceAmountMinor ?? 0, {
+    quantityValue: row.unitQuantityValue,
+    quantityUnit: row.unitQuantityUnit,
+    referenceValue: row.unitReferenceValue,
+    referenceUnit: row.unitReferenceUnit,
+  });
+}
+
+/** The measurement in the shape a theme reads it. */
+function measurementOf(pricing: UnitPricing): Record<string, unknown> {
+  return {
+    measured_type: pricing.measurement.measuredType,
+    quantity_value: pricing.measurement.quantityValue,
+    quantity_unit: pricing.measurement.quantityUnit,
+    reference_value: pricing.measurement.referenceValue,
+    reference_unit: pricing.measurement.referenceUnit,
+  };
 }
 
 /** Minor units as a number, which is what the money filters take. */
@@ -183,6 +224,19 @@ export const variantDrop = defineDrop<VariantRow>('variant', {
     return dropList(storeAvailabilityDrop, await resolved(load?.(variant.id)), context);
   },
 
+  /**
+   * The price per unit of measure — "£8.00 / kg".
+   *
+   * Null for anything not sold by weight or volume, which is most things, and
+   * a theme hides the whole line on that. Every reason it can be null is a
+   * reason the number would otherwise be wrong; see `unitPriceOf`.
+   */
+  unit_price: (variant) => unitPricingOf(variant)?.unitPriceMinor ?? null,
+  unit_price_measurement: (variant) => {
+    const pricing = unitPricingOf(variant);
+    return pricing ? measurementOf(pricing) : null;
+  },
+
   price: (variant) => minorUnits(variant.priceAmountMinor),
   compare_at_price: (variant) => minorUnits(variant.compareAtPriceAmountMinor),
   /** The chosen values in the product's option order — `["S", "Red"]`. */
@@ -248,6 +302,13 @@ export const productDrop = defineDrop<ProductRow>('product', {
    * reads it through a loop variable, which static analysis cannot type.
    */
   sku: (product) => product.sku ?? '',
+
+  /** The same, for a theme that prices the product rather than a variant. */
+  unit_price: (product) => unitPricingOf(product)?.unitPriceMinor ?? null,
+  unit_price_measurement: (product) => {
+    const pricing = unitPricingOf(product);
+    return pricing ? measurementOf(pricing) : null;
+  },
 
   /**
    * What kind of thing this is, for a list that mixes kinds.

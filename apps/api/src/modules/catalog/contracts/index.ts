@@ -120,6 +120,23 @@ export const productVariantResource: ResourceDefinition = {
     { name: 'optionValues', type: 'json' },
     { name: 'price', type: 'money', filterable: true, sortable: true },
     { name: 'compareAtPrice', type: 'money' },
+
+    /**
+     * What is in the package, and what the price is quoted per.
+     *
+     * Four fields rather than five: the KIND of measurement is derived from the
+     * units, never stored. A row saying "weight" with a unit of "ml" would
+     * render a confidently wrong price per kilo for something sold by the
+     * millilitre, and storing both is what makes that row possible.
+     *
+     * Required by law for goods sold by weight or volume, which is why this is
+     * catalogue work rather than a nicety (§25.1).
+     */
+    { name: 'unitQuantityValue', type: 'decimal', filterable: true },
+    { name: 'unitQuantityUnit', type: 'string', filterable: true },
+    { name: 'unitReferenceValue', type: 'decimal' },
+    { name: 'unitReferenceUnit', type: 'string', filterable: true },
+
     { name: 'inventoryQuantity', type: 'integer', filterable: true, sortable: true },
     { name: 'position', type: 'integer', sortable: true },
     { name: 'createdAt', type: 'datetime', sortable: true },

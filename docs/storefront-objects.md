@@ -132,16 +132,14 @@ Also answers to, for themes written elsewhere:
 
 ## `line_item`
 
-22 implemented, 4 pending.
+24 implemented, 2 pending.
 
-`id`, `key`, `product_id`, `variant_id`, `title`, `product_title`, `variant_title`, `quantity`, `sku`, `vendor`, `price`, `line_price`, `final_price`, `final_line_price`, `image`, `url`, `properties`, `product`, `variant`, `options_with_values`, `original_price`, `original_line_price`
+`id`, `key`, `product_id`, `variant_id`, `title`, `product_title`, `variant_title`, `quantity`, `sku`, `vendor`, `price`, `line_price`, `final_price`, `final_line_price`, `image`, `url`, `properties`, `product`, `variant`, `options_with_values`, `original_price`, `original_line_price`, `unit_price`, `unit_price_measurement`
 
 | Pending | Why |
 | --- | --- |
 | `line_level_discount_allocations` | Discounts are Phase 3 (§25). |
 | `selling_plan_allocation` | Subscriptions are Phase 4 (§25). |
-| `unit_price` | Products carry no unit of measure yet. |
-| `unit_price_measurement` | Products carry no unit of measure yet. |
 
 ## `link`
 
@@ -223,9 +221,9 @@ Also answers to, for themes written elsewhere:
 
 ## `product`
 
-36 implemented, 1 pending.
+38 implemented, 1 pending.
 
-`id`, `handle`, `title`, `description`, `content`, `vendor`, `type`, `tags`, `price`, `compare_at_price`, `price_min`, `price_max`, `price_varies`, `sku`, `object_type`, `metafields`, `collections`, `compare_at_price_min`, `compare_at_price_max`, `compare_at_price_varies`, `has_only_default_variant`, `options_by_name`, `available`, `options`, `options_with_values`, `variants`, `first_available_variant`, `selected_or_first_available_variant`, `images`, `featured_image`, `media`, `featured_media`, `url`, `created_at`, `updated_at`, `published_at`
+`id`, `handle`, `title`, `description`, `content`, `vendor`, `type`, `tags`, `price`, `compare_at_price`, `price_min`, `price_max`, `price_varies`, `sku`, `unit_price`, `unit_price_measurement`, `object_type`, `metafields`, `collections`, `compare_at_price_min`, `compare_at_price_max`, `compare_at_price_varies`, `has_only_default_variant`, `options_by_name`, `available`, `options`, `options_with_values`, `variants`, `first_available_variant`, `selected_or_first_available_variant`, `images`, `featured_image`, `media`, `featured_media`, `url`, `created_at`, `updated_at`, `published_at`
 
 | Pending | Why |
 | --- | --- |
@@ -306,7 +304,7 @@ Also answers to, for themes written elsewhere:
 
 ## `variant`
 
-18 implemented, 0 pending.
+20 implemented, 0 pending.
 
-`id`, `product_id`, `title`, `sku`, `barcode`, `store_availabilities`, `price`, `compare_at_price`, `options`, `option1`, `option2`, `option3`, `available`, `inventory_quantity`, `weight`, `weight_unit`, `featured_image`, `url`
+`id`, `product_id`, `title`, `sku`, `barcode`, `store_availabilities`, `unit_price`, `unit_price_measurement`, `price`, `compare_at_price`, `options`, `option1`, `option2`, `option3`, `available`, `inventory_quantity`, `weight`, `weight_unit`, `featured_image`, `url`
 
